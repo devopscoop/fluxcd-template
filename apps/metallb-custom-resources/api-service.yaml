@@ -1,0 +1,23 @@
+# TODO: Where did this come from?
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    component: apiserver
+    provider: kubernetes
+  name: api
+  namespace: default
+  annotations:
+    metallb.io/loadBalancerIPs: 10.0.0.5
+spec:
+  internalTrafficPolicy: Cluster
+  ipFamilies:
+  - IPv4
+  ipFamilyPolicy: SingleStack
+  ports:
+  - name: https
+    port: 6443
+    protocol: TCP
+    targetPort: 6443
+  sessionAffinity: None
+  type: LoadBalancer

@@ -1,0 +1,22 @@
+# ---
+# apiVersion: metallb.io/v1beta1
+# kind: IPAddressPool
+# metadata:
+#   name: api
+#   namespace: metallb
+# spec:
+#   addresses:
+#     - 10.0.0.5/32
+#     - 2404:84fb:c58f:f09a:80bd:25b1:ef06:2371/128
+#   autoAssign: false
+---
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: project1-dev
+  namespace: metallb
+spec:
+  addresses:
+  # TODO: don't hardcode these...
+  - 10.16.23.9/32
+  - 2404:84fb:c58f:f09a:80bd:25b1:ef06:2371/128

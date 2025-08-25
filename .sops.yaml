@@ -1,0 +1,14 @@
+# TODO: replace YOUR_AGE_PUBLIC_KEY with your key. You can create one with ageage-keygen.
+
+creation_rules:
+
+  # Kubernetes Secret objects should only have the data and stringData fields encrypted. If apiVersion, kind, etc. are encrypted, Kubernetes will not know what the object is.
+  # This regex matches files like "secrets.yaml" or "example.secrets.yaml".
+  - age: YOUR_AGE_PUBLIC_KEY
+    encrypted_regex: "^(data|stringData)$"
+    path_regex: '(.*\.)?secrets\.yaml$'
+
+  # Helm secrets are just values that contain secret data, e.g., "password:". Flux HelmRelease objects use these files. All fields must be encrypted.
+  # This regex matches files like "helm_secrets.yaml" or "example.helm_secrets.yaml".
+  - age: YOUR_AGE_PUBLIC_KEY
+    path_regex: '(.*\.)?helm_secrets\.yaml$'

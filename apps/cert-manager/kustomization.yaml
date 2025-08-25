@@ -1,0 +1,32 @@
+# https://fluxcd.io/flux/guides/helmreleases/#refer-to-values-in-configmaps-generated-with-kustomize
+# https://fluxcd.io/flux/guides/helmreleases/#refer-to-values-in-secret-generated-with-kustomize-and-sops
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Setting namespace here will ensure that all objects managed by this Kustomization will explicitly be deployed to this namespace. You don't need to put specify `namespace:` anywhere else if you do this.
+namespace: cert-manager
+
+resources:
+
+  # WARNING: Do not put an Issuer, ClusterIssuer, or other cert-manager custom resources in this file, or you will get this error:
+  #
+  # $ k get ks -n flux-system cert-manager
+  # NAMESPACE     NAME                AGE    READY     STATUS
+  # flux-system   cert-manager        94s    False     ClusterIssuer/cert-manager/letsencrypt dry-run failed: no matches for kind "ClusterIssuer" in version "cert-manager.io/v1"...
+  #
+  # All cert-manager custom resources must be added to the cert-manager-custom-resources Kustomization.
+
+  - cloudflare-apikey-secret.secrets.yaml
+  - release.yaml
+
+configMapGenerator:
+  - name: cert-manager-values
+    files:
+      - values.yaml=values.yaml
+secretGenerator:
+  - name: cert-manager-secrets
+    files:
+      - values.yaml=helm_secrets.yaml
+configurations:
+  - kustomizeconfig.yaml

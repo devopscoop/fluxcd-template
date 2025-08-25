@@ -1,0 +1,22 @@
+# ---
+# apiVersion: image.toolkit.fluxcd.io/v1beta2
+# kind: ImageRepository
+# metadata:
+#   name: app1
+#   namespace: flux-system
+# spec:
+#   image: ghcr.io/devopscoop/app1
+#   interval: 1m0s
+#   secretRef:
+#     name: github-devopscoop
+# ---
+# apiVersion: image.toolkit.fluxcd.io/v1beta2
+# kind: ImageRepository
+# metadata:
+#   name: app2
+#   namespace: flux-system
+# spec:
+#   image: ghcr.io/devopscoop/app2
+#   interval: 1m0s
+#   secretRef:
+#     name: github-devopscoop

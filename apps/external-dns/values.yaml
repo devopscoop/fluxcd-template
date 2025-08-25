@@ -1,0 +1,25 @@
+# In larger environments with lots of records, the default of 1m can trigger rate limiting on Route 53. Uncomment this if needed.
+interval: 10m
+
+# If we have a larger interval, we don't want to wait for external-dns to make changes. Uncomment this if needed.
+triggerLoopOnEvent: true
+
+# We want to delete records for ingresses that have been deleted.
+policy: sync
+
+# If we have multiple k8s clusters writing to the same DNS zone, each external-dns needs a way to identify the records it owns. And since we can only have one external-dns provider per cluster, the setting this to the cluster name seems reasonable.
+txtOwnerId: project1-dev
+
+# Cloudflare config based on:
+# https://github.com/kubernetes-sigs/external-dns/blob/master/docs/tutorials/cloudflare.md
+provider:
+  name: cloudflare
+  webhook:
+    args:
+      - --cloudflare-dns-records-per-page=5000
+env:
+  - name: CF_API_TOKEN
+    valueFrom:
+      secretKeyRef:
+        name: cloudflare-api-key
+        key: apiKey

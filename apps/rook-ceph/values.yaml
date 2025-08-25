@@ -1,0 +1,3 @@
+# https://docs.k0sproject.io/v1.33.1+k0s.1/examples/rook-ceph/#6-deploy-rook
+csi:
+  kubeletDirPath: /var/lib/k0s/kubelet

@@ -1,0 +1,9 @@
+# https://github.com/kubernetes/dashboard/blob/master/docs/user/access-control/creating-sample-user.md#getting-a-long-lived-bearer-token-for-serviceaccount
+# This file isn't sops-encrypted, because it doesn't actually contain a secret, it just creates a special service-account-token.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: readonly-user
+  annotations:
+    kubernetes.io/service-account.name: readonly-user
+type: kubernetes.io/service-account-token

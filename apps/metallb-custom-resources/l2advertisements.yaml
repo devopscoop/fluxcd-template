@@ -1,0 +1,22 @@
+# ---
+# apiVersion: metallb.io/v1beta1
+# kind: L2Advertisement
+# metadata:
+#   name: bond0
+#   namespace: metallb
+# spec:
+#   ipAddressPools:
+#     - api
+#   interfaces:
+#     - bond0
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: bond0
+  namespace: metallb
+spec:
+  ipAddressPools:
+    - project1-dev
+  interfaces:
+    - bond0

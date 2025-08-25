@@ -1,0 +1,22 @@
+# https://github.com/kubernetes/dashboard/blob/master/docs/user/access-control/creating-sample-user.md
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: readonly-user
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: readonly-user
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  # The built-in "view" ClusterRole can see lots of things like logs, but can't access secrets or change anything.
+  name: view
+subjects:
+- kind: ServiceAccount
+  name: readonly-user
+
+  # Leaving this namespace here, because this is a cluster-level object, so we have to specify it.
+  namespace: kubernetes-dashboard

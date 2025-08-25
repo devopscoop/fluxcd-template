@@ -1,0 +1,6 @@
+crds:
+  enabled: true
+prometheus:
+  servicemonitor:
+    # TODO: We should flip this to true and see what happens?
+    enabled: false

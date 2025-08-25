@@ -1,0 +1,148 @@
+ingress:
+  enabled: true
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-production
+
+    # TODO: Don't need this if we ensure that our ingress-nginx is setup as the default ingress.
+    kubernetes.io/ingress.class: nginx
+
+    kubernetes.io/tls-acme: "true"
+  hosts:
+    - nexus.project1-dev.devops.coop
+  tls:
+    - hosts:
+        - nexus.project1-dev.devops.coop
+      secretName: nexus-tls
+
+persistence:
+  enabled: true
+  size: 8Gi
+
+metrics:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+
+rootPassword:
+  secret: nxrm-ha
+
+config:
+  enabled: true
+
+  # TODO: I think this is important, but I don't remember what we need. Not changing defaults, yet...
+  realms:
+    # -- If `true`, enable realms.
+    enabled: false
+    # -- List of realms to configure; can be empty or contain any of `NexusAuthenticatingRealm`, `LdapRealm`, `DockerToken`, `NpmToken`, `NuGetApiKey` or `rutauth-realm`.
+    values: []
+    #   - NexusAuthenticatingRealm
+    #   - LdapRealm
+    #   - DockerToken
+    #   - NpmToken
+    #   - NuGetApiKey
+    #   - rutauth-realm
+
+  # TODO: We should probably configure this with Wasabi or MinIO or something.
+  # -- Blob store configuration; based on the REST API (API reference docs require an existing Nexus installation and can be found at **Administration** under _System_ → _API_).
+  blobStores: []
+  # Reference the Nexus Blob store REST API for supported types and expected request body structures of each
+  #   - name: ExampleFileBlobStore
+  #     type: file
+  #     path: /nexus-data/blobs/foo
+  #     softQuota:
+  #       type: spaceRemainingQuota
+  #       limit: 500
+  # - name: ExampleS3BlobStore
+  #   type: s3
+  #   bucketConfiguration:
+  #     bucket:
+  #       region: us-east-1
+  #       name: example-bucket-name
+  #       prefix: /
+  #       expiration: 3
+  #     # bucketSecurity:  # Uncomment if not using Instance Profile
+  #     #   accessKeyId: access-key-id
+  #     #   secretAccessKey:
+  #     #     secret: test-blob
+  #     #     key: secret-access-key
+
+  # TODO: This is important in prod, but we need to discuss our cleanup strategy...
+  # -- Cleanup configuration.
+  cleanup: []
+  #   - name: ExampleCleanup
+  #     notes: "Cleanup content that hasn't been updated in 14 days downloaded in 28 days."
+  #     format: ALL_FORMATS
+  #     mode: delete
+  #     criteria:
+  #       isPrerelease:
+  #       lastBlobUpdated: "1209600"
+  #       lastDownloaded: "2419200"
+  #       regex:
+
+  # -- Repository configuration; based on the REST API (API reference docs require an existing Nexus installation and can be found at **Administration** under _System_ → _API_) but with `format` & `type` defined in the object.
+  repos: []
+  #   - name: test-repo
+  #     format: raw
+  #     type: hosted
+  #     online: true
+  #     storage:
+  #       blobStoreName: default
+  #       strictContentTypeValidation: false
+  #       writePolicy: allow
+  #     cleanup:
+  #       policyNames:
+  #         - ExampleCleanup
+  #     password:
+  #       secret: test-repo
+  #       key: password
+  # -- Roles configuration; based on the REST API (API reference docs require an existing Nexus installation and can be found at **Administration** under _System_ → _API_).
+  roles: []
+  #   - id: nexus-administrators
+  #     source: default
+  #     name: nexus-administrators
+  #     description: LDAP Administrator Role
+  #     privileges: []
+  #     roles:
+  #       - nx-admin
+  # -- Users configuration; based on the REST API (API reference docs require an existing Nexus installation and can be found at **Administration** under _System_ → _API_).
+  users: []
+  #   - userId: test
+  #     firstName: Test
+  #     lastName: User
+  #     emailAddress: test@example.org
+  #     source: default
+  #     status: active
+  #     roles:
+  #       - nx-anonymous
+  #     externalRoles: []
+  #     password:
+  #       secret: test-user
+  #       key: password
+  # -- Task configuration.
+  tasks: []
+  #   - name: "Cleanup service"
+  #     typeId: repository.cleanup
+  #     crontab: "0 0 0 * * ?"
+  #   - name: "Docker cleanup uploads"
+  #     typeId: repository.docker.upload-purge
+  #     crontab: "0 0 0 * * ?"
+  #     attributes:
+  #       age: "24"
+  #   - name: "Docker cleanup artifacts"
+  #     typeId: repository.docker.gc
+  #     crontab: "0 0 1 * * ?"
+  #     attributes:
+  #       repositoryName: "*"
+  #   - name: "Cleanup blob store"
+  #     typeId: blobstore.compact
+  #     crontab: "0 0 2 * * ?"
+  #     attributes:
+  #       blobStoreName: "default"
+
+manualMaintenanceMode:
+  # -- If `true`, enable manual maintenance mode. This is running the default container with a custom command, reducing the termination grace period to 10s and disabling the probes.
+  enabled: false
+  # -- The command to run in manual maintenance mode.
+  command: ["/bin/bash", "-c"]
+  # -- The arguments to pass to the command in manual maintenance mode.
+  args: ["while true; do sleep 60; done"]
