@@ -20,6 +20,7 @@ https://fluxcd.io/flux/installation/bootstrap/github/
    - Repository access: only select repositories
    - Select repositories: find this repo and select it.
    - Add Permissions -> Administration -> Read and write.
+   - Add Permissions -> Contents -> Read and write.
 1. Create some environment variables, and ensure that sops dir exists:
    ```bash
    export GITHUB_TOKEN=put_your_token_here
@@ -45,10 +46,6 @@ https://fluxcd.io/flux/installation/bootstrap/github/
    rm -v "${temp_key}"
    ```
 1. Add the public age key to .sops.yaml.
-1. Add the SOPS age key so the cluster can decrypt secrets:
-   ```bash
-   age -d "${sops_dir}/keys.txt" | kubectl create secret generic sops-age --namespace=flux-system --from-file=age.agekey=/dev/stdin
-   ```
 1. Create a sops-encrypted copy of the age key:
    ```
    sops flux/flux-system/sops-age.secrets.yaml

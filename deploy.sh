@@ -12,15 +12,9 @@ SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 # Need to cd to this dir, because there are a lot of git commands in this script that expect to be run from this directory.
 cd "${SCRIPT_DIR}"
 
-# Setting upstream so we can easily update from fluxcd-template
-# git remote remove upstream || true
-# git remote add upstream git@github.com:devopscoop/fluxcd-template.git
-
 # Telling shellcheck to stop whining...
 # shellcheck source=/dev/null
 source variables.sh
-
-export KUBECONFIG="${HOME}/.kube/${CLUSTER_NAME}"
 
 # Set the path for the binaries for the environment running this
 OS="$(uname -o | tr '[:upper:]' '[:lower:]' | sed -e 's%^gnu/%%')"
@@ -30,10 +24,10 @@ mkdir -p "${BIN_DIR}"
 export PATH="${BIN_DIR}:${PATH}"
 
 # Check for "kubectl" runtime or install it
-if [[ "$(kubectl version --client=true -o yaml | yq .clientVersion.gitVersion)" != "v${KUBECTL_VERSION}" ]]; then
+if [[ "$(kubectl version --client=true -o yaml | yq .clientVersion.gitVersion)" != "v${kubectl_version}" ]]; then
   # install packaged binaries for this arch
-  curl -sLo "${BIN_DIR}/kubectl" "https://dl.k8s.io/release/v${KUBERNETES_VERSION}/bin/${OS}/${ARCH}/kubectl"
-  curl -sLo "${BIN_DIR}/kubectl.sha256" "https://dl.k8s.io/release/v${KUBERNETES_VERSION}/bin/${OS}/${ARCH}/kubectl.sha256"
+  curl -sLo "${BIN_DIR}/kubectl" "https://dl.k8s.io/release/v${kubernetes_version}/bin/${OS}/${ARCH}/kubectl"
+  curl -sLo "${BIN_DIR}/kubectl.sha256" "https://dl.k8s.io/release/v${kubernetes_version}/bin/${OS}/${ARCH}/kubectl.sha256"
   cd "${BIN_DIR}"
   echo "$(cat kubectl.sha256) kubectl" | sha256sum --check
   rm -f kubectl.sha256
@@ -43,13 +37,13 @@ fi
 
 # Check for "sops" runtime or install it
 # https://github.com/getsops/sops/releases/
-if [[ "$(sops --version | grep -e '^sops' | awk '{print $2}')" != "${SOPS_VERSION}" ]] ; then
-  curl -sLo "${BIN_DIR}/sops-v${SOPS_VERSION}.checksums.txt" "https://github.com/getsops/sops/releases/download/v${SOPS_VERSION}/sops-v${SOPS_VERSION}.checksums.txt"
-  curl -sLo "${BIN_DIR}/sops-v${SOPS_VERSION}.${OS}.${ARCH}" "https://github.com/getsops/sops/releases/download/v${SOPS_VERSION}/sops-v${SOPS_VERSION}.${OS}.${ARCH}"
+if [[ "$(sops --version | grep -e '^sops' | awk '{print $2}')" != "${sops_version}" ]] ; then
+  curl -sLo "${BIN_DIR}/sops-v${sops_version}.checksums.txt" "https://github.com/getsops/sops/releases/download/v${sops_version}/sops-v${sops_version}.checksums.txt"
+  curl -sLo "${BIN_DIR}/sops-v${sops_version}.${OS}.${ARCH}" "https://github.com/getsops/sops/releases/download/v${sops_version}/sops-v${sops_version}.${OS}.${ARCH}"
   cd "${BIN_DIR}"
-  FILENAME="sops-v${SOPS_VERSION}.${OS}.${ARCH}"
-  sha256sum -c <(grep "${FILENAME}" "sops-v${SOPS_VERSION}.checksums.txt")
-  rm -f "sops-v${SOPS_VERSION}.checksums.txt"
+  FILENAME="sops-v${sops_version}.${OS}.${ARCH}"
+  sha256sum -c <(grep "${FILENAME}" "sops-v${sops_version}.checksums.txt")
+  rm -f "sops-v${sops_version}.checksums.txt"
   mv "${FILENAME}" sops
   chmod ugo+rx "${FILENAME}"
   cd -
@@ -57,25 +51,25 @@ fi
 
 # Check for "flux" runtime or install it
 # https://github.com/fluxcd/flux2/releases/
-if [[ "$(flux --version | cut -d' ' -f3)" != "${FLUX_VERSION}" ]] ; then
-  curl -sLo "${BIN_DIR}/flux_${FLUX_VERSION}_checksums.txt" "https://github.com/fluxcd/flux2/releases/download/v${FLUX_VERSION}/flux_${FLUX_VERSION}_checksums.txt"
-  curl -sLo "${BIN_DIR}/flux_${FLUX_VERSION}_${OS}_${ARCH}.tar.gz" "https://github.com/fluxcd/flux2/releases/download/v${FLUX_VERSION}/flux_${FLUX_VERSION}_${OS}_${ARCH}.tar.gz"
+if [[ "$(flux --version | cut -d' ' -f3)" != "${flux_version}" ]] ; then
+  curl -sLo "${BIN_DIR}/flux_${flux_version}_checksums.txt" "https://github.com/fluxcd/flux2/releases/download/v${flux_version}/flux_${flux_version}_checksums.txt"
+  curl -sLo "${BIN_DIR}/flux_${flux_version}_${OS}_${ARCH}.tar.gz" "https://github.com/fluxcd/flux2/releases/download/v${flux_version}/flux_${flux_version}_${OS}_${ARCH}.tar.gz"
   cd "${BIN_DIR}"
-  FILENAME="flux_${FLUX_VERSION}_${OS}_${ARCH}.tar.gz"
-  sha256sum -c <(grep "${FILENAME}" "flux_${FLUX_VERSION}_checksums.txt")
+  FILENAME="flux_${flux_version}_${OS}_${ARCH}.tar.gz"
+  sha256sum -c <(grep "${FILENAME}" "flux_${flux_version}_checksums.txt")
   tar xvzf "${FILENAME}"
-  rm -f "${FILENAME}" "flux_${FLUX_VERSION}_checksums.txt"
+  rm -f "${FILENAME}" "flux_${flux_version}_checksums.txt"
   cd -
 fi
 
 # Check for "yq" runtime or install it
 # https://github.com/mikefarah/yq/releases
-if [[ "$(yq --version | awk '{ print $4 }')" != "v${YQ_VERSION}" ]] ; then
+if [[ "$(yq --version | awk '{ print $4 }')" != "v${yq_version}" ]] ; then
   cd "${BIN_DIR}"
-  wget --no-verbose "https://github.com/mikefarah/yq/releases/download/v${YQ_VERSION}/yq_${OS}_${ARCH}.tar.gz" -O - | tar xz
-  wget --no-verbose "https://github.com/mikefarah/yq/releases/download/v${YQ_VERSION}/checksums"
-  wget --no-verbose "https://github.com/mikefarah/yq/releases/download/v${YQ_VERSION}/checksums_hashes_order"
-  wget --no-verbose "https://github.com/mikefarah/yq/releases/download/v${YQ_VERSION}/extract-checksum.sh"
+  wget --no-verbose "https://github.com/mikefarah/yq/releases/download/v${yq_version}/yq_${OS}_${ARCH}.tar.gz" -O - | tar xz
+  wget --no-verbose "https://github.com/mikefarah/yq/releases/download/v${yq_version}/checksums"
+  wget --no-verbose "https://github.com/mikefarah/yq/releases/download/v${yq_version}/checksums_hashes_order"
+  wget --no-verbose "https://github.com/mikefarah/yq/releases/download/v${yq_version}/extract-checksum.sh"
   chmod +x extract-checksum.sh
   ./extract-checksum.sh SHA-256 "yq_${OS}_${ARCH}" | rhash -c -
   mv "yq_${OS}_${ARCH}" yq
@@ -83,10 +77,10 @@ if [[ "$(yq --version | awk '{ print $4 }')" != "v${YQ_VERSION}" ]] ; then
   cd -
 fi
 
-# Replace project1-dev with CLUSTER_NAME in all files except this script.
+# Replace project1-dev with cluster_name in all files except this script.
 # Have to use -i.bak because Mac sed is garbage.
 while read -r f; do
-  sed -i.bak "s/project1-dev/${CLUSTER_NAME}/g" "${f}"
+  sed -i.bak "s/project1-dev/${cluster_name}/g" "${f}"
   rm "${f}.bak"
   git add "${f}"
 done < <(grep -rIl project1-dev --exclude-dir .git --exclude deploy.sh .)
@@ -95,7 +89,7 @@ done < <(grep -rIl project1-dev --exclude-dir .git --exclude deploy.sh .)
 if ! git diff HEAD --quiet; then
 
   # Using -n so that SOME PEOPLE'S pre-commit hooks don't freak out and break things. Talking about myself here. I have a large collection of hooks.
-  git commit -nm "Replacing project1-dev with ${CLUSTER_NAME}"
+  git commit -nm "Replacing project1-dev with ${cluster_name}"
 
   git push
 fi
@@ -105,10 +99,10 @@ if [[ -z "$(cat flux/flux-system/gotk-sync.yaml)" ]]; then
   flux bootstrap github \
     --branch=main \
     --components-extra image-reflector-controller,image-automation-controller \
-    --owner="${FLUX_GITHUB_OWNER}" \
-    --path=flux \
+    --owner="${flux_github_owner}" \
+    --path="${flux_path}" \
     --read-write-key \
-    --repository="${CLUSTER_NAME}"
+    --repository="${cluster_name}"
 fi
 
 git pull

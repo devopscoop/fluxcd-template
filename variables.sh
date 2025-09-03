@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 
-export FLUX_GITHUB_OWNER='devopscoop'
-export CLUSTER_NAME='project1-dev'
+export flux_github_owner='devopscoop'
+export cluster_name='project1-dev'
+export KUBECONFIG="${HOME}/.kube/project1-dev"
+export flux_path="flux"
 
 # Tool versions
-export FLUX_VERSION='2.6.3'
-export KUBECTL_VERSION='1.33.2'
-export KUBERNETES_VERSION='1.33.1'
-export SOPS_VERSION='3.10.2'
-export YQ_VERSION='4.45.4'
+export flux_version='2.6.3'
+export kubectl_version='1.33.2'
+export kubernetes_version='1.33.1'
+export sops_version='3.10.2'
+export yq_version='4.45.4'
