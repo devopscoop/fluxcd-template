@@ -107,6 +107,17 @@ fi
 
 git pull
 
+# Encrypt all the `*.decrypted` files with your new sops age key:
+while read -r f; do
+  sops --filename-override "${f//.decrypted}" -e "${f}" > "${f//.decrypted}"
+  git add "${f//.decrypted}"
+  git rm "${f}"
+done < <(find . -name '*.decrypted')
+if ! git diff HEAD --quiet; then
+  git commit -nm "Encrypting secrets"
+  git push
+fi
+
 # Add SOPS AGE secret to the cluster
 sops -d flux/flux-system/sops-age.secrets.yaml | kubectl apply -f -
 

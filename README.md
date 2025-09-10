@@ -66,7 +66,6 @@ https://fluxcd.io/flux/installation/bootstrap/github/
    ```
 1. Run `./deploy.sh`
 
-
 ## Deploying applications
 
 ### Helm
