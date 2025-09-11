@@ -31,6 +31,10 @@ export helm_chart_version=$5
 # Add or update the Helm repo, so we can get the default values later in this script.
 helm repo add "${helm_repo_name}" "${helm_repo_url}" || helm repo update
 
+if [[ -d "${SCRIPT_DIR}/apps/${app_name}" ]]; then
+  echo "ERROR: An app named ${app_name} already exists in the apps directory." >&2
+  exit 1
+fi
 cp -r "${SCRIPT_DIR}/apps/templates/helm" "${SCRIPT_DIR}/apps/${app_name}"
 
 # Search for the string "app-template", and replace it with your Helm chart's name.
@@ -45,6 +49,9 @@ if [[ "${helm_repo_url}" =~ /^oci:/ ]]; then
   yq -i "(select(.kind == \"HelmRepository\") | .spec.type) = \"oci\"" "${SCRIPT_DIR}/apps/${app_name}/release.yaml"
 fi
 yq -i "(select(.kind == \"HelmRepository\") | .spec.url) = \"${helm_repo_url}\"" "${SCRIPT_DIR}/apps/${app_name}/release.yaml"
+yq -i "(select(.kind == \"HelmRelease\") | .spec.chart.spec.chart) = \"${helm_chart_name}\"" "${SCRIPT_DIR}/apps/${app_name}/release.yaml"
+yq -i "(select(.kind == \"HelmRelease\") | .spec.chart.spec.version) = \"${helm_chart_version}\"" "${SCRIPT_DIR}/apps/${app_name}/release.yaml"
+yq -i "(select(.kind == \"HelmRelease\") | .spec.chart.spec.sourceRef.name) = \"${helm_repo_name}\"" "${SCRIPT_DIR}/apps/${app_name}/release.yaml"
 
 cp "${SCRIPT_DIR}/flux/flux-system/app-template.yaml" "${SCRIPT_DIR}/flux/flux-system/${app_name}.yaml"
 
