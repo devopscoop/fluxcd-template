@@ -133,12 +133,25 @@ if ! git diff HEAD --quiet; then
 fi
 
 # Open the Flux floodgates! Enable everything!
-while read -r f; do
-  yq -i ".resources = (.resources + [\"${f}\"] | unique)" flux/flux-system/kustomization.yaml
-done < <(cd flux/flux-system; find . -type f ! -name app-template.yaml ! -name kustomization.yaml | sed 's#^\./##')
+core_app_list="cert-manager cert-manager-custom-resources external-dns ingress-nginx"
+case $k8s_platform in
+  eks)
+    app_list="metrics-server"
+    ;;
+  k0s)
+    app_list="kubernetes-dashboard metallb metallb-custom-resources rook-ceph rook-ceph-cluster"
+    ;;
+  *)
+    echo "ERROR: k8s_platform invalid" >&2
+    exit 1
+    ;;
+esac
+for app in $core_app_list $app_list; do
+  yq -i ".resources = (.resources + [\"${app}\"] | unique)" flux/flux-system/kustomization.yaml
+done
 git add flux/flux-system/kustomization.yaml
 if ! git diff HEAD --quiet; then
-  git commit -nm "Enabling all Flux Kustomizations"
+  git commit -nm "Enabling Flux Kustomizations"
   git push
   flux reconcile source git flux-system
   flux reconcile kustomization flux-system
