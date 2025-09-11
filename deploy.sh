@@ -133,13 +133,13 @@ if ! git diff HEAD --quiet; then
 fi
 
 # Open the Flux floodgates! Enable everything!
-core_app_list="cert-manager cert-manager-custom-resources external-dns ingress-nginx"
+core_app_list="cert-manager-custom-resources.yaml cert-manager.yaml external-dns.yaml imagepolicies.yaml imagerepositories.yaml imageupdateautomation.yaml ingress-nginx.yaml sops-age.secrets.yaml"
 case $k8s_platform in
   eks)
-    app_list="metrics-server"
+    app_list="metrics-server.yaml"
     ;;
   k0s)
-    app_list="kubernetes-dashboard metallb metallb-custom-resources rook-ceph rook-ceph-cluster"
+    app_list="kubernetes-dashboard.yaml metallb.yaml metallb-custom-resources.yaml rook-ceph.yaml rook-ceph-cluster.yaml"
     ;;
   *)
     echo "ERROR: k8s_platform invalid" >&2
