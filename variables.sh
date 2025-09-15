@@ -6,6 +6,15 @@ export KUBECONFIG="${HOME}/.kube/project1-dev"
 export flux_path="flux"
 export k8s_platform="eks" # eks or k0s
 
+# Have to decrypt our encrypted keys.txt like this because of this bug:
+# https://github.com/getsops/sops/issues/933
+if [[ "$OSTYPE" == "darwin"* ]]; then
+ export sops_dir="${HOME}/Library/Application Support/sops/age"
+elif [[ "$OSTYPE" == "linux"* ]]; then
+ export sops_dir="${HOME}/.config/sops/age"
+fi
+export SOPS_AGE_KEY=$(age -d "${sops_dir}/keys.txt")
+
 # Tool versions
 export flux_version='2.6.3'
 export kubectl_version='1.33.2'
