@@ -13,11 +13,6 @@ helm install nxrm-ha sonatype/nxrm-ha --create-namespace --namespace nxrm-ha --v
 https://fluxcd.io/flux/installation/bootstrap/github/
 
 1. Edit variables.sh.
-1. Commit it:
-   ```
-   git add variables.sh
-   git commit -m "Adding variables.sh"
-   ```
 1. Go to [Fine-grained personal access token](https://github.com/settings/tokens?type=beta).
 1. Click on "Generate new token".
 1. Use default settings, except for these:
@@ -70,9 +65,14 @@ https://fluxcd.io/flux/installation/bootstrap/github/
        AGE-SECRET-KEY-<redacted>
    type: Opaque
    ```
-1. Commit that file:
+1. Commit and add your files:
    ```
-   git add .sops.yaml
+   git add \
+    .sops.yaml \
+    flux/flux-system/sops-age.secrets.yaml \
+    variables.sh
+   git commit -m "Pre-deploy commit."
+   git push
    ```
 1. Run `./deploy.sh`
 
