@@ -4,14 +4,22 @@ controller:
   config:
     allow-snippet-annotations: "true"
     limit-req-status-code: "429"
-    annotations-risk-level: Critical
+
+    # TODO: Why did we enable this once?
+    # annotations-risk-level: Critical
 
   ingressClassResource:
     default: true
   replicaCount: 3
   service:
+    annotations:
+      service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
     externalTrafficPolicy: "Local"
 
   metrics:
     # if this port is changed, change healthz-port: in extraArgs: accordingly
     enabled: true
+
+# Example of how to expose a TCP service
+# tcp:
+#   55001: "demo-bot/rabbitmq:5672"
