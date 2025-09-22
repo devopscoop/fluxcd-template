@@ -27,7 +27,7 @@ ingress:
   hostname: website.project1-dev.devops.coop
   path: /
   annotations:
-    cert-manager.io/cluster-issuer: default
+    cert-manager.io/cluster-issuer: letsencrypt
   tls: true
 metrics:
   enabled: false

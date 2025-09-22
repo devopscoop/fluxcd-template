@@ -17,7 +17,6 @@ resources:
   #
   # All cert-manager custom resources must be added to the cert-manager-custom-resources Kustomization.
 
-  - cloudflare-apikey-secret.secrets.yaml
   - release.yaml
 
 configMapGenerator:
