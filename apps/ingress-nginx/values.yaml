@@ -12,8 +12,17 @@ controller:
     default: true
   replicaCount: 3
   service:
+
+    # https://kubernetes-sigs.github.io/aws-load-balancer-controller/v2.13/guide/service/annotations/
     annotations:
-      service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+
+      # Allegedly the default is "internal", but in my testing, it appears to be "internet-facing" by default.
+      # If you have a development cluster, you should uncomment this to make ingresses internal (private) by default.
+      # service.beta.kubernetes.io/aws-load-balancer-scheme: "internal"
+
+      # TODO: We used to use this to create NLB load balancers, because that's what was required to expose TCP services, and it was required to capture real IP addresses. I'm not sure if this is still the case.
+      # service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+
     externalTrafficPolicy: "Local"
 
   metrics:
