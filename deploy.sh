@@ -26,8 +26,8 @@ export PATH="${BIN_DIR}:${PATH}"
 # Check for "kubectl" runtime or install it
 if [[ "$(kubectl version --client=true -o yaml | yq .clientVersion.gitVersion)" != "v${kubectl_version}" ]]; then
   # install packaged binaries for this arch
-  curl -sLo "${BIN_DIR}/kubectl" "https://dl.k8s.io/release/v${kubernetes_version}/bin/${OS}/${ARCH}/kubectl"
-  curl -sLo "${BIN_DIR}/kubectl.sha256" "https://dl.k8s.io/release/v${kubernetes_version}/bin/${OS}/${ARCH}/kubectl.sha256"
+  curl -sLo "${BIN_DIR}/kubectl" "https://dl.k8s.io/release/v${kubectl_version}/bin/${OS}/${ARCH}/kubectl"
+  curl -sLo "${BIN_DIR}/kubectl.sha256" "https://dl.k8s.io/release/v${kubectl_version}/bin/${OS}/${ARCH}/kubectl.sha256"
   cd "${BIN_DIR}"
   echo "$(cat kubectl.sha256) kubectl" | sha256sum --check
   rm -f kubectl.sha256
@@ -36,7 +36,6 @@ if [[ "$(kubectl version --client=true -o yaml | yq .clientVersion.gitVersion)" 
 fi
 
 # Check for "sops" runtime or install it
-# https://github.com/getsops/sops/releases/
 if [[ "$(sops --version | grep -e '^sops' | awk '{print $2}')" != "${sops_version}" ]] ; then
   curl -sLo "${BIN_DIR}/sops-v${sops_version}.checksums.txt" "https://github.com/getsops/sops/releases/download/v${sops_version}/sops-v${sops_version}.checksums.txt"
   curl -sLo "${BIN_DIR}/sops-v${sops_version}.${OS}.${ARCH}" "https://github.com/getsops/sops/releases/download/v${sops_version}/sops-v${sops_version}.${OS}.${ARCH}"
@@ -50,7 +49,6 @@ if [[ "$(sops --version | grep -e '^sops' | awk '{print $2}')" != "${sops_versio
 fi
 
 # Check for "flux" runtime or install it
-# https://github.com/fluxcd/flux2/releases/
 if [[ "$(flux --version | cut -d' ' -f3)" != "${flux_version}" ]] ; then
   curl -sLo "${BIN_DIR}/flux_${flux_version}_checksums.txt" "https://github.com/fluxcd/flux2/releases/download/v${flux_version}/flux_${flux_version}_checksums.txt"
   curl -sLo "${BIN_DIR}/flux_${flux_version}_${OS}_${ARCH}.tar.gz" "https://github.com/fluxcd/flux2/releases/download/v${flux_version}/flux_${flux_version}_${OS}_${ARCH}.tar.gz"
@@ -63,7 +61,6 @@ if [[ "$(flux --version | cut -d' ' -f3)" != "${flux_version}" ]] ; then
 fi
 
 # Check for "yq" runtime or install it
-# https://github.com/mikefarah/yq/releases
 if [[ "$(yq --version | awk '{ print $4 }')" != "v${yq_version}" ]] ; then
   cd "${BIN_DIR}"
   wget --no-verbose "https://github.com/mikefarah/yq/releases/download/v${yq_version}/yq_${OS}_${ARCH}.tar.gz" -O - | tar xz
@@ -95,14 +92,32 @@ if ! git diff HEAD --quiet; then
 fi
 
 # For whatever reason, `if [[ ! -s filename ]]` doesn't appear to work correctly, so we're using stat instead.
+# Using image-reflector-controller and image-automation-controller, because they're dope as heck, son! https://fluxcd.io/flux/guides/image-update/
+# --read-write-key is needed by the image-automation-controller
 if [[ -z "$(cat flux/flux-system/gotk-sync.yaml)" ]]; then
-  flux bootstrap github \
-    --branch=main \
-    --components-extra image-reflector-controller,image-automation-controller \
-    --owner="${flux_github_owner}" \
-    --path="${flux_path}" \
-    --read-write-key \
-    --repository="${cluster_name}"
+  case "$git_platform" in
+    github)
+      flux bootstrap github \
+        --components-extra image-reflector-controller,image-automation-controller \
+        --owner="${git_owner}" \
+        --path="${flux_path}" \
+        --read-write-key \
+        --repository="${git_repo}"
+      ;;
+    # https://fluxcd.io/flux/installation/bootstrap/gitlab/
+    gitlab)
+      flux bootstrap gitlab \
+        --components-extra image-reflector-controller,image-automation-controller \
+        --owner="${git_owner}" \
+        --path="${flux_path}" \
+        --read-write-key \
+        --repository="${git_repo}"
+      ;;
+    *)
+      echo 'ERROR: Invalid git_platform.' >&2
+      exit 1
+      ;;
+  esac
 fi
 
 git pull
@@ -134,12 +149,15 @@ fi
 
 # Open the Flux floodgates! Enable everything!
 core_app_list="cert-manager-custom-resources.yaml cert-manager.yaml external-dns.yaml imagepolicies.yaml imagerepositories.yaml imageupdateautomation.yaml ingress-nginx.yaml sops-age.secrets.yaml"
-case $k8s_platform in
+case "$k8s_platform" in
   eks)
     app_list="metrics-server.yaml"
     ;;
   k0s)
     app_list="kubernetes-dashboard.yaml metallb.yaml metallb-custom-resources.yaml rook-ceph.yaml rook-ceph-cluster.yaml"
+    ;;
+  talos)
+    app_list="kubernetes-dashboard.yaml metallb.yaml metallb-custom-resources.yaml"
     ;;
   *)
     echo "ERROR: k8s_platform invalid" >&2
