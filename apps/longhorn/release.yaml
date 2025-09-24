@@ -1,0 +1,33 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: longhorn
+  labels:
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: longhorn
+spec:
+  interval: 60m
+  url: https://charts.longhorn.io
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: longhorn
+spec:
+  chart:
+    spec:
+      chart: longhorn
+      version: 0.0.0
+      sourceRef:
+        kind: HelmRepository
+        name: prometheus-community
+  interval: 10m
+  valuesFrom:
+    - kind: ConfigMap
+      name: longhorn-values
+    - kind: Secret
+      name: longhorn-secrets
