@@ -5,7 +5,8 @@ controller:
     allow-snippet-annotations: "true"
     limit-req-status-code: "429"
 
-    # TODO: Why did we enable this once?
+    # Uncomment this if you DGAF about security and you want to have variables in your redirect urls.
+    # https://github.com/kubernetes/ingress-nginx/issues/11175
     # annotations-risk-level: Critical
 
   ingressClassResource:
@@ -16,12 +17,12 @@ controller:
     # https://kubernetes-sigs.github.io/aws-load-balancer-controller/v2.13/guide/service/annotations/
     annotations:
 
-      # Allegedly the default is "internal", but in my testing, it appears to be "internet-facing" by default.
       # If you have a development cluster, you should uncomment this to make ingresses internal (private) by default.
-      # service.beta.kubernetes.io/aws-load-balancer-scheme: "internal"
+      # At some point this will be deprecated in favor of: service.beta.kubernetes.io/aws-load-balancer-scheme: "internal"
+      service.beta.kubernetes.io/aws-load-balancer-internal: "true"
 
-      # TODO: We used to use this to create NLB load balancers, because that's what was required to expose TCP services, and it was required to capture real IP addresses. I'm not sure if this is still the case.
-      # service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+      # An NLB is required for: exposing TCP services, passing real IP addresses through to the ingress, and creating internal load balancers.
+      service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
 
     externalTrafficPolicy: "Local"
 
