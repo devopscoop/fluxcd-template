@@ -44,7 +44,7 @@ if [[ "$(sops --version | grep -e '^sops' | awk '{print $2}')" != "${sops_versio
   sha256sum -c <(grep "${FILENAME}" "sops-v${sops_version}.checksums.txt")
   rm -f "sops-v${sops_version}.checksums.txt"
   mv "${FILENAME}" sops
-  chmod ugo+rx "${FILENAME}"
+  chmod ugo+rx sops
   cd -
 fi
 
