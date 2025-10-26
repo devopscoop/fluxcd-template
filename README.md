@@ -14,6 +14,7 @@ https://fluxcd.io/flux/installation/bootstrap/github/
 
 1. Edit variables.sh.
 1. Go to [Fine-grained personal access token](https://github.com/settings/tokens?type=beta).
+1. Click on "Generate new token".
 1. Use default settings, except for these:
    - Token name: project1-dev (name of the git repo)
    - Resource owner: devopscoop (name of the git organization)
@@ -64,8 +65,16 @@ https://fluxcd.io/flux/installation/bootstrap/github/
        AGE-SECRET-KEY-<redacted>
    type: Opaque
    ```
+1. Commit and add your files:
+   ```
+   git add \
+    .sops.yaml \
+    flux/flux-system/sops-age.secrets.yaml \
+    variables.sh
+   git commit -m "Pre-deploy commit."
+   git push
+   ```
 1. Run `./deploy.sh`
-
 
 ## Deploying applications
 
@@ -75,32 +84,15 @@ To deploy an application with a Helm chart:
 
 1. Find the app you want to deploy on [ArtifactHub](https://artifacthub.io/). Sort by Stars to find the legit (or at least the most popular) chart for your application.
 1. Click the Install button.
-1. The "Add repository" section contains the repo name and URL. Create env variables for them:
-   ```
-   # For "helm repo add sonatype https://sonatype.github.io/helm3-charts/"
-   export helm_repo_name='sonatype'
-   export helm_repo_url='https://sonatype.github.io/helm3-charts/'
-   ```
-1. The "Install chart" section contains the chart name and version. Create env variables for them:
-   ```
-   # For "helm install my-nxrm-ha sonatype/nxrm-ha --version 82.0.0"
-   export helm_chart_name='nxrm-ha'
-   export helm_chart_version='82.0.0'
-   ```
-1. Figure out your app's name, and set an env var for it:
-   - If there is only going to be a single instance of this app in the this cluster, use the chart name as the app's name (e.g., you probably won't have more than one Sonatype Nexus Repository, so when installing the nxrm-ha chart, your app name should be "nxrm-ha".)
-   - If there could be multiple instances of a Helm release, like a valkey instance for an app named "worker", use the naming scheme "release-chart" (e.g., "worker-valkey".)
-   ```
-   export app_name='nxrm-ha'
-   ```
+1. The "Add repository" section contains the repo name and URL.
+1. The "Install chart" section contains the chart name and version.
+1. Figure out your app's name. If there is only going to be a single instance of this app in the this cluster, use the chart name as the app's name (e.g., you probably won't have more than one Sonatype Nexus Repository, so when installing the nxrm-ha chart, your app name should be "nxrm-ha". If there could be multiple instances of a Helm release, like a valkey instance for an app named "worker", use the naming scheme "release-chart" (e.g., "worker-valkey".)
 1. Some applications (like [Rook](https://rook.io/docs/rook/latest-release/Helm-Charts/operator-chart/#introduction)) need to be installed in a particular namespace. Do your research. If the app doesn't recommend a specific namespace name, just use the app name as the namespace.
-   ```
-   export app_namespace='nxrm-ha'
-   ```
-1. Deploy the app with this script:
+1. Run the deploy_new_app.sh script to figure out how to run deploy_new_app.sh script, haha:
    ```
    ./deploy_new_app.sh
    ```
+1. Now run the deploy_new_app.sh script with the right positional parameters!
 1. Edit the values.yaml file. Remove the lines you aren't changing - the end result should not have any default values in it.
    ```
    vim "apps/${app_name}/values.yaml"

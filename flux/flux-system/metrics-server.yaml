@@ -18,4 +18,4 @@ spec:
       name: sops-age
 
   # k0s has metrics-server built in, but I'm leaving this code here, because I'll probably re-use it for our EKS servers later.
-  suspend: true
+  suspend: false
