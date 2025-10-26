@@ -2,7 +2,7 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: longhorn
+  name: longhorn-system
   labels:
 ---
 apiVersion: source.toolkit.fluxcd.io/v1
@@ -21,10 +21,10 @@ spec:
   chart:
     spec:
       chart: longhorn
-      version: 0.0.0
+      version: 1.10.0
       sourceRef:
         kind: HelmRepository
-        name: prometheus-community
+        name: longhorn
   interval: 10m
   valuesFrom:
     - kind: ConfigMap
