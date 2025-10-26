@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
-export flux_github_owner='6j0-org'
-export cluster_name='worclustershire'
-export KUBECONFIG="${HOME}/.kube/worclustershire"
+export flux_github_owner='devopscoop'
+export cluster_name='project1-dev'
+export KUBECONFIG="${HOME}/.kube/project1-dev"
 export flux_path="flux"
 export k8s_platform="eks" # eks or k0s
 
