@@ -8,7 +8,7 @@ triggerLoopOnEvent: true
 policy: sync
 
 # If we have multiple k8s clusters writing to the same DNS zone, each external-dns needs a way to identify the records it owns. And since we can only have one external-dns provider per cluster, the setting this to the cluster name seems reasonable.
-txtOwnerId: project1-dev
+txtOwnerId: worclustershire
 
 # Cloudflare config based on:
 # https://github.com/kubernetes-sigs/external-dns/blob/master/docs/tutorials/cloudflare.md

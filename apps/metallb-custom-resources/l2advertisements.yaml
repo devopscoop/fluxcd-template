@@ -17,6 +17,6 @@ metadata:
   namespace: metallb
 spec:
   ipAddressPools:
-    - project1-dev
+    - worclustershire
   interfaces:
     - bond0
