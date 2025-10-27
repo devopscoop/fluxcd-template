@@ -33,9 +33,9 @@ spec:
         selector:
           matchLabels:
             "use-http01-solver": "true"
-      - dns01:
-          cloudflare:
-            email: hostmaster@devops.coop
-            apiTokenSecretRef:
-              name: cloudflare-apikey-secret
-              key: apikey
+      # - dns01:
+      #     cloudflare:
+      #       email: hostmaster@devops.coop
+      #       apiTokenSecretRef:
+      #         name: cloudflare-apikey-secret
+      #         key: apikey
