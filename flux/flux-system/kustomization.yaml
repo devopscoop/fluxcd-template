@@ -20,3 +20,4 @@ resources:
   - kubernetes-dashboard.yaml
   - metallb.yaml
   - metallb-custom-resources.yaml
+  - longhorn.yaml
