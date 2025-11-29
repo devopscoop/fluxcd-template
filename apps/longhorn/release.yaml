@@ -4,11 +4,8 @@ kind: Namespace
 metadata:
   name: longhorn-system
   labels:
-    # Trying to get around this error:
-    # 3m43s       Warning   FailedCreate         daemonset/longhorn-manager                     Error creating: pods "longhorn-manager-trgtg" is forbidden: violates PodSecurity "baseline:latest": hostPath volumes (volumes "boot", "dev", "proc", "etc", "longhorn"), privileged (container "longhorn-manager" must not set securityContext.privileged=true)
+    # https://longhorn.io/docs/1.9.0/advanced-resources/os-distro-specific/talos-linux-support/#pod-security
     pod-security.kubernetes.io/enforce: privileged
-    pod-security.kubernetes.io/audit: privileged
-    pod-security.kubernetes.io/warn: privileged
 ---
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: HelmRepository
