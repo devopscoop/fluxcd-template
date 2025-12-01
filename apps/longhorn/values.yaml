@@ -233,9 +233,10 @@ defaultSettings:
 # -- Setting that allows you to update the default backupstore.
 defaultBackupStore:
   # -- Endpoint used to access the default backupstore. (Options: "NFS", "CIFS", "AWS", "GCP", "AZURE")
-  backupTarget: ~
+  # https://longhorn.io/docs/1.10.1/snapshots-and-backups/backup-and-restore/set-backup-target/#enable-virtual-hosted-style-access-for-s3-compatible-backupstore
+  backupTarget: "s3://evanstest@us-west-1/"
   # -- Name of the Kubernetes secret associated with the default backup target.
-  backupTargetCredentialSecret: ~
+  backupTargetCredentialSecret: evanstest
   # -- Number of seconds that Longhorn waits before checking the default backupstore for new backups. The default value is "300". When the value is "0", polling is disabled.
   pollInterval: ~
 privateRegistry:

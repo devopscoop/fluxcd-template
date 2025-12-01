@@ -9,6 +9,7 @@ namespace: longhorn-system
 
 resources:
   - release.yaml
+  - evanstest.secrets.yaml
 configMapGenerator:
   - name: longhorn-values
     files:
