@@ -8,8 +8,10 @@ kind: Kustomization
 namespace: longhorn-system
 
 resources:
-  - release.yaml
   - evanstest.secrets.yaml
+  - longhorn-crypto.secrets.yaml
+  - release.yaml
+  - longhorn-crypto-global.sc.yaml
 configMapGenerator:
   - name: longhorn-values
     files:
