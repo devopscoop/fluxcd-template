@@ -8,6 +8,9 @@ kind: Kustomization
 namespace: app-template
 
 resources:
+  - namespace.yaml
+  # - helmrepo.yaml
+  # - ocirepo.yaml
   - release.yaml
 configMapGenerator:
   - name: app-template-values
