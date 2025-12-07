@@ -1,4 +1,8 @@
 persistence:
+
+  # Setting this to false, because we want to use the longhorn-crypto-global encrypted storageclass as the default.
+  defaultClass: false
+
   # -- Replica count of the default Longhorn StorageClass.
   defaultClassReplicaCount: 3
   # -- Data locality of the default Longhorn StorageClass. (Options: "disabled", "best-effort")
