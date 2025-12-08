@@ -150,3 +150,8 @@ spec:
       order: asc
 EOF
 fi
+
+# Encrypt the helm_secrets.yaml.decrypted file
+# shellcheck disable=SC2094
+sops --filename-override "${SCRIPT_DIR}/apps/${app_name}/helm_secrets.yaml" -e "${SCRIPT_DIR}/apps/${app_name}/helm_secrets.yaml.decrypted" > "${SCRIPT_DIR}/apps/${app_name}/helm_secrets.yaml"
+rm "${SCRIPT_DIR}/apps/${app_name}/helm_secrets.yaml.decrypted"
