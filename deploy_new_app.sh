@@ -98,6 +98,7 @@ else
   yq -i "
     .spec.chart.spec.chart = \"${chart_name}\" |
     .spec.chart.spec.version = \"${chart_version}\" |
+    .spec.chart.spec.sourceRef.kind = \"HelmRepository\" |
     .spec.chart.spec.sourceRef.name = \"${repo_name}\"
   " "${SCRIPT_DIR}/apps/${app_name}/release.yaml"
 
