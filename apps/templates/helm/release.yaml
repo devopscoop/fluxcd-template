@@ -1,30 +1,26 @@
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: app-template
-  labels:
----
-apiVersion: source.toolkit.fluxcd.io/v1
-kind: HelmRepository
-metadata:
-  name: prometheus-community
-spec:
-  interval: 60m
-  url: https://prometheus-community.github.io/helm-charts
----
+# https://fluxcd.io/flux/components/helm/helmreleases/
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
   name: app-template
 spec:
-  chart:
-    spec:
-      chart: app-template
-      version: 0.0.0
-      sourceRef:
-        kind: HelmRepository
-        name: prometheus-community
+
+  # HelmRepository example
+  # chart:
+  #   spec:
+  #     chart: app-template
+  #     version: 0.0.0
+  #     sourceRef:
+  #       kind: HelmRepository
+  #       name: prometheus-community
+
+  # OCIRepository example
+  # chartRef:
+  #   kind: OCIRepository
+  #   name: devopscoop-app
+  #   # TODO: Is namespace needed?
+  #   # namespace: app-template
+
   interval: 10m
   valuesFrom:
     - kind: ConfigMap

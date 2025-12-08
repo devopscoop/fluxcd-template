@@ -3,7 +3,6 @@ apiVersion: v1
 kind: Namespace
 metadata:
   name: nxrm-ha
-  labels:
 ---
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: HelmRepository
