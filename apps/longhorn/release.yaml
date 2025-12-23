@@ -2,6 +2,8 @@
 apiVersion: v1
 kind: Namespace
 metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
   name: longhorn-system
   labels:
     # https://longhorn.io/docs/1.9.0/advanced-resources/os-distro-specific/talos-linux-support/#pod-security
