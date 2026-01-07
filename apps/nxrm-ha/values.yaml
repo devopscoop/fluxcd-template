@@ -8,10 +8,10 @@ ingress:
 
     kubernetes.io/tls-acme: "true"
   hosts:
-    - nexus.worclustershire.devops.coop
+    - nexus.project1-dev.devops.coop
   tls:
     - hosts:
-        - nexus.worclustershire.devops.coop
+        - nexus.project1-dev.devops.coop
       secretName: nexus-tls
 
 persistence:

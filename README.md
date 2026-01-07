@@ -16,7 +16,7 @@ https://fluxcd.io/flux/installation/bootstrap/github/
 1. Go to [Fine-grained personal access token](https://github.com/settings/tokens?type=beta).
 1. Click on "Generate new token".
 1. Use default settings, except for these:
-   - Token name: worclustershire (name of the git repo)
+   - Token name: project1-dev (name of the git repo)
    - Resource owner: devopscoop (name of the git organization)
    - Repository access: only select repositories
    - Select repositories: find this repo and select it.

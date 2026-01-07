@@ -13,7 +13,7 @@
 apiVersion: metallb.io/v1beta1
 kind: IPAddressPool
 metadata:
-  name: worclustershire
+  name: project1-dev
   namespace: metallb
 spec:
   addresses:

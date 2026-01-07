@@ -10,7 +10,7 @@ app:
   ingress:
     enabled: true
     hosts:
-      - kubernetes-dashboard.worclustershire.devops.coop
+      - kubernetes-dashboard.project1-dev.devops.coop
     useDefaultIngressClass: true
     pathType: ImplementationSpecific
     path: /

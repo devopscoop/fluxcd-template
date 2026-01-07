@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 
-export KUBECONFIG="${HOME}/.kube/worclustershire"
-export cluster_name=worclustershire
+export KUBECONFIG="${HOME}/.kube/project1-dev"
+export cluster_name=project1-dev
 export flux_path=flux
-export git_owner=6j0-org
+export git_owner=devopscoop
 export git_platform=github
-export git_repo=worclustershire-deploy
+export git_repo=project1-dev-deploy
 export k8s_platform=talos # eks, k0s, talos
 
 # Have to decrypt our encrypted keys.txt like this because of this bug:

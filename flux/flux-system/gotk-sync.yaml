@@ -11,7 +11,7 @@ spec:
     branch: main
   secretRef:
     name: flux-system
-  url: ssh://git@github.com/6j0-org/worclustershire-deploy
+  url: ssh://git@github.com/devopscoop/project1-dev-deploy
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
