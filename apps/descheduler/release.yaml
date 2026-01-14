@@ -1,0 +1,34 @@
+# https://fluxcd.io/flux/components/helm/helmreleases/
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: descheduler
+spec:
+  # HelmRepository example
+  # chart:
+  #   spec:
+  #     chart: descheduler
+  #     version: 0.0.0
+  #     sourceRef:
+  #       kind: HelmRepository
+  #       name: prometheus-community
+
+  # OCIRepository example
+  # chartRef:
+  #   kind: OCIRepository
+  #   name: devopscoop-app
+  #   # TODO: Is namespace needed?
+  #   # namespace: descheduler
+  interval: 10m
+  valuesFrom:
+    - kind: ConfigMap
+      name: descheduler-values
+    - kind: Secret
+      name: descheduler-secrets
+  chart:
+    spec:
+      chart: descheduler
+      version: 0.34.0
+      sourceRef:
+        kind: HelmRepository
+        name: descheduler
