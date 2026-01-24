@@ -10,4 +10,4 @@ while read -r f; do
   # shellcheck disable=SC2094
   sops --filename-override "${f%%.decrypted}" -e "${f}" > "${f%%.decrypted}"
   rm "${f}"
-done < <(find "${SCRIPT_DIR}" -name '*.yaml.decrypted')
+done < <(find "${SCRIPT_DIR}" -not -path "*/templates/*" -name '*.yaml.decrypted')
