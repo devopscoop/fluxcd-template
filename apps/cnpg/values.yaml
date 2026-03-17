@@ -1,0 +1,14 @@
+# dyff between <(yq . <(helm show values cnpg/cloudnative-pg --version 0.27.1)) <(yq eval '. * load("values.yaml")' <(helm show values cnpg/cloudnative-pg --version 0.27.1))
+# vim -O <(helm show values cnpg/cloudnative-pg --version 0.27.1) values.yaml
+
+resources:
+  limits:
+    cpu: null
+    memory: 111Mi
+  requests:
+    cpu: 10m
+    memory: 111Mi
+
+monitoring:
+  grafanaDashboard:
+    create: true
