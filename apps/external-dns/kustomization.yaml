@@ -8,6 +8,8 @@ kind: Kustomization
 namespace: external-dns
 
 resources:
+  - namespace.yaml
+  - helmrepo.yaml
   - secrets.yaml
   - release.yaml
 configMapGenerator:
