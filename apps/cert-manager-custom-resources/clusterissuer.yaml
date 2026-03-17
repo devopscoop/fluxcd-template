@@ -27,12 +27,21 @@ spec:
       name: tls.key
 
     solvers:
+
+      # Use this for ingress-nginx
       - http01:
           ingress:
             ingressClassName: nginx
-        selector:
-          matchLabels:
-            "use-http01-solver": "true"
+
+      # Use this for envoy gateway
+      # https://gateway.envoyproxy.io/docs/tasks/security/tls-cert-manager/#using-the-acme-issuer-with-lets-encrypt-and-http-01
+      # - http01:
+      #     gatewayHTTPRoute:
+      #       parentRefs:
+      #       - kind: Gateway
+      #         name: eg
+      #         namespace: envoy-gateway-system
+
       # - dns01:
       #     cloudflare:
       #       email: hostmaster@devops.coop

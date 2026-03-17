@@ -17,6 +17,8 @@ resources:
   #
   # All cert-manager custom resources must be added to the cert-manager-custom-resources Kustomization.
 
+  - namespace.yaml
+  - ocirepo.yaml
   - release.yaml
 
 configMapGenerator:

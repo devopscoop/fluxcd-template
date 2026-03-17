@@ -1,6 +1,33 @@
+# dyff between <(yq . <(helm show values oci://quay.io/jetstack/charts/cert-manager --version v1.20.0)) <(yq eval '. * load("values.yaml")' <(helm show values oci://quay.io/jetstack/charts/cert-manager --version v1.20.0))
+# vim -O <(helm show values oci://quay.io/jetstack/charts/cert-manager --version v1.20.0) values.yaml
 crds:
   enabled: true
-prometheus:
-  servicemonitor:
-    # TODO: We should flip this to true and see what happens?
-    enabled: false
+
+# https://gateway.envoyproxy.io/docs/tasks/security/tls-cert-manager/#deploying-cert-manager
+config:
+  apiVersion: controller.config.cert-manager.io/v1alpha1
+  kind: ControllerConfiguration
+  enableGatewayAPI: true
+resources:
+  requests:
+    cpu: 10m
+    memory: 100Mi
+  limits:
+    cpu: null
+    memory: 100Mi
+webhook:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 100Mi
+    limits:
+      cpu: null
+      memory: 100Mi
+cainjector:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 100Mi
+    limits:
+      cpu: null
+      memory: 100Mi

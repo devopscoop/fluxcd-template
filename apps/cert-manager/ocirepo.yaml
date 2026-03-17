@@ -1,0 +1,14 @@
+# https://fluxcd.io/flux/components/source/ocirepositories/
+# https://fluxcd.io/flux/components/helm/helmreleases/#ocirepository-reference-example
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: cert-manager
+spec:
+  interval: 10m
+  layerSelector:
+    mediaType: "application/vnd.cncf.helm.chart.content.v1.tar+gzip"
+    operation: copy
+  ref:
+    tag: v1.20.0
+  url: oci://quay.io/jetstack/charts/cert-manager
