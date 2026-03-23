@@ -29,7 +29,7 @@ env:
 
 resources:
   requests:
-    cpu: 10m
+    cpu: 32m
     memory: 100Mi
   limits:
     # Can't explicitly set this to null, because the helm chart is a little overengineered...
