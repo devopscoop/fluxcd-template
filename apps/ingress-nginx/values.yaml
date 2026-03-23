@@ -2,7 +2,11 @@ controller:
 
   # https://kubernetes.github.io/ingress-nginx/user-guide/nginx-configuration/configmap/
   config:
+
+    # Snippets not working? You probably need to enable this.
     allow-snippet-annotations: "true"
+
+    # This defaults to HTTP 503, but HTTP 429 (Too Many Requests) is the correct code, and it makes troubleshooting much clearer.
     limit-req-status-code: "429"
 
     # Uncomment this if you DGAF about security and you want to have variables in your redirect urls.
@@ -10,8 +14,13 @@ controller:
     # annotations-risk-level: Critical
 
   ingressClassResource:
+
+    # Less lines of code is better, right? Set this as the default and we don't have to set this in every ingress in our cluster.
     default: true
-  replicaCount: 3
+
+  # Need at least 2 to be highly available.
+  replicaCount: 2
+
   service:
 
     # https://kubernetes-sigs.github.io/aws-load-balancer-controller/v2.13/guide/service/annotations/
@@ -24,11 +33,8 @@ controller:
       # An NLB is required for: exposing TCP services, passing real IP addresses through to the ingress, and creating internal load balancers.
       service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
 
+    # Setting this to Local so we can see real client IPs in our logs - so we can see where our traffic is actually coming from.
     externalTrafficPolicy: "Local"
-
-  metrics:
-    # if this port is changed, change healthz-port: in extraArgs: accordingly
-    enabled: true
 
 # Example of how to expose a TCP service
 # tcp:
