@@ -4,10 +4,10 @@
 resources:
   limits:
     cpu: null
-    memory: 111Mi
+    memory: 129Mi
   requests:
     cpu: 10m
-    memory: 111Mi
+    memory: 129Mi
 
 monitoring:
   grafanaDashboard:
