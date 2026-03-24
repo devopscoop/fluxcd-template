@@ -6,3 +6,5 @@ labels:
 resources:
   - gotk-components.yaml
   - gotk-sync.yaml
+patchesStrategicMerge:
+  - flux-resources-patch.yaml
