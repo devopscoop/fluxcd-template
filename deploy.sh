@@ -91,10 +91,10 @@ if ! git diff HEAD --quiet; then
   git push
 fi
 
-# For whatever reason, `if [[ ! -s filename ]]` doesn't appear to work correctly, so we're using stat instead.
+# Checking to see if gotk-sync.yaml has been generated yet...
 # Using image-reflector-controller and image-automation-controller, because they're dope as heck, son! https://fluxcd.io/flux/guides/image-update/
 # --read-write-key is needed by the image-automation-controller
-if [[ -z "$(cat flux/flux-system/gotk-sync.yaml)" ]]; then
+if [[ "$(cat flux/flux-system/gotk-sync.yaml | wc -l)" == "1" ]]; then
   case "$git_platform" in
     github)
       flux bootstrap github \
