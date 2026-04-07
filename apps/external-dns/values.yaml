@@ -34,5 +34,4 @@ resources:
   limits:
     # Can't explicitly set this to null, because the helm chart is a little overengineered...
     # "resources.limits.cpu: Invalid type. Expected: string, given: null"
-    # cpu: null
     memory: 100Mi

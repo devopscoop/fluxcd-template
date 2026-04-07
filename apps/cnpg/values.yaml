@@ -3,7 +3,6 @@
 
 resources:
   limits:
-    cpu: null
     memory: 129Mi
   requests:
     cpu: 10m

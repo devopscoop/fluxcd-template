@@ -13,7 +13,6 @@ resources:
     cpu: 10m
     memory: 100Mi
   limits:
-    cpu: null
     memory: 100Mi
 webhook:
   resources:
@@ -21,7 +20,6 @@ webhook:
       cpu: 10m
       memory: 100Mi
     limits:
-      cpu: null
       memory: 100Mi
 cainjector:
   resources:
@@ -29,5 +27,4 @@ cainjector:
       cpu: 10m
       memory: 100Mi
     limits:
-      cpu: null
       memory: 100Mi
