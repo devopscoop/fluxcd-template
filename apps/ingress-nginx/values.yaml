@@ -36,6 +36,9 @@ controller:
     # Setting this to Local so we can see real client IPs in our logs - so we can see where our traffic is actually coming from.
     externalTrafficPolicy: "Local"
 
+    ipFamilies:
+    - IPv6
+
 # Example of how to expose a TCP service
 # tcp:
 #   55001: "demo-bot/rabbitmq:5672"
