@@ -154,10 +154,10 @@ case "$k8s_platform" in
     app_list="metrics-server.yaml"
     ;;
   k0s)
-    app_list="kubernetes-dashboard.yaml metallb.yaml metallb-custom-resources.yaml rook-ceph.yaml rook-ceph-cluster.yaml"
+    app_list="metallb.yaml metallb-custom-resources.yaml rook-ceph.yaml rook-ceph-cluster.yaml"
     ;;
   talos)
-    app_list="kubernetes-dashboard.yaml metallb.yaml metallb-custom-resources.yaml"
+    app_list="metallb.yaml metallb-custom-resources.yaml"
     ;;
   *)
     echo "ERROR: k8s_platform invalid" >&2
@@ -174,6 +174,3 @@ if ! git diff HEAD --quiet; then
   flux reconcile source git flux-system
   flux reconcile kustomization flux-system
 fi
-
-# TODO: Automatically get the kubernetes-dashboard readonly-user bearer token and push it to 1password or something?
-# kubectl get secret readonly-user -n kubernetes-dashboard -o jsonpath="{.data.token}" | base64 -d
