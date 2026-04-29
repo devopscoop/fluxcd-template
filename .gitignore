@@ -1,3 +1,2 @@
 bin/*
-.pre-commit-config.yaml
 *.decrypted
