@@ -1,0 +1,11 @@
+deployment:
+  replicas: 2
+config:
+  envoyGateway:
+    provider:
+      type: Kubernetes
+    gateway:
+      controllerName: gateway.envoyproxy.io/gatewayclass-controller
+    logging:
+      level:
+        default: warn

@@ -148,7 +148,7 @@ if ! git diff HEAD --quiet; then
 fi
 
 # Open the Flux floodgates! Enable everything!
-core_app_list="cert-manager-custom-resources.yaml cert-manager.yaml external-dns.yaml imagepolicies.yaml imagerepositories.yaml imageupdateautomation.yaml ingress-nginx.yaml sops-age.secrets.yaml"
+core_app_list="eg.yaml eg-custom-resources.yaml cert-manager-custom-resources.yaml cert-manager.yaml external-dns.yaml imagepolicies.yaml imagerepositories.yaml imageupdateautomation.yaml ingress-nginx.yaml sops-age.secrets.yaml"
 case "$k8s_platform" in
   eks)
     app_list="metrics-server.yaml"

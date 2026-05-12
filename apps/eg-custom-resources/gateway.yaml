@@ -1,0 +1,30 @@
+# https://gateway.envoyproxy.io/docs/tasks/security/tls-cert-manager/#creating-a-tls-gateway-listener
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
+  name: eg
+spec:
+  gatewayClassName: eg
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 80
+      allowedRoutes:
+        namespaces:
+          from: All
+
+    # HTTPS listener for example.devops.coop (individual cert via HTTP01)
+    # - name: example-devops-coop
+    #   hostname: "example.devops.coop"
+    #   protocol: HTTPS
+    #   port: 443
+    #   tls:
+    #     mode: Terminate
+    #     certificateRefs:
+    #       - kind: Secret
+    #         name: example-devops-coop-tls
+    #   allowedRoutes:
+    #     namespaces:
+    #       from: All
