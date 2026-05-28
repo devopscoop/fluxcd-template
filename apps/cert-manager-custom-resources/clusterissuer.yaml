@@ -48,3 +48,11 @@ spec:
       #       apiTokenSecretRef:
       #         name: cloudflare-apikey-secret
       #         key: apikey
+
+      # Use this for AWS Route53 (DNS-01). cert-manager authenticates via IRSA:
+      # set the role ARN on the cert-manager ServiceAccount (see
+      # apps/cert-manager/values.yaml -> serviceAccount.annotations).
+      # - dns01:
+      #     route53:
+      #       region: us-east-2
+      #       hostedZoneID: ZXXXXXXXXXXXXX

@@ -1,0 +1,19 @@
+# EFS StorageClass via the EFS CSI driver.
+#
+# NOTE: this requires the aws-efs-csi-driver to be running in the cluster. It is
+# NOT installed as an EKS add-on by aws-eks-template today, so install it (e.g.
+# add it as another app here) before using this StorageClass.
+#
+# fileSystemId comes from the aws-eks-template `efs_id` output — replace the
+# placeholder below with your filesystem id (fs-...).
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: efs
+provisioner: efs.csi.aws.com
+mountOptions:
+  - iam
+parameters:
+  provisioningMode: efs-ap
+  fileSystemId: fs-XXXXXXXXXXXXXXXXX
+  directoryPerms: "700"

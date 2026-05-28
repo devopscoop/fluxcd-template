@@ -1,0 +1,17 @@
+# Default StorageClass: gp3 EBS volumes via the EBS CSI driver (aws-ebs-csi-driver
+# add-on, installed by aws-eks-template). EKS-specific; deploy.sh only enables the
+# storage-classes app for the "eks" platform.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: gp3
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+provisioner: ebs.csi.aws.com
+allowVolumeExpansion: true
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer
+parameters:
+  type: gp3
+  fsType: ext4
+  encrypted: "true"

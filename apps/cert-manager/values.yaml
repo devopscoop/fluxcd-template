@@ -28,3 +28,11 @@ cainjector:
       memory: 100Mi
     limits:
       memory: 100Mi
+
+# IRSA — only needed when the ClusterIssuer uses the Route53 dns01 solver (see
+# apps/cert-manager-custom-resources/clusterissuer.yaml). Annotate the
+# cert-manager ServiceAccount with the IAM role ARN output by aws-eks-template
+# (cert_manager_role_arn). Leave this off for the http01 or Cloudflare solvers.
+# serviceAccount:
+#   annotations:
+#     eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT_ID:role/cert-manager"
