@@ -1,10 +1,3 @@
-# https://github.com/aws/eks-charts/tree/master/stable/aws-load-balancer-controller
-# helm show values aws-load-balancer-controller/aws-load-balancer-controller --version 3.3.0
-#
-# The AWS Load Balancer Controller is EKS-specific; deploy.sh only enables this
-# app for the "eks" platform.
-
-# Required. deploy.sh replaces "project1-dev" with your cluster name everywhere.
 clusterName: project1-dev
 
 # region and vpcId are auto-discovered from the instance metadata service.
@@ -14,21 +7,11 @@ clusterName: project1-dev
 # vpcId: vpc-xxxxxxxxxxxxxxxxx
 
 serviceAccount:
-  create: true
-  name: aws-load-balancer-controller
   # IRSA: on EKS the controller authenticates with the IAM role created in
   # aws-eks-template (output: aws_load_balancer_controller_role_arn). Uncomment
   # and set the ARN for your account.
   # annotations:
   #   eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT_ID:role/aws-load-balancer-controller"
 
-replicaCount: 2
-
-resources:
-  requests:
-    cpu: 25m
-    memory: 100Mi
-  limits:
-    # Can't explicitly set this to null, because the helm chart is a little
-    # overengineered (see external-dns/values.yaml).
-    memory: 100Mi
+podDisruptionBudget:
+  maxUnavailable: 1
