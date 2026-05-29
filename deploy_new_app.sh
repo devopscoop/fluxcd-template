@@ -123,7 +123,7 @@ metadata:
   name: ${app_name}
   namespace: flux-system
 spec:
-  image: ghcr.io/dfinity-ops/${app_name}
+  image: ghcr.io/devopscoop/${app_name}
   interval: 1m0s
   secretRef:
     name: sa-github-api

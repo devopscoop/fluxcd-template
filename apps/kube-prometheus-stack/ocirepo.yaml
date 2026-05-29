@@ -1,0 +1,18 @@
+# https://fluxcd.io/flux/components/source/ocirepositories/
+# https://fluxcd.io/flux/components/helm/helmreleases/#ocirepository-reference-example
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  # ${org_name}-${chart_name}
+  name: prometheus-community-kube-prometheus-stack
+spec:
+  interval: 10m
+  layerSelector:
+    mediaType: "application/vnd.cncf.helm.chart.content.v1.tar+gzip"
+    operation: copy
+  ref:
+    tag: 81.5.0
+  # For private OCI repos, use a kubernetes.io/dockerconfigjson secret
+  # secretRef:
+  #   name: registry-auth
+  url: oci://ghcr.io/prometheus-community/charts/kube-prometheus-stack

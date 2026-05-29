@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kube-prometheus-stack
+
+  # TODO: For Talos, we need this label.
+  # https://docs.siderolabs.com/kubernetes-guides/security/pod-security#override-the-pod-security-admission-configuration
+  labels:
+    pod-security.kubernetes.io/enforce: privileged

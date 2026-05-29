@@ -1,0 +1,20 @@
+# dyff between <(yq . <(helm show values oci://ghcr.io/prometheus-community/charts/kube-prometheus-stack --version 81.5.0)) <(yq eval '. * load("values.yaml")' <(helm show values oci://ghcr.io/prometheus-community/charts/kube-prometheus-stack --version 81.5.0))
+
+alertmanager:
+  route:
+    main:
+      enabled: true
+      hostnames:
+        - alertmanager.devops.coop
+      parentRefs:
+        - name: eg
+          namespace: envoy-gateway-system
+prometheus:
+  route:
+    main:
+      enabled: true
+      hostnames:
+        - prometheus.devops.coop
+      parentRefs:
+        - name: eg
+          namespace: envoy-gateway-system
