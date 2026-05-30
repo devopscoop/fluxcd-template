@@ -14,9 +14,9 @@ policy: sync
 txtOwnerId: project1-dev
 
 # --- DNS provider: pick ONE. The fluxcd-template default is Cloudflare (below). ---
-#
-# AWS / Route53 alternative: comment out the Cloudflare provider/env blocks
-# below, uncomment this block, and authenticate via IRSA by annotating the
+
+# AWS / Route53:
+# Uncomment this block, and authenticate via IRSA by annotating the
 # external-dns ServiceAccount with the IAM role ARN output by aws-eks-template
 # (external_dns_role_arn):
 # serviceAccount:
@@ -27,19 +27,19 @@ txtOwnerId: project1-dev
 # domainFilters:
 #   - example.com   # restrict to the hosted zone(s) this cluster manages
 
-# Cloudflare config based on:
+# Cloudflare:
 # https://github.com/kubernetes-sigs/external-dns/blob/master/docs/tutorials/cloudflare.md
-provider:
-  name: cloudflare
-  webhook:
-    args:
-      - --cloudflare-dns-records-per-page=5000
-env:
-  - name: CF_API_TOKEN
-    valueFrom:
-      secretKeyRef:
-        name: cloudflare-api-key
-        key: apiKey
+# provider:
+#   name: cloudflare
+#   webhook:
+#     args:
+#       - --cloudflare-dns-records-per-page=5000
+# env:
+#   - name: CF_API_TOKEN
+#     valueFrom:
+#       secretKeyRef:
+#         name: cloudflare-api-key
+#         key: apiKey
 
 resources:
   requests:
@@ -49,3 +49,10 @@ resources:
     # Can't explicitly set this to null, because the helm chart is a little overengineered...
     # "resources.limits.cpu: Invalid type. Expected: string, given: null"
     memory: 100Mi
+
+sources:
+  - service
+  - ingress
+
+  # This is needed for external-dns to create records for Gateway API resources.
+  - gateway-httproute
