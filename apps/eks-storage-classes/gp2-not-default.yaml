@@ -1,0 +1,17 @@
+# EKS ships a "gp2" StorageClass that is marked as the cluster's default. Since
+# gp3 (gp3.yaml) is now the default, flip gp2's default annotation to false.
+#
+# gp2 is created by EKS, not Flux, so this is a partial patch of an object Flux
+# doesn't own. Use the documented Flux "patch a pre-installed resource" approach:
+# a shell manifest containing only the changed field, plus the
+# kustomize.toolkit.fluxcd.io/ssa: merge annotation so kustomize-controller
+# merges this annotation instead of taking ownership of the whole StorageClass
+# (provisioner/parameters are immutable and stay owned by EKS).
+# https://fluxcd.io/flux/faq/#why-does-my-application-keeps-getting-reconciled-to-an-old-version
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: gp2
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "false"
+    kustomize.toolkit.fluxcd.io/ssa: merge

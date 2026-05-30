@@ -1,0 +1,17 @@
+clusterName: project1-dev
+
+# region and vpcId are auto-discovered from the instance metadata service.
+# Set them explicitly to skip the IMDS lookup (e.g. with a strict IMDSv2 hop
+# limit):
+# region: us-east-2
+# vpcId: vpc-xxxxxxxxxxxxxxxxx
+
+serviceAccount:
+  # IRSA: on EKS the controller authenticates with the IAM role created in
+  # aws-eks-template (output: aws_load_balancer_controller_role_arn). Uncomment
+  # and set the ARN for your account.
+  # annotations:
+  #   eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT_ID:role/aws-load-balancer-controller"
+
+podDisruptionBudget:
+  maxUnavailable: 1

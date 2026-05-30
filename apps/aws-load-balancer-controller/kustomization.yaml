@@ -1,0 +1,23 @@
+# https://fluxcd.io/flux/guides/helmreleases/#refer-to-values-in-configmaps-generated-with-kustomize
+# https://fluxcd.io/flux/guides/helmreleases/#refer-to-values-in-secret-generated-with-kustomize-and-sops
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# The controller installs into kube-system (it already exists, so there is no
+# namespace.yaml to create/manage).
+namespace: kube-system
+
+resources:
+  - helmrepo.yaml
+  - release.yaml
+configMapGenerator:
+  - name: aws-load-balancer-controller-values
+    files:
+      - values.yaml=values.yaml
+secretGenerator:
+  - name: aws-load-balancer-controller-secrets
+    files:
+      - values.yaml=helm_secrets.yaml
+configurations:
+  - kustomizeconfig.yaml
