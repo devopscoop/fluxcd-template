@@ -1,14 +1,14 @@
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
-  name: storage-classes
+  name: eks-storage-classes
   namespace: flux-system
 spec:
   interval: 10m0s
   sourceRef:
     kind: GitRepository
     name: flux-system
-  path: apps/storage-classes
+  path: apps/eks-storage-classes
   prune: true
   wait: true
   timeout: 5m0s
