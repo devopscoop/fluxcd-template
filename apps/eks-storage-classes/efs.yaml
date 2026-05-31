@@ -13,3 +13,4 @@ parameters:
   # fileSystemId: fs-XXXXXXXXXXXXXXXXX
 
   directoryPerms: "700"
+reclaimPolicy: Retain

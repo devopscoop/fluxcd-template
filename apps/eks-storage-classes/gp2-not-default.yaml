@@ -15,3 +15,4 @@ metadata:
   annotations:
     storageclass.kubernetes.io/is-default-class: "false"
     kustomize.toolkit.fluxcd.io/ssa: merge
+reclaimPolicy: Retain
