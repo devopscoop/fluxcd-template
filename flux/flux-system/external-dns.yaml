@@ -4,8 +4,6 @@ metadata:
   name: external-dns
   namespace: flux-system
 spec:
-  dependsOn:
-    - name: ingress-nginx
   interval: 10m0s
   sourceRef:
     kind: GitRepository

@@ -28,11 +28,6 @@ spec:
 
     solvers:
 
-      # Use this for ingress-nginx
-      - http01:
-          ingress:
-            ingressClassName: nginx
-
       # Use this for envoy gateway
       # https://gateway.envoyproxy.io/docs/tasks/security/tls-cert-manager/#using-the-acme-issuer-with-lets-encrypt-and-http-01
       # - http01:
