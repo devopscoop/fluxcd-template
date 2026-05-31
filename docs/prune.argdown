@@ -1,0 +1,3 @@
+[Thesis]: We should use the `kustomize.toolkit.fluxcd.io/prune: disabled` annotation on Namespaces to prevent Flux from deleting resources it doesn't own.
+  + <Safe>: It's always safer to prevent deletion than to automatically delete things. If we allow pruning, we could inadvertently delete PVCs.
+  - <Messy>: If we don't let Flux clean things up, and we forget to clean it up manually, then we'll leave orphaned junk in our clusters.
