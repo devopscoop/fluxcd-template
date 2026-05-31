@@ -6,6 +6,7 @@ metadata:
 spec:
   dependsOn:
     - name: rabbitmq-cluster-operator
+    - name: cert-manager
   interval: 10m0s
   sourceRef:
     kind: GitRepository
