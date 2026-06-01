@@ -19,3 +19,14 @@ prometheus:
       parentRefs:
         - name: eg
           namespace: envoy-gateway-system
+grafana:
+  # Provision the Loki store (apps/loki) as a datasource on this Grafana so logs
+  # are queryable in Explore. Loki runs single-tenant, so no auth header needed.
+  additionalDataSources:
+    - name: Loki
+      type: loki
+      uid: loki
+      access: proxy
+      url: http://loki-gateway.loki.svc.cluster.local
+      jsonData:
+        maxLines: 1000

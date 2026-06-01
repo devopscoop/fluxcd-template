@@ -1,0 +1,68 @@
+# dyff between <(yq . <(helm show values grafana/alloy --version 1.8.2)) <(yq eval '. * load("values.yaml")' <(helm show values grafana/alloy --version 1.8.2))
+# vim -O <(helm show values grafana/alloy --version 1.8.2) values.yaml
+
+# Grafana Alloy is the official successor to Promtail. It runs as a DaemonSet
+# (the chart's default controller type), tails each node's pod log files, and
+# pushes them to Loki (apps/loki).
+alloy:
+  mounts:
+    # Mount the node's /var/log so Alloy can read /var/log/pods/.../*.log.
+    varlog: true
+  configMap:
+    content: |-
+      // Discover every pod in the cluster (Alloy's ServiceAccount gets the
+      // necessary read RBAC from the chart's rbac.create=true default).
+      discovery.kubernetes "pods" {
+        role = "pod"
+      }
+
+      // Turn pod metadata into labels and the on-disk log path.
+      discovery.relabel "pod_logs" {
+        targets = discovery.kubernetes.pods.targets
+
+        rule {
+          source_labels = ["__meta_kubernetes_namespace"]
+          target_label  = "namespace"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_name"]
+          target_label  = "pod"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_container_name"]
+          target_label  = "container"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
+          target_label  = "app"
+        }
+        rule {
+          source_labels = ["__meta_kubernetes_node_name"]
+          target_label  = "node"
+        }
+        // Build /var/log/pods/<namespace>_<pod>_<uid>/<container>/*.log
+        rule {
+          source_labels = ["__meta_kubernetes_pod_uid", "__meta_kubernetes_pod_container_name"]
+          separator     = "/"
+          action        = "replace"
+          replacement   = "/var/log/pods/*$1/*.log"
+          target_label  = "__path__"
+        }
+      }
+
+      // Tail the discovered files.
+      local.file_match "pod_logs" {
+        path_targets = discovery.relabel.pod_logs.output
+      }
+
+      loki.source.file "pod_logs" {
+        targets    = local.file_match.pod_logs.targets
+        forward_to = [loki.write.default.receiver]
+      }
+
+      // Ship everything to Loki's gateway.
+      loki.write "default" {
+        endpoint {
+          url = "http://loki-gateway.loki.svc.cluster.local/loki/api/v1/push"
+        }
+      }
