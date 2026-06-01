@@ -1,0 +1,43 @@
+name: Pre-commit autoupdate
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"  # every Monday 6 AM UTC
+  workflow_dispatch:  # allow manual trigger
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  autoupdate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: "3.x"
+
+      - run: pip install pre-commit
+
+      - run: pre-commit autoupdate --freeze
+
+      - name: Create PR if changes
+        run: |
+          if [[ -n $(git status --porcelain) ]]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git checkout -b pre-commit-autoupdate
+            git add -A
+            git commit -m "chore: update pre-commit hooks to frozen hashes"
+            git push origin pre-commit-autoupdate --force
+            gh pr create \
+              --title "chore: update pre-commit hooks to frozen hashes" \
+              --body "Automated pre-commit hook update." \
+              --label dependencies,pre-commit \
+              --base main \
+              --head pre-commit-autoupdate 2>/dev/null || true
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
