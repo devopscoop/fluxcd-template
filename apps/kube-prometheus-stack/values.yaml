@@ -1,4 +1,5 @@
 # dyff between <(yq . <(helm show values oci://ghcr.io/prometheus-community/charts/kube-prometheus-stack --version 81.5.0)) <(yq eval '. * load("values.yaml")' <(helm show values oci://ghcr.io/prometheus-community/charts/kube-prometheus-stack --version 81.5.0))
+# vim -O <(helm show values oci://ghcr.io/prometheus-community/charts/kube-prometheus-stack --version 81.5.0) values.yaml
 
 alertmanager:
   route:

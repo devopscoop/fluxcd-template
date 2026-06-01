@@ -1,3 +1,6 @@
+# dyff between <(yq . <(helm show values rook-release/rook-ceph --version v1.17.5)) <(yq eval '. * load("values.yaml")' <(helm show values rook-release/rook-ceph --version v1.17.5))
+# vim -O <(helm show values rook-release/rook-ceph --version v1.17.5) values.yaml
+
 # https://docs.k0sproject.io/v1.33.1+k0s.1/examples/rook-ceph/#6-deploy-rook
 csi:
   kubeletDirPath: /var/lib/k0s/kubelet

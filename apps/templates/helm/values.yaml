@@ -1,0 +1,2 @@
+# dyff between <(yq . <(helm show values oci://registry.gitlab.com/devopscoop/charts/app --version 0.7.1)) <(yq eval '. * load("values.yaml")' <(helm show values oci://registry.gitlab.com/devopscoop/charts/app --version 0.7.1))
+# vim -O <(helm show values oci://registry.gitlab.com/devopscoop/charts/app --version 0.7.1) values.yaml

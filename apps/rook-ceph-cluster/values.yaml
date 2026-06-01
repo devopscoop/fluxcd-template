@@ -1,0 +1,2 @@
+# dyff between <(yq . <(helm show values rook-release/rook-ceph-cluster --version v1.17.5)) <(yq eval '. * load("values.yaml")' <(helm show values rook-release/rook-ceph-cluster --version v1.17.5))
+# vim -O <(helm show values rook-release/rook-ceph-cluster --version v1.17.5) values.yaml

@@ -1,3 +1,6 @@
+# dyff between <(yq . <(helm show values sonatype/nxrm-ha --version v82.0.0)) <(yq eval '. * load("values.yaml")' <(helm show values sonatype/nxrm-ha --version v82.0.0))
+# vim -O <(helm show values sonatype/nxrm-ha --version v82.0.0) values.yaml
+
 ingress:
   enabled: true
   annotations:

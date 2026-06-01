@@ -1,0 +1,2 @@
+# dyff between <(yq . <(helm show values metrics-server/metrics-server --version v3.12.2)) <(yq eval '. * load("values.yaml")' <(helm show values metrics-server/metrics-server --version v3.12.2))
+# vim -O <(helm show values metrics-server/metrics-server --version v3.12.2) values.yaml
