@@ -9,15 +9,21 @@ Loki only *stores* logs — `apps/alloy` ships pod logs into it.
 
 ## Before deploying
 
-1. Create two buckets in your object store (e.g. Rook-Ceph RGW, MinIO, or AWS
-   S3): one for chunks and one for the ruler.
-2. Fill in the `CHANGEME-*` placeholders:
-   - `values.yaml` → `loki.storage.bucketNames` and `loki.storage.s3`
-     (endpoint, region). For Rook-Ceph RGW the endpoint is
-     `rook-ceph-rgw-<store>.rook-ceph.svc:80` and keep `s3ForcePathStyle: true`.
-   - `helm_secrets.yaml.decrypted` → `accessKeyId` / `secretAccessKey`.
-3. Encrypt the secret: `./encrypt_secrets.sh` (requires your age key configured
-   in `.sops.yaml`).
+Authentication to S3 is via **IRSA** (IAM Roles for Service Accounts) — no
+static access keys, so there's nothing to encrypt here.
+
+1. Create two S3 buckets: one for chunks and one for the ruler.
+2. Create an IAM role with read/write to those buckets and a trust policy for
+   this cluster's OIDC provider, scoped to the `loki` ServiceAccount in the
+   `loki` namespace.
+3. Fill in the `CHANGEME-*` placeholders in `values.yaml`:
+   - `loki.storage.bucketNames` (chunks, ruler) and `loki.storage.s3.region`.
+   - `serviceAccount.annotations` → `eks.amazonaws.com/role-arn` with the role
+     ARN from step 2.
+
+To use static access keys instead of IRSA (e.g. for a non-AWS S3 backend like
+Rook-Ceph RGW or MinIO), see the commented-out alternatives in `values.yaml`
+and `helm_secrets.yaml.decrypted`.
 
 ## Notes
 

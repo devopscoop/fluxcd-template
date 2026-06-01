@@ -28,25 +28,28 @@ loki:
           prefix: loki_index_
           period: 24h
 
-  # Object storage. Bucket names and the endpoint are non-secret and live here;
-  # the access key id / secret access key are injected from the encrypted
-  # helm_secrets.yaml (see kustomization.yaml's secretGenerator).
+  # Object storage (AWS S3). Bucket names and region are non-secret and live
+  # here. Authentication is via IRSA (see serviceAccount.annotations below), so
+  # there are NO static access keys — Loki's AWS SDK picks up credentials from
+  # the projected web-identity token automatically.
   #
-  # PLACEHOLDERS — replace the CHANGEME values with your bucket/endpoint. If you
-  # use the in-cluster Rook-Ceph RGW, the endpoint looks like
-  # "rook-ceph-rgw-<store>.rook-ceph.svc:80" and s3ForcePathStyle must stay true.
+  # PLACEHOLDERS — replace the CHANGEME values with your buckets and region.
   storage:
     type: s3
     bucketNames:
       chunks: CHANGEME-loki-chunks
       ruler: CHANGEME-loki-ruler
     s3:
-      endpoint: CHANGEME-s3-endpoint
       region: CHANGEME-region
-      # Required for Ceph RGW / MinIO (path-style addressing). Set to false for
-      # real AWS S3 with virtual-hosted-style buckets.
-      s3ForcePathStyle: true
-      insecure: false
+      # Leave endpoint unset to use the regional AWS S3 endpoint. AWS S3 uses
+      # virtual-hosted-style addressing, so path-style stays off.
+      s3ForcePathStyle: false
+      # --- Static-key / non-AWS alternative (e.g. Rook-Ceph RGW, MinIO) -------
+      # If you don't use IRSA, point at a custom endpoint and supply credentials
+      # via helm_secrets.yaml instead of the serviceAccount annotation below.
+      # For path-style backends, also set s3ForcePathStyle: true.
+      # endpoint: CHANGEME-s3-endpoint
+      # insecure: false
 
   # Keep logs from growing in the bucket forever. The compactor (which runs
   # in-process for SingleBinary) handles the actual deletion.
@@ -55,6 +58,13 @@ loki:
   compactor:
     retention_enabled: true
     delete_request_store: s3
+
+# IRSA — annotate Loki's ServiceAccount with the IAM role that grants
+# read/write to the buckets above. The EKS pod-identity webhook injects the
+# web-identity token the AWS SDK uses, so no credentials live in this repo.
+serviceAccount:
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::CHANGEME-account-id:role/CHANGEME-loki-s3-role
 
 # Run as one Loki pod and turn off the SimpleScalable targets entirely.
 singleBinary:
