@@ -33,6 +33,8 @@ cainjector:
 # apps/cert-manager-custom-resources/clusterissuer.yaml). Annotate the
 # cert-manager ServiceAccount with the IAM role ARN output by aws-eks-template
 # (cert_manager_role_arn). Leave this off for the http01 or Cloudflare solvers.
+# >>> eks-irsa: deploy.sh uncomments this block when k8s_platform=eks
 # serviceAccount:
 #   annotations:
 #     eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT_ID:role/cert-manager"
+# <<< eks-irsa

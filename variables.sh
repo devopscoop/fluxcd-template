@@ -7,6 +7,7 @@ export git_owner=devopscoop
 export git_platform=gitlab
 export git_repo=project1-dev-deploy
 export k8s_platform=eks # eks, k0s, talos
+export region=us-east-2 # used by loki
 
 # Have to decrypt our encrypted keys.txt like this because of this bug:
 # https://github.com/getsops/sops/issues/933
@@ -19,13 +20,13 @@ fi
 export SOPS_AGE_KEY=$(age -d "${sops_dir}/keys.txt")
 
 # https://github.com/fluxcd/flux2/releases/
-export flux_version=2.6.4
+export flux_version=2.8.8
 
 # https://dl.k8s.io/release/stable.txt
-export kubectl_version=1.34.1
+export kubectl_version=1.36.1
 
 # https://github.com/getsops/sops/releases/
-export sops_version=3.10.2
+export sops_version=3.13.1
 
 # https://github.com/mikefarah/yq/releases
-export yq_version=4.47.2
+export yq_version=4.53.2

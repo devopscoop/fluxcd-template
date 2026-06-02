@@ -32,15 +32,13 @@ loki:
   # here. Authentication is via IRSA (see serviceAccount.annotations below), so
   # there are NO static access keys — Loki's AWS SDK picks up credentials from
   # the projected web-identity token automatically.
-  #
-  # PLACEHOLDERS — replace the CHANGEME values with your buckets and region.
   storage:
     type: s3
     bucketNames:
-      chunks: CHANGEME-loki-chunks
-      ruler: CHANGEME-loki-ruler
+      chunks: devopscoop-project1-dev-loki-chunks
+      ruler: devopscoop-project1-dev-loki-ruler
     s3:
-      region: CHANGEME-region
+      region: us-east-2
       # Leave endpoint unset to use the regional AWS S3 endpoint. AWS S3 uses
       # virtual-hosted-style addressing, so path-style stays off.
       s3ForcePathStyle: false
@@ -62,9 +60,11 @@ loki:
 # IRSA — annotate Loki's ServiceAccount with the IAM role that grants
 # read/write to the buckets above. The EKS pod-identity webhook injects the
 # web-identity token the AWS SDK uses, so no credentials live in this repo.
-serviceAccount:
-  annotations:
-    eks.amazonaws.com/role-arn: arn:aws:iam::CHANGEME-account-id:role/CHANGEME-loki-s3-role
+# >>> eks-irsa: deploy.sh uncomments this block when k8s_platform=eks
+# serviceAccount:
+#   annotations:
+#     eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT_ID:role/loki-s3"
+# <<< eks-irsa
 
 # Run as one Loki pod and turn off the SimpleScalable targets entirely.
 singleBinary:

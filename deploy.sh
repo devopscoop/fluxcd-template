@@ -82,6 +82,14 @@ while read -r f; do
   git add "${f}"
 done < <(grep -rIl project1-dev --exclude-dir .git --exclude deploy.sh .)
 
+# Replace us-east-2 with region in all files except this script.
+# Have to use -i.bak because Mac sed is garbage.
+while read -r f; do
+  sed -i.bak "s/us-east-2/${region}/g" "${f}"
+  rm "${f}.bak"
+  git add "${f}"
+done < <(grep -rIl us-east-2 --exclude-dir .git --exclude deploy.sh .)
+
 # This if statement is needed for idempotency. Don't commit and push if there are no changes.
 if ! git diff HEAD --quiet; then
 
@@ -89,6 +97,30 @@ if ! git diff HEAD --quiet; then
   git commit -nm "Replacing project1-dev with ${cluster_name}"
 
   git push
+fi
+
+# On EKS, uncomment the IRSA serviceAccount blocks that are commented out by
+# default in the app values.yaml files. Each block is delimited by
+# `# >>> eks-irsa` / `# <<< eks-irsa` marker comments; we strip the leading
+# comment from the lines between the markers (leaving the markers in place, so
+# this stays idempotent and self-documenting). On non-EKS platforms IRSA
+# doesn't exist, so the blocks stay commented.
+if [[ "$k8s_platform" == "eks" ]]; then
+  while read -r f; do
+    # awk (not sed) for identical behavior on GNU and BSD/Mac. sub() is a no-op
+    # on already-uncommented lines, so re-running this is safe.
+    awk '
+      /# >>> eks-irsa/ { print; inblk=1; next }
+      /# <<< eks-irsa/ { print; inblk=0; next }
+      inblk { sub(/^# ?/, ""); print; next }
+      { print }
+    ' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+    git add "$f"
+  done < <(grep -rIl '# >>> eks-irsa' --exclude-dir .git --exclude deploy.sh .)
+  if ! git diff HEAD --quiet; then
+    git commit -nm "Enabling EKS IRSA serviceAccount annotations"
+    git push
+  fi
 fi
 
 # Checking to see if gotk-sync.yaml has been generated yet...

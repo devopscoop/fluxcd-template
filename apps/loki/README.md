@@ -16,10 +16,12 @@ static access keys, so there's nothing to encrypt here.
 2. Create an IAM role with read/write to those buckets and a trust policy for
    this cluster's OIDC provider, scoped to the `loki` ServiceAccount in the
    `loki` namespace.
-3. Fill in the `CHANGEME-*` placeholders in `values.yaml`:
+3. Fill in the placeholders in `values.yaml`:
    - `loki.storage.bucketNames` (chunks, ruler) and `loki.storage.s3.region`.
    - `serviceAccount.annotations` → `eks.amazonaws.com/role-arn` with the role
-     ARN from step 2.
+     ARN from step 2 (replace `ACCOUNT_ID`). This block is commented out by
+     default and is uncommented automatically by `deploy.sh` when
+     `k8s_platform=eks`.
 
 To use static access keys instead of IRSA (e.g. for a non-AWS S3 backend like
 Rook-Ceph RGW or MinIO), see the commented-out alternatives in `values.yaml`
