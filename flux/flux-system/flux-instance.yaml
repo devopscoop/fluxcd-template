@@ -1,0 +1,53 @@
+# https://fluxoperator.dev/get-started/
+# https://fluxoperator.dev/docs/instance/customization/#cluster-sync-sops-decryption
+apiVersion: fluxcd.controlplane.io/v1
+kind: FluxInstance
+metadata:
+  name: flux
+  namespace: flux-system
+spec:
+  distribution:
+    version: "2.x"
+    registry: "ghcr.io/fluxcd"
+    artifact: "oci://ghcr.io/controlplaneio-fluxcd/flux-operator-manifests"
+  components:
+    - source-controller
+    - source-watcher
+    - kustomize-controller
+    - helm-controller
+    - notification-controller
+    - image-reflector-controller
+    - image-automation-controller
+  cluster:
+    type: kubernetes
+    size: medium
+    multitenant: false
+    networkPolicy: true
+    domain: "cluster.local"
+  sync:
+    kind: GitRepository
+    url: https://github.com/devopscoop/project1-dev
+    ref: refs/heads/main
+    path: fluxcd/flux
+    pullSecret: flux-system
+    provider: github
+  kustomize:
+    patches:
+      - patch: |
+          - op: add
+            path: /spec/decryption
+            value:
+              provider: sops
+              secretRef:
+                name: sops-age
+        target:
+          kind: Kustomization
+      # IRSA annotation so the image-reflector-controller can authenticate to AWS ECR to poll image tags
+      - patch: |
+          - op: add
+            path: /metadata/annotations
+            value:
+              eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT_ID:role/flux-image-reflector-controller"
+        target:
+          kind: ServiceAccount
+          name: image-reflector-controller
