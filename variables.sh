@@ -4,7 +4,6 @@ export KUBECONFIG="${HOME}/.kube/project1-dev"
 export cluster_name=project1-dev
 export flux_path=flux
 export git_owner=devopscoop
-export git_platform=gitlab
 export git_repo=project1-dev-deploy
 export k8s_platform=eks # eks, k0s, talos
 export region=us-east-2 # used by loki
@@ -46,15 +45,3 @@ GITHUB_APP_PRIVATE_KEY_FILE="$(mktemp)"
 export GITHUB_APP_PRIVATE_KEY_FILE
 trap 'rm -f "${GITHUB_APP_PRIVATE_KEY_FILE}"' EXIT
 age -d -i <(printf '%s\n' "$SOPS_AGE_KEY") "${SCRIPT_DIR}/github-app.private-key.pem.age" > "${GITHUB_APP_PRIVATE_KEY_FILE}"
-
-# https://github.com/fluxcd/flux2/releases/
-export flux_version=2.8.8
-
-# https://dl.k8s.io/release/stable.txt
-export kubectl_version=1.36.1
-
-# https://github.com/getsops/sops/releases/
-export sops_version=3.13.1
-
-# https://github.com/mikefarah/yq/releases
-export yq_version=4.53.2
