@@ -16,64 +16,6 @@ cd "${SCRIPT_DIR}"
 # shellcheck source=/dev/null
 source variables.sh
 
-# Set the path for the binaries for the environment running this
-OS="$(uname -o | tr '[:upper:]' '[:lower:]' | sed -e 's%^gnu/%%')"
-ARCH="$(uname -m | sed -e 's/x86_64/amd64/g')"
-BIN_DIR="${SCRIPT_DIR}/bin/${OS}-${ARCH}"
-mkdir -p "${BIN_DIR}"
-export PATH="${BIN_DIR}:${PATH}"
-
-# Check for "kubectl" runtime or install it
-if [[ "$(kubectl version --client=true -o yaml | yq .clientVersion.gitVersion)" != "v${kubectl_version}" ]]; then
-  # install packaged binaries for this arch
-  curl -sLo "${BIN_DIR}/kubectl" "https://dl.k8s.io/release/v${kubectl_version}/bin/${OS}/${ARCH}/kubectl"
-  curl -sLo "${BIN_DIR}/kubectl.sha256" "https://dl.k8s.io/release/v${kubectl_version}/bin/${OS}/${ARCH}/kubectl.sha256"
-  cd "${BIN_DIR}"
-  echo "$(cat kubectl.sha256) kubectl" | sha256sum --check
-  rm -f kubectl.sha256
-  chmod ugo+rx kubectl
-  cd -
-fi
-
-# Check for "sops" runtime or install it
-if [[ "$(sops --version | grep -e '^sops' | awk '{print $2}')" != "${sops_version}" ]] ; then
-  curl -sLo "${BIN_DIR}/sops-v${sops_version}.checksums.txt" "https://github.com/getsops/sops/releases/download/v${sops_version}/sops-v${sops_version}.checksums.txt"
-  curl -sLo "${BIN_DIR}/sops-v${sops_version}.${OS}.${ARCH}" "https://github.com/getsops/sops/releases/download/v${sops_version}/sops-v${sops_version}.${OS}.${ARCH}"
-  cd "${BIN_DIR}"
-  FILENAME="sops-v${sops_version}.${OS}.${ARCH}"
-  sha256sum -c <(grep "${FILENAME}" "sops-v${sops_version}.checksums.txt")
-  rm -f "sops-v${sops_version}.checksums.txt"
-  mv "${FILENAME}" sops
-  chmod ugo+rx sops
-  cd -
-fi
-
-# Check for "flux" runtime or install it
-if [[ "$(flux --version | cut -d' ' -f3)" != "${flux_version}" ]] ; then
-  curl -sLo "${BIN_DIR}/flux_${flux_version}_checksums.txt" "https://github.com/fluxcd/flux2/releases/download/v${flux_version}/flux_${flux_version}_checksums.txt"
-  curl -sLo "${BIN_DIR}/flux_${flux_version}_${OS}_${ARCH}.tar.gz" "https://github.com/fluxcd/flux2/releases/download/v${flux_version}/flux_${flux_version}_${OS}_${ARCH}.tar.gz"
-  cd "${BIN_DIR}"
-  FILENAME="flux_${flux_version}_${OS}_${ARCH}.tar.gz"
-  sha256sum -c <(grep "${FILENAME}" "flux_${flux_version}_checksums.txt")
-  tar xvzf "${FILENAME}"
-  rm -f "${FILENAME}" "flux_${flux_version}_checksums.txt"
-  cd -
-fi
-
-# Check for "yq" runtime or install it
-if [[ "$(yq --version | awk '{ print $4 }')" != "v${yq_version}" ]] ; then
-  cd "${BIN_DIR}"
-  wget --no-verbose "https://github.com/mikefarah/yq/releases/download/v${yq_version}/yq_${OS}_${ARCH}.tar.gz" -O - | tar xz
-  wget --no-verbose "https://github.com/mikefarah/yq/releases/download/v${yq_version}/checksums"
-  wget --no-verbose "https://github.com/mikefarah/yq/releases/download/v${yq_version}/checksums_hashes_order"
-  wget --no-verbose "https://github.com/mikefarah/yq/releases/download/v${yq_version}/extract-checksum.sh"
-  chmod +x extract-checksum.sh
-  ./extract-checksum.sh SHA-256 "yq_${OS}_${ARCH}" | rhash -c -
-  mv "yq_${OS}_${ARCH}" yq
-  rm -v checksums checksums_hashes_order extract-checksum.sh
-  cd -
-fi
-
 # Replace project1-dev with cluster_name in all files except this script.
 # Have to use -i.bak because Mac sed is garbage.
 while read -r f; do
@@ -81,6 +23,14 @@ while read -r f; do
   rm "${f}.bak"
   git add "${f}"
 done < <(grep -rIl project1-dev --exclude-dir .git --exclude deploy.sh .)
+
+# Replace us-east-2 with region in all files except this script.
+# Have to use -i.bak because Mac sed is garbage.
+while read -r f; do
+  sed -i.bak "s/us-east-2/${region}/g" "${f}"
+  rm "${f}.bak"
+  git add "${f}"
+done < <(grep -rIl us-east-2 --exclude-dir .git --exclude deploy.sh .)
 
 # This if statement is needed for idempotency. Don't commit and push if there are no changes.
 if ! git diff HEAD --quiet; then
@@ -91,34 +41,37 @@ if ! git diff HEAD --quiet; then
   git push
 fi
 
-# Checking to see if gotk-sync.yaml has been generated yet...
-# Using image-reflector-controller and image-automation-controller, because they're dope as heck, son! https://fluxcd.io/flux/guides/image-update/
-# --read-write-key is needed by the image-automation-controller
-if [[ "$(cat flux/flux-system/gotk-sync.yaml | wc -l)" == "1" ]]; then
-  case "$git_platform" in
-    github)
-      flux bootstrap github \
-        --components-extra image-reflector-controller,image-automation-controller \
-        --owner="${git_owner}" \
-        --path="${flux_path}" \
-        --read-write-key \
-        --repository="${git_repo}"
-      ;;
-    # https://fluxcd.io/flux/installation/bootstrap/gitlab/
-    gitlab)
-      flux bootstrap gitlab \
-        --components-extra image-reflector-controller,image-automation-controller \
-        --owner="${git_owner}" \
-        --path="${flux_path}" \
-        --read-write-key \
-        --repository="${git_repo}"
-      ;;
-    *)
-      echo 'ERROR: Invalid git_platform.' >&2
-      exit 1
-      ;;
-  esac
+# On EKS, uncomment the IRSA serviceAccount blocks that are commented out by
+# default in the app values.yaml files. Each block is delimited by
+# `# >>> eks-irsa` / `# <<< eks-irsa` marker comments; we strip the leading
+# comment from the lines between the markers (leaving the markers in place, so
+# this stays idempotent and self-documenting). On non-EKS platforms IRSA
+# doesn't exist, so the blocks stay commented.
+if [[ "$k8s_platform" == "eks" ]]; then
+  while read -r f; do
+    # awk (not sed) for identical behavior on GNU and BSD/Mac. sub() is a no-op
+    # on already-uncommented lines, so re-running this is safe.
+    awk '
+      /# >>> eks-irsa/ { print; inblk=1; next }
+      /# <<< eks-irsa/ { print; inblk=0; next }
+      inblk { sub(/^# ?/, ""); print; next }
+      { print }
+    ' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+    git add "$f"
+  done < <(grep -rIl '# >>> eks-irsa' --exclude-dir .git --exclude deploy.sh .)
+  if ! git diff HEAD --quiet; then
+    git commit -nm "Enabling EKS IRSA serviceAccount annotations"
+    git push
+  fi
 fi
+
+flux-operator install -f "${SCRIPT_DIR}/flux/flux-system/flux-instance.yaml"
+
+flux-operator create secret githubapp flux-system \
+  --namespace=flux-system \
+  --app-id="$GITHUB_APP_ID" \
+  --app-installation-id="$GITHUB_APP_INSTALLATION_ID" \
+  --app-private-key-file="$GITHUB_APP_PRIVATE_KEY_FILE"
 
 git pull
 
@@ -133,22 +86,47 @@ if ! git diff HEAD --quiet; then
   git push
 fi
 
-# Add SOPS AGE secret to the cluster
-sops -d flux/flux-system/sops-age.secrets.yaml | kubectl apply -f -
+# Create the flux-system/sops-age secret, so flux has the keys to decrypt secrets.
+# --age-key-file wants a *plaintext* age identity file. $SOPS_AGE_KEY already
+# holds the decrypted identity (variables.sh), so feed it via process
+# substitution rather than pointing at the encrypted keys.txt on disk.
+# printf '%s\n' (not echo) writes the key verbatim, regardless of shell/content.
+flux-operator create secret sops sops-age \
+  --namespace=flux-system \
+  --age-key-file <(printf '%s\n' "$SOPS_AGE_KEY")
 
-# Add decryption block to gotk-sync.yaml, so that the flux-system Kustomization can decrypt SOPS-encrypted files.
-yq -i '(select(.kind == "Kustomization") | .spec.decryption) = {"provider": "sops", "secretRef": {"name": "sops-age"}}' flux/flux-system/gotk-sync.yaml
+# Add sync section so flux knows where to find its code.
+yq -i "
+  .spec.sync.kind = \"GitRepository\" |
+  .spec.sync.url = \"https://github.com/${git_owner}/${git_repo}\" |
+  .spec.sync.ref = \"refs/heads/main\" |
+  .spec.sync.path = \"${flux_path}/flux\" |
+  .spec.sync.pullSecret = \"flux-system\" |
+  .spec.sync.provider = \"github\"
+  " "${SCRIPT_DIR}/flux/flux-system/flux-instance.yaml"
 
-git add flux/flux-system/gotk-sync.yaml
+# Add decryption block, so that the flux-system Kustomization can decrypt SOPS-encrypted files.
+yq -i '.spec.kustomize.patches[0].patch = "- op: add\n  path: /spec/decryption\n  value:\n    provider: sops\n    secretRef:\n      name: sops-age\n" | .spec.kustomize.patches[0].target.kind = "Kustomization"' "${SCRIPT_DIR}/flux/flux-system/flux-instance.yaml"
+
+# Prefix all Flux Kustomization spec.path values with ${flux_path}/ so they resolve from the repo root.
+while read -r f; do
+  yq -i 'select(.kind == "Kustomization").spec.path |= (split("'"${flux_path}"'/")[-1] | "'"${flux_path}"'/" + .)' "${f}"
+  git add "${f}"
+done < <(find flux/flux-system -name "*.yaml" -not -name "kustomization.yaml")
+yq -i '.spec.update.path |= (split("'"${flux_path}"'/")[-1] | "'"${flux_path}"'/" + .)' flux/flux-system/imageupdateautomation.yaml
+git add flux/flux-system/imageupdateautomation.yaml
+
 if ! git diff HEAD --quiet; then
-  git commit -nm "Adding decryption to gotk-sync.yaml"
+  git commit -nm "Adding sync and decryption."
   git push
-  flux reconcile source git flux-system
-  flux reconcile kustomization flux-system
+  # flux reconcile source git flux-system
+  # flux reconcile kustomization flux-system
 fi
 
+flux-operator install -f "${SCRIPT_DIR}/flux/flux-system/flux-instance.yaml"
+
 # Open the Flux floodgates! Enable everything!
-core_app_list="cert-manager-custom-resources.yaml cert-manager.yaml external-dns.yaml imagepolicies.yaml imagerepositories.yaml imageupdateautomation.yaml sops-age.secrets.yaml"
+core_app_list="cert-manager-custom-resources.yaml cert-manager.yaml external-dns.yaml imagepolicies.yaml imagerepositories.yaml imageupdateautomation.yaml sops-age.secrets.yaml kube-prometheus-stack.yaml alloy.yaml loki.yaml"
 case "$k8s_platform" in
   eks)
     app_list="metrics-server.yaml aws-load-balancer-controller.yaml eks-storage-classes.yaml"
@@ -171,6 +149,6 @@ git add flux/flux-system/kustomization.yaml
 if ! git diff HEAD --quiet; then
   git commit -nm "Enabling Flux Kustomizations"
   git push
-  flux reconcile source git flux-system
-  flux reconcile kustomization flux-system
+  # flux reconcile source git flux-system
+  # flux reconcile kustomization flux-system
 fi

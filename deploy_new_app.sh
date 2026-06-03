@@ -16,7 +16,7 @@ Usage:
 Examples:
 
   # Using OCIRepository
-  $0 my-api devopscoop oci://registry.gitlab.com/devopscoop/charts app 0.7.1
+  $0 my-api devopscoop oci://registry.gitlab.com/devopscoop/charts app 0.9.0
 
   # Using HelmRepository
   $0 my-harbor harbor https://helm.goharbor.io harbor 1.17.2
