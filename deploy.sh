@@ -87,9 +87,13 @@ if ! git diff HEAD --quiet; then
 fi
 
 # Create the flux-system/sops-age secret, so flux has the keys to decrypt secrets.
+# --age-key-file wants a *plaintext* age identity file. $SOPS_AGE_KEY already
+# holds the decrypted identity (variables.sh), so feed it via process
+# substitution rather than pointing at the encrypted keys.txt on disk.
+# printf '%s\n' (not echo) writes the key verbatim, regardless of shell/content.
 flux-operator create secret sops sops-age \
   --namespace=flux-system \
-  --age-key-file "${new_key}"
+  --age-key-file <(printf '%s\n' "$SOPS_AGE_KEY")
 
 # Add sync section so flux knows where to find its code.
 yq -i "

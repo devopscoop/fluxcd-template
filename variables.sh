@@ -18,10 +18,6 @@ export GITHUB_APP_INSTALLATION_ID=00000000
 # The GitHub App private key (the actual secret) is decrypted further down,
 # once the age identity ($SOPS_AGE_KEY) is loaded -- see GITHUB_APP_PRIVATE_KEY_FILE.
 
-# Path to the new age key file used to seed the in-cluster sops-age secret via
-# `flux-operator create secret sops --age-key-file`. Create one with age-keygen.
-export new_key="${HOME}/.config/sops/age/keys.txt"
-
 # Have to decrypt our encrypted keys.txt like this because of this bug:
 # https://github.com/getsops/sops/issues/933
 if [[ "$OSTYPE" == "darwin"* ]]; then
