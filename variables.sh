@@ -34,10 +34,11 @@ export SOPS_AGE_KEY=$(age -d "${sops_dir}/keys.txt")
 # yours with (your public key is the one in .sops.yaml):
 #   age -r <your-age-recipient> -o github-app.private-key.pem.age /path/to/app.private-key.pem
 # `flux-operator create secret githubapp` needs a plaintext file path, so we
-# decrypt it non-interactively with the identity in $SOPS_AGE_KEY to a temp file
-# (mktemp -> mode 600, in $TMPDIR, never the repo) and wipe it on exit.
+# decrypt it non-interactively with the identity in $SOPS_AGE_KEY and hand it
+# over via process substitution -- the key lives only in a kernel pipe buffer
+# and never touches the filesystem (same pattern as --age-key-file in deploy.sh).
+# Not exported: /dev/fd/<n> works because flux-operator inherits the open FD as
+# a direct child of this shell, not because the path is in the environment.
 # SCRIPT_DIR is set by deploy.sh before it sources this file.
-GITHUB_APP_PRIVATE_KEY_FILE="$(mktemp)"
-export GITHUB_APP_PRIVATE_KEY_FILE
-trap 'rm -f "${GITHUB_APP_PRIVATE_KEY_FILE}"' EXIT
-age -d -i <(printf '%s\n' "$SOPS_AGE_KEY") "${SCRIPT_DIR}/github-app.private-key.pem.age" > "${GITHUB_APP_PRIVATE_KEY_FILE}"
+# shellcheck disable=SC2034 # consumed by deploy.sh, which sources this file
+GITHUB_APP_PRIVATE_KEY_FILE=<(age -d -i <(printf '%s\n' "$SOPS_AGE_KEY") "${SCRIPT_DIR}/github-app.private-key.pem.age")
