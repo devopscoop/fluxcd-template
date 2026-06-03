@@ -15,6 +15,32 @@ loki:
     # Only one instance runs in SingleBinary mode, so chunks are written once.
     # (Default is 3, which is meant for SimpleScalable/Distributed.)
     replication_factor: 1
+    ring:
+      kvstore:
+        store: inmemory
+
+  # structuredConfig is merged OVER the chart-generated config (see
+  # loki.calculatedConfig in _helpers.tpl). Use it to set fields the chart
+  # template doesn't expose, like memberlist.bind_addr / advertise_addr.
+  #
+  # The cluster is IPv6-only. dskit's memberlist scans [eth0, en0, lo] for an
+  # IPv4 address; en0 doesn't exist on Linux and eth0 has only an IPv6 address,
+  # so the scan fails with "no useable address found". Two overrides are
+  # needed:
+  #   bind_addr: "::" — skip the interface scan for the listener socket
+  #   advertise_addr: ${POD_IP} — skip the interface scan for the advertise IP
+  # POD_IP is injected by the downward API in singleBinary.extraEnv below.
+  # Loki expands ${VAR} from the environment at startup.
+  structuredConfig:
+    memberlist:
+      bind_addr:
+        - "::"
+      advertise_addr: ${POD_IP}
+    # Each ring component (query-scheduler, ingester, distributor, etc.) has a
+    # lifecycler that also calls GetFirstAddressOf when instance_addr is unset.
+    # Setting it here in common propagates to all rings at once.
+    common:
+      instance_addr: ${POD_IP}
 
   # A real install requires an explicit schema. tsdb + v13 is the current
   # recommended combination.
@@ -63,12 +89,19 @@ loki:
 # >>> eks-irsa: deploy.sh uncomments this block when k8s_platform=eks
 # serviceAccount:
 #   annotations:
-#     eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT_ID:role/loki-s3"
+#     eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT_ID:role/loki"
 # <<< eks-irsa
 
 # Run as one Loki pod and turn off the SimpleScalable targets entirely.
 singleBinary:
   replicas: 1
+  extraArgs:
+    - -config.expand-env=true
+  extraEnv:
+    - name: POD_IP
+      valueFrom:
+        fieldRef:
+          fieldPath: status.podIP
   persistence:
     # Local PVC is only used for the WAL and tsdb/boltdb shipper cache, not for
     # log chunks (those go to S3).

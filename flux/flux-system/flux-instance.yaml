@@ -42,12 +42,14 @@ spec:
                 name: sops-age
         target:
           kind: Kustomization
-      # IRSA annotation so the image-reflector-controller can authenticate to AWS ECR to poll image tags
-      - patch: |
-          - op: add
-            path: /metadata/annotations
-            value:
-              eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT_ID:role/flux-image-reflector-controller"
-        target:
-          kind: ServiceAccount
-          name: image-reflector-controller
+# >>> eks-irsa: deploy.sh uncomments this block when k8s_platform=eks
+#       # IRSA annotation so the image-reflector-controller can authenticate to AWS ECR to poll image tags
+#       - patch: |
+#           - op: add
+#             path: /metadata/annotations
+#             value:
+#               eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT_ID:role/flux-image-reflector-controller"
+#         target:
+#           kind: ServiceAccount
+#           name: image-reflector-controller
+# <<< eks-irsa
