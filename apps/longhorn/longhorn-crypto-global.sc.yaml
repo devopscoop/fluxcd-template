@@ -3,7 +3,11 @@ kind: StorageClass
 apiVersion: storage.k8s.io/v1
 metadata:
   annotations:
-      storageclass.kubernetes.io/is-default-class: "true"
+
+    # reclaimPolicy is immutable; let Flux delete+recreate when it changes.
+    kustomize.toolkit.fluxcd.io/force: "enabled"
+
+    storageclass.kubernetes.io/is-default-class: "true"
   name: longhorn-crypto-global
 provisioner: driver.longhorn.io
 allowVolumeExpansion: true

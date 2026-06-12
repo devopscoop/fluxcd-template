@@ -13,6 +13,10 @@ kind: StorageClass
 metadata:
   name: gp2
   annotations:
+
+    # reclaimPolicy is immutable; let Flux delete+recreate when it changes.
+    kustomize.toolkit.fluxcd.io/force: "enabled"
+
     storageclass.kubernetes.io/is-default-class: "false"
     kustomize.toolkit.fluxcd.io/ssa: merge
 reclaimPolicy: Retain

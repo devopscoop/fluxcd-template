@@ -2,6 +2,9 @@ apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
   name: efs
+  annotations:
+    # reclaimPolicy is immutable; let Flux delete+recreate when it changes.
+    kustomize.toolkit.fluxcd.io/force: "enabled"
 provisioner: efs.csi.aws.com
 mountOptions:
   - iam

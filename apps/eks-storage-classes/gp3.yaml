@@ -6,6 +6,8 @@ kind: StorageClass
 metadata:
   name: gp3
   annotations:
+    # reclaimPolicy is immutable; let Flux delete+recreate when it changes.
+    kustomize.toolkit.fluxcd.io/force: "enabled"
     storageclass.kubernetes.io/is-default-class: "true"
 provisioner: ebs.csi.aws.com
 allowVolumeExpansion: true
