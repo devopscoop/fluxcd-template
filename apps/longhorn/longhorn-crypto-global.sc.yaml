@@ -7,6 +7,7 @@ metadata:
   name: longhorn-crypto-global
 provisioner: driver.longhorn.io
 allowVolumeExpansion: true
+reclaimPolicy: Retain
 parameters:
   numberOfReplicas: "3"
   staleReplicaTimeout: "2880" # 48 hours in minutes
