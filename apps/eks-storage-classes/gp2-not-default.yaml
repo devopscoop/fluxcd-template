@@ -14,8 +14,11 @@ metadata:
   name: gp2
   annotations:
 
+    # Can't use force here, because flux never owned this in the first place,
+    # so it deletes it, then can't re-provision it, because this is just a
+    # patch, not a full resource.
     # reclaimPolicy is immutable; let Flux delete+recreate when it changes.
-    kustomize.toolkit.fluxcd.io/force: "enabled"
+    # kustomize.toolkit.fluxcd.io/force: "enabled"
 
     storageclass.kubernetes.io/is-default-class: "false"
     kustomize.toolkit.fluxcd.io/ssa: merge
