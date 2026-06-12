@@ -10,7 +10,7 @@ helm install nxrm-ha sonatype/nxrm-ha --create-namespace --namespace nxrm-ha --v
 
 ## Deploying Flux
 
-https://fluxcd.io/flux/installation/bootstrap/github/
+<https://fluxcd.io/flux/installation/bootstrap/github/>
 
 1. Edit variables.sh.
 1. Go to [Fine-grained personal access token](https://github.com/settings/tokens?type=beta).
@@ -23,6 +23,7 @@ https://fluxcd.io/flux/installation/bootstrap/github/
    - Add Permissions -> Administration -> Read and write.
    - Add Permissions -> Contents -> Read and write.
 1. Create some environment variables, and ensure that sops dir exists:
+
    ```bash
    export GITHUB_TOKEN=put_your_token_here
    if [[ "$OSTYPE" == "darwin"* ]]; then
@@ -32,27 +33,35 @@ https://fluxcd.io/flux/installation/bootstrap/github/
    fi
    mkdir -p "${sops_dir}"
    ```
+
 1. TODO: Warning/admonition about encrypting keys.txt...
 1. Decrypt your existing SOPS age keys.txt file (if you have one), then create a new age key for this cluster:
-   ```
+
+   ```bash
    export temp_key=$(mktemp --tmpdir=$HOME)
    age -d "${sops_dir}/keys.txt" > "${temp_key}"
    age-keygen >> "${temp_key}"
    ```
+
 1. Add this new age public and private key to your organization's password manager.
 1. Re-encrypt your secrets, and delete the cleartext secret:
+
    ```bash
    cp "${sops_dir}/keys.txt" "${sops_dir}/keys.txt.$(date +%s)"
    age -p "${temp_key}" > "${sops_dir}/keys.txt"
    rm -v "${temp_key}"
    ```
+
 1. Add the public age key to .sops.yaml.
 1. Create a sops-encrypted copy of the age key:
-   ```
+
+   ```bash
    sops flux/flux-system/sops-age.secrets.yaml
    ```
+
    with content like this:
-   ```
+
+   ```yaml
    apiVersion: v1
    kind: Secret
    metadata:
@@ -65,8 +74,10 @@ https://fluxcd.io/flux/installation/bootstrap/github/
        AGE-SECRET-KEY-<redacted>
    type: Opaque
    ```
+
 1. Commit and add your files:
-   ```
+
+   ```bash
    git add \
     .sops.yaml \
     flux/flux-system/sops-age.secrets.yaml \
@@ -74,6 +85,7 @@ https://fluxcd.io/flux/installation/bootstrap/github/
    git commit -m "Pre-deploy commit."
    git push
    ```
+
 1. Run `./deploy.sh`
 
 ## Deploying applications
@@ -89,16 +101,38 @@ To deploy an application with a Helm chart:
 1. Figure out your app's name. If there is only going to be a single instance of this app in the this cluster, use the chart name as the app's name (e.g., you probably won't have more than one Sonatype Nexus Repository, so when installing the nxrm-ha chart, your app name should be "nxrm-ha". If there could be multiple instances of a Helm release, like a valkey instance for an app named "worker", use the naming scheme "release-chart" (e.g., "worker-valkey".)
 1. Some applications (like [Rook](https://rook.io/docs/rook/latest-release/Helm-Charts/operator-chart/#introduction)) need to be installed in a particular namespace. Do your research. If the app doesn't recommend a specific namespace name, just use the app name as the namespace.
 1. Run the deploy_new_app.sh script to figure out how to run deploy_new_app.sh script, haha:
-   ```
+
+   ```bash
    ./deploy_new_app.sh
    ```
+
 1. Now run the deploy_new_app.sh script with the right positional parameters!
 1. Edit the values.yaml file. Remove the lines you aren't changing - the end result should not have any default values in it.
-   ```
+
+   ```bash
    vim "apps/${app_name}/values.yaml"
    ```
+
 1. If there are any secrets (passwords, tokens, API keys, etc.) in your values.yaml, open the helm_secrets.yaml file with sops, and move the secrets into it. You should not be committing any unencrypted secrets! WARNING: never edit this file with vim or any other text editor - you must use sops!
-   ```
+
+   ```bash
    sops apps/your_app/helm_secrets.yaml
    ```
+
 1. Commit and push your changes, and your app should deploy.
+
+## Promoting changes to other environments
+
+This template assumes one git repo per cluster. The recommended multi-environment setup:
+
+- Your continuously-deployed environment (call it dev) runs Flux image automation: image-reflector-controller polls the registry, and image-automation-controller (fluxcdbot) commits tag updates to the `# {"$imagepolicy": ...}` setter markers in `apps/*/values.yaml` whenever a new image is pushed.
+- Production-like environments live in their own repo, with the dev repo configured as a git upstream remote, and do NOT run image automation. To promote, merge dev into prod via a pull request — the diff shows exactly which image tags, values, and apps are changing. Because prod never writes to the tag lines, fluxcdbot's commits always merge cleanly, and the sync PR doubles as the deploy manifest.
+- Changes that must differ per environment (secrets encrypted with each cluster's age key, replica counts, hostnames) stay in each repo's own files. When a sync PR conflicts on one of these, that's the intentional prompt to update the prod copy by hand.
+
+To disable image automation in a prod-like repo:
+
+1. Remove `image-reflector-controller` and `image-automation-controller` from `spec.components` in `flux/flux-system/flux-instance.yaml`.
+1. Remove `imagepolicies.yaml`, `imagerepositories.yaml`, and `imageupdateautomation.yaml` from whatever applies them (e.g. the `resources` list in `flux/flux-system/kustomization.yaml`). Leave the files themselves in the repo — they sync from dev and are inert without the controllers.
+1. Leave the `# {"$imagepolicy": ...}` markers in `apps/*/values.yaml` alone. They are plain comments; nothing rewrites them without the automation controllers, and keeping the files identical to dev keeps syncs conflict-free.
+
+Caveat: the synced values files reference images by full registry URL, so every environment that deploys them must be able to pull those exact name:tag pairs. Same-account registries, cross-account pull permissions, registry replication, or CI pushing to every environment's registry are all valid ways to get there — that part is up to you.

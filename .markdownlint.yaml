@@ -1,0 +1,3 @@
+# Repo style: prose lines are not hard-wrapped; don't enforce line length.
+default: true
+MD013: false

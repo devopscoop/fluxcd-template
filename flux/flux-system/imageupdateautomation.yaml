@@ -1,3 +1,6 @@
+# Image automation should run only in your continuously-deployed environment
+# (e.g. dev). Prod-like repos that sync from this one should not apply this
+# manifest. See README.md -> "Promoting changes to other environments".
 apiVersion: image.toolkit.fluxcd.io/v1beta2
 kind: ImageUpdateAutomation
 metadata:
