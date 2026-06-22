@@ -1,0 +1,26 @@
+# Safety net: guarantee the Flux API groups aggregate into the built-in `view`
+# ClusterRole even if the Flux distribution running on this cluster does not
+# install its own `flux-view-*` aggregated roles. The aggregate-to-view label
+# causes these read-only rules to be merged into `view`, which the
+# cluster-viewers group is bound to (see clusterrolebinding.yaml).
+# Read-only (get/list/watch) only - no Secrets are referenced here.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: flux-view-aggregated
+  labels:
+    rbac.authorization.k8s.io/aggregate-to-view: "true"
+rules:
+  - apiGroups:
+      - source.toolkit.fluxcd.io
+      - kustomize.toolkit.fluxcd.io
+      - helm.toolkit.fluxcd.io
+      - image.toolkit.fluxcd.io
+      - notification.toolkit.fluxcd.io
+      - fluxcd.controlplane.io
+    resources:
+      - "*"
+    verbs:
+      - get
+      - list
+      - watch

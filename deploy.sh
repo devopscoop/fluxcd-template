@@ -129,7 +129,7 @@ flux-operator install -f "${SCRIPT_DIR}/flux/flux-system/flux-instance.yaml"
 core_app_list="cert-manager-custom-resources.yaml cert-manager.yaml external-dns.yaml imagepolicies.yaml imagerepositories.yaml imageupdateautomation.yaml sops-age.secrets.yaml kube-prometheus-stack.yaml alloy.yaml loki.yaml"
 case "$k8s_platform" in
   eks)
-    app_list="metrics-server.yaml aws-load-balancer-controller.yaml eks-storage-classes.yaml"
+    app_list="metrics-server.yaml aws-load-balancer-controller.yaml eks-storage-classes.yaml cluster-viewers.yaml"
     ;;
   k0s)
     app_list="metallb.yaml metallb-custom-resources.yaml rook-ceph.yaml rook-ceph-cluster.yaml"
