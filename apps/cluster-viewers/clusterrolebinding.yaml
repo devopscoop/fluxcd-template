@@ -1,0 +1,28 @@
+# Read-only access to CRDs for the AWS SSO ReadOnlyAccess / ViewOnlyAccess
+# permission sets.
+#
+# Those roles are granted the AWS-managed AmazonEKSViewPolicy access policy
+# (see the aws-eks-template repo, cluster/data.tf). That policy is a *frozen*
+# copy of Kubernetes' built-in `view` rules: it enumerates a fixed set of
+# built-in API groups and, unlike the real `view` ClusterRole, has no
+# aggregationRule. Custom resources (Flux's *.toolkit.fluxcd.io, cert-manager,
+# Prometheus, etc.) are therefore invisible to it, which is why `flux get all`
+# returns "forbidden".
+#
+# The EKS access entries also place those roles in the `cluster-viewers` group.
+# We bind that group to the built-in `view` ClusterRole, which DOES aggregate
+# any ClusterRole labelled `rbac.authorization.k8s.io/aggregate-to-view: "true"`
+# while still excluding Secrets. Operators that ship such roles (Flux included)
+# then become visible automatically, with no per-CRD maintenance.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cluster-viewers-view
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: view
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: cluster-viewers
