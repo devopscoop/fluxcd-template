@@ -1,0 +1,32 @@
+# Gateway API resources (gateway.networking.k8s.io) don't ship an
+# aggregate-to-view ClusterRole the way Flux and cert-manager do, so they stay
+# invisible to the built-in `view` role our cluster-viewers group is bound to
+# (see clusterrolebinding.yaml). Upstream's standard-install.yaml ships CRDs
+# only, with no RBAC, in every release through v1.4.0 — so this is the only fix.
+#
+# This adds read-only rules and labels them aggregate-to-view, so the `view`
+# ClusterRole picks them up automatically.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: gateway-api-view
+  labels:
+    rbac.authorization.k8s.io/aggregate-to-view: "true"
+rules:
+  - apiGroups:
+      - gateway.networking.k8s.io
+    resources:
+      - gatewayclasses
+      - gateways
+      - httproutes
+      - grpcroutes
+      - tlsroutes
+      - tcproutes
+      - udproutes
+      - referencegrants
+      - backendtlspolicies
+      - backendlbpolicies
+    verbs:
+      - get
+      - list
+      - watch
