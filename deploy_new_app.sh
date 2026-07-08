@@ -6,33 +6,66 @@ set -Eexuo pipefail
 # https://stackoverflow.com/questions/59895/how-do-i-get-the-directory-where-a-bash-script-is-located-from-within-the-script
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
-if [[ $# -ne 5 ]]; then
+usage() {
   cat <<TOC >&2
 
 Usage:
 
-  $0 app_name repo_name repo_url chart_name chart_version
+  $0 --app-name NAME --repo-name NAME --repo-url URL --chart-name NAME --chart-version VERSION [--image-automation]
+
+Options:
+
+  --app-name          Name for the app directory and Flux Kustomization.
+  --repo-name         Name for the HelmRepository/OCIRepository object.
+  --repo-url          Chart repository URL (https://... or oci://...).
+  --chart-name        Name of the chart within the repository.
+  --chart-version     Version of the chart to deploy.
+  --image-automation  Also create Flux ImageRepository/ImagePolicy entries for
+                      ghcr.io/devopscoop/APP_NAME. Only useful for first-party
+                      apps whose images are pushed there.
 
 Examples:
 
   # Using OCIRepository
-  $0 my-api devopscoop oci://registry.gitlab.com/devopscoop/charts app 0.9.0
+  $0 --app-name my-api --repo-name devopscoop --repo-url oci://registry.gitlab.com/devopscoop/charts --chart-name app --chart-version 0.9.0
 
   # Using HelmRepository
-  $0 my-harbor harbor https://helm.goharbor.io harbor 1.17.2
+  $0 --app-name my-harbor --repo-name harbor --repo-url https://helm.goharbor.io --chart-name harbor --chart-version 1.17.2
+
+  # First-party app with image automation
+  $0 --app-name my-api --repo-name devopscoop --repo-url oci://registry.gitlab.com/devopscoop/charts --chart-name app --chart-version 0.9.0 --image-automation
 
 TOC
   exit 1
+}
+
+app_name=""
+repo_name=""
+repo_url=""
+chart_name=""
+chart_version=""
+image_automation=false
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --app-name)         [[ $# -ge 2 ]] || usage; app_name=$2; shift 2 ;;
+    --repo-name)        [[ $# -ge 2 ]] || usage; repo_name=$2; shift 2 ;;
+    --repo-url)         [[ $# -ge 2 ]] || usage; repo_url=$2; shift 2 ;;
+    --chart-name)       [[ $# -ge 2 ]] || usage; chart_name=$2; shift 2 ;;
+    --chart-version)    [[ $# -ge 2 ]] || usage; chart_version=$2; shift 2 ;;
+    --image-automation) image_automation=true; shift ;;
+    *)                  usage ;;
+  esac
+done
+
+if [[ -z "${app_name}" || -z "${repo_name}" || -z "${repo_url}" || -z "${chart_name}" || -z "${chart_version}" ]]; then
+  usage
 fi
 
-export app_name=$1
-export repo_name=$2
-
 # Removing trailing slash to normalize input
-export repo_url=${3%%/}
+repo_url=${repo_url%%/}
 
-export chart_name=$4
-export chart_version=$5
+export app_name repo_name repo_url chart_name chart_version
 
 if [[ -d "${SCRIPT_DIR}/apps/${app_name}" ]]; then
   echo "ERROR: An app named ${app_name} already exists in the apps directory." >&2
@@ -113,9 +146,11 @@ rm "${SCRIPT_DIR}/flux/flux-system/${app_name}.yaml.bak"
 # Add new app kustomization to flux-system kustomization
 yq -i ".resources = (.resources + [\"${app_name}.yaml\"] | unique)" "${SCRIPT_DIR}/flux/flux-system/kustomization.yaml"
 
-# Add ImageRepository
-if ! grep -q "name: ${app_name}$" "${SCRIPT_DIR}/flux/flux-system/imagerepositories.yaml"; then
-  cat << EOF >> "${SCRIPT_DIR}/flux/flux-system/imagerepositories.yaml"
+if [[ "${image_automation}" == "true" ]]; then
+
+  # Add ImageRepository
+  if ! grep -q "name: ${app_name}$" "${SCRIPT_DIR}/flux/flux-system/imagerepositories.yaml"; then
+    cat << EOF >> "${SCRIPT_DIR}/flux/flux-system/imagerepositories.yaml"
 ---
 apiVersion: image.toolkit.fluxcd.io/v1beta2
 kind: ImageRepository
@@ -128,11 +163,11 @@ spec:
   secretRef:
     name: sa-github-api
 EOF
-fi
+  fi
 
-# Add ImagePolicy
-if ! grep -q "name: ${app_name}$" "${SCRIPT_DIR}/flux/flux-system/imagepolicies.yaml"; then
-  cat << EOF >> "${SCRIPT_DIR}/flux/flux-system/imagepolicies.yaml"
+  # Add ImagePolicy
+  if ! grep -q "name: ${app_name}$" "${SCRIPT_DIR}/flux/flux-system/imagepolicies.yaml"; then
+    cat << EOF >> "${SCRIPT_DIR}/flux/flux-system/imagepolicies.yaml"
 ---
 apiVersion: image.toolkit.fluxcd.io/v1beta2
 kind: ImagePolicy
@@ -150,6 +185,8 @@ spec:
     numerical:
       order: asc
 EOF
+  fi
+
 fi
 
 # Encrypt *.yaml.decrypted files
