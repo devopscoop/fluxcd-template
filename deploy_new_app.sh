@@ -11,7 +11,7 @@ usage() {
 
 Usage:
 
-  $0 --app-name NAME --repo-name NAME --repo-url URL --chart-name NAME --chart-version VERSION [--image-automation]
+  $0 --app-name NAME --repo-name NAME --repo-url URL --chart-name NAME --chart-version VERSION [--deploy] [--image-automation]
 
 Options:
 
@@ -20,6 +20,8 @@ Options:
   --repo-url          Chart repository URL (https://... or oci://...).
   --chart-name        Name of the chart within the repository.
   --chart-version     Version of the chart to deploy.
+  --deploy            Register the app in flux/flux-system/kustomization.yaml
+                      so Flux deploys it.
   --image-automation  Also create Flux ImageRepository/ImagePolicy entries for
                       ghcr.io/devopscoop/APP_NAME. Only useful for first-party
                       apps whose images are pushed there.
@@ -44,6 +46,7 @@ repo_name=""
 repo_url=""
 chart_name=""
 chart_version=""
+deploy=false
 image_automation=false
 
 while [[ $# -gt 0 ]]; do
@@ -53,6 +56,7 @@ while [[ $# -gt 0 ]]; do
     --repo-url)         [[ $# -ge 2 ]] || usage; repo_url=$2; shift 2 ;;
     --chart-name)       [[ $# -ge 2 ]] || usage; chart_name=$2; shift 2 ;;
     --chart-version)    [[ $# -ge 2 ]] || usage; chart_version=$2; shift 2 ;;
+    --deploy)           deploy=true; shift ;;
     --image-automation) image_automation=true; shift ;;
     *)                  usage ;;
   esac
@@ -144,7 +148,9 @@ sed -i.bak "s/app-template/${app_name}/g;s/^# //;" "${SCRIPT_DIR}/flux/flux-syst
 rm "${SCRIPT_DIR}/flux/flux-system/${app_name}.yaml.bak"
 
 # Add new app kustomization to flux-system kustomization
-yq -i ".resources = (.resources + [\"${app_name}.yaml\"] | unique)" "${SCRIPT_DIR}/flux/flux-system/kustomization.yaml"
+if [[ "${deploy}" == "true" ]]; then
+  yq -i ".resources = (.resources + [\"${app_name}.yaml\"] | unique)" "${SCRIPT_DIR}/flux/flux-system/kustomization.yaml"
+fi
 
 if [[ "${image_automation}" == "true" ]]; then
 
