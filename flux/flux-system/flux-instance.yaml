@@ -7,7 +7,10 @@ metadata:
   namespace: flux-system
 spec:
   distribution:
-    version: "2.x"
+    # Exact version pin — disables the operator's automatic Flux updates.
+    # Run ./update_flux-instance.sh to bump this together with the
+    # digest-pinned controller images in kustomize.patches below.
+    version: "2.9.1"
     registry: "ghcr.io/fluxcd"
     artifact: "oci://ghcr.io/controlplaneio-fluxcd/flux-operator-manifests"
   components:
@@ -53,3 +56,171 @@ spec:
 #           kind: ServiceAccount
 #           name: image-reflector-controller
 # <<< eks-irsa
+      # Pin controller images by digest (belt-and-braces on top of the exact
+      # distribution.version pin above). These digests correspond to the
+      # distribution.version above — run ./update_flux-instance.sh to refresh both.
+      - patch: |
+          - op: replace
+            path: /spec/template/spec/containers/0/image
+            value: "ghcr.io/fluxcd/source-controller:v1.9.2@sha256:2b8d06650a1bcff5ec9a6c549cc6b9d1144c1ff1af90861441f225627b0b9e7e"
+        target:
+          kind: Deployment
+          name: source-controller
+      - patch: |
+          - op: replace
+            path: /spec/template/spec/containers/0/image
+            value: "ghcr.io/fluxcd/source-watcher:v2.2.2@sha256:1d59f752ecf520d1dc56ca413749dfab507497dd363639b6fbaf5036850e05c7"
+        target:
+          kind: Deployment
+          name: source-watcher
+      - patch: |
+          - op: replace
+            path: /spec/template/spec/containers/0/image
+            value: "ghcr.io/fluxcd/kustomize-controller:v1.9.2@sha256:3aecec8bafdb632afbe1d7da2a9252f40049bb80567ab3564fc9546e710c95ce"
+        target:
+          kind: Deployment
+          name: kustomize-controller
+      - patch: |
+          - op: replace
+            path: /spec/template/spec/containers/0/image
+            value: "ghcr.io/fluxcd/helm-controller:v1.6.2@sha256:e17ab0e5885d80cebb9890663f85d59cd3866adebfc09a4d8bd2d512ef980bc4"
+        target:
+          kind: Deployment
+          name: helm-controller
+      - patch: |
+          - op: replace
+            path: /spec/template/spec/containers/0/image
+            value: "ghcr.io/fluxcd/notification-controller:v1.9.2@sha256:9ce503e7bcb8493fafe2aaef0c2ac4396df4f6890256acf9cd444a2dcd2a69ed"
+        target:
+          kind: Deployment
+          name: notification-controller
+      - patch: |
+          - op: replace
+            path: /spec/template/spec/containers/0/image
+            value: "ghcr.io/fluxcd/image-reflector-controller:v1.2.2@sha256:27e6bad1dac52f21fb4404620a9d5fe41609682122696b5384bb4d76449ffd99"
+        target:
+          kind: Deployment
+          name: image-reflector-controller
+      - patch: |
+          - op: replace
+            path: /spec/template/spec/containers/0/image
+            value: "ghcr.io/fluxcd/image-automation-controller:v1.2.2@sha256:6b0b16ab21151b32d779749f96da08ad88be0ce06a7e99787338473945badeda"
+        target:
+          kind: Deployment
+          name: image-automation-controller
+      # Controller resource requests/limits (operator-rendered Deployments, so
+      # these must be set here rather than via a kustomize patch in the repo).
+      - patch: |
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: helm-controller
+          spec:
+            template:
+              spec:
+                containers:
+                  - name: manager
+                    resources:
+                      requests:
+                        cpu: 10m
+                        memory: 209Mi
+                      limits:
+                        memory: 209Mi
+        target:
+          kind: Deployment
+          name: helm-controller
+      - patch: |
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: image-automation-controller
+          spec:
+            template:
+              spec:
+                containers:
+                  - name: manager
+                    resources:
+                      requests:
+                        cpu: 10m
+                        memory: 100Mi
+                      limits:
+                        memory: 100Mi
+        target:
+          kind: Deployment
+          name: image-automation-controller
+      - patch: |
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: image-reflector-controller
+          spec:
+            template:
+              spec:
+                containers:
+                  - name: manager
+                    resources:
+                      requests:
+                        cpu: 10m
+                        memory: 1069Mi
+                      limits:
+                        memory: 1069Mi
+        target:
+          kind: Deployment
+          name: image-reflector-controller
+      - patch: |
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: kustomize-controller
+          spec:
+            template:
+              spec:
+                containers:
+                  - name: manager
+                    resources:
+                      requests:
+                        cpu: 23m
+                        memory: 234Mi
+                      limits:
+                        memory: 234Mi
+        target:
+          kind: Deployment
+          name: kustomize-controller
+      - patch: |
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: notification-controller
+          spec:
+            template:
+              spec:
+                containers:
+                  - name: manager
+                    resources:
+                      requests:
+                        cpu: 10m
+                        memory: 100Mi
+                      limits:
+                        memory: 100Mi
+        target:
+          kind: Deployment
+          name: notification-controller
+      - patch: |
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: source-controller
+          spec:
+            template:
+              spec:
+                containers:
+                  - name: manager
+                    resources:
+                      requests:
+                        cpu: 10m
+                        memory: 328Mi
+                      limits:
+                        memory: 328Mi
+        target:
+          kind: Deployment
+          name: source-controller
