@@ -158,7 +158,7 @@ if [[ "${image_automation}" == "true" ]]; then
   if ! grep -q "name: ${app_name}$" "${SCRIPT_DIR}/flux/flux-system/imagerepositories.yaml"; then
     cat << EOF >> "${SCRIPT_DIR}/flux/flux-system/imagerepositories.yaml"
 ---
-apiVersion: image.toolkit.fluxcd.io/v1beta2
+apiVersion: image.toolkit.fluxcd.io/v1
 kind: ImageRepository
 metadata:
   name: ${app_name}
@@ -175,7 +175,7 @@ EOF
   if ! grep -q "name: ${app_name}$" "${SCRIPT_DIR}/flux/flux-system/imagepolicies.yaml"; then
     cat << EOF >> "${SCRIPT_DIR}/flux/flux-system/imagepolicies.yaml"
 ---
-apiVersion: image.toolkit.fluxcd.io/v1beta2
+apiVersion: image.toolkit.fluxcd.io/v1
 kind: ImagePolicy
 metadata:
   name: ${app_name}
