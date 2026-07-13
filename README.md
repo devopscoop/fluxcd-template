@@ -106,7 +106,7 @@ To deploy an application with a Helm chart:
    ./deploy_new_app.sh
    ```
 
-1. Now run the deploy_new_app.sh script with the right positional parameters!
+1. Now run the deploy_new_app.sh script with the right arguments!
 1. Edit the values.yaml file. Remove the lines you aren't changing - the end result should not have any default values in it.
 
    ```bash

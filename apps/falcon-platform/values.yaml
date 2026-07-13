@@ -1,0 +1,20 @@
+# dyff between <(yq . <(helm show values crowdstrike/falcon-platform --version 1.4.0)) <(yq eval '. * load("values.yaml")' <(helm show values crowdstrike/falcon-platform --version 1.4.0))
+# vim -O <(helm show values crowdstrike/falcon-platform --version 1.4.0) values.yaml
+
+# Create the component namespaces (falcon-system, falcon-kac,
+# falcon-image-analyzer) via pre-install hook. Only applies on install; if you
+# enable another component later, create its namespace manually before
+# upgrading.
+createComponentNamespaces: true
+
+global:
+  # Falcon Customer ID (CID) - required, not a secret. Falcon console → Host
+  # setup and management → Deploy → Sensor downloads.
+  falcon:
+    cid: CHANGEME-CID  # format: ^[0-9a-fA-F]{32}-[0-9a-fA-F]{2}$
+
+falcon-image-analyzer:
+  # The chart's values schema requires choosing exactly one mode:
+  # deployment (watches the whole cluster) or daemonset (per-node).
+  deployment:
+    enabled: true
