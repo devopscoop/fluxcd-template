@@ -30,3 +30,9 @@ grafana:
       url: http://loki-gateway.loki.svc.cluster.local
       jsonData:
         maxLines: 1000
+
+  grafana.ini:
+    server:
+      # Public URL Grafana uses when generating absolute links (e.g. Explore
+      # short links); without it they point at the default localhost:3000.
+      root_url: https://grafana.devops.coop/
