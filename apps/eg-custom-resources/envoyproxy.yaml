@@ -12,7 +12,7 @@
 #     a time so a drain can't take the ingress below two replicas.
 #
 # The aws-load-balancer-* annotations below are EKS-specific (AWS Load Balancer
-# Controller), so they live in an eks-nlb marker block (below) that deploy.sh
+# Controller), so they live in an eks marker block (below) that deploy.sh
 # uncomments only when k8s_platform=eks. Non-AWS platforms (k0s/talos + MetalLB)
 # leave it commented and get their provider's default LoadBalancer Service.
 #   - cross-zone-load-balancing-enabled: an AWS NLB withdraws an AZ node's IP
@@ -51,11 +51,11 @@ spec:
                   app.kubernetes.io/name: envoy
       envoyPDB:
         maxUnavailable: 1
-# >>> eks-nlb: deploy.sh uncomments this block when k8s_platform=eks
+# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
 #       envoyService:
 #         annotations:
 #           service.beta.kubernetes.io/aws-load-balancer-ip-address-type: dualstack
 #           service.beta.kubernetes.io/aws-load-balancer-scheme: internal
 #           service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
 #           service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
-# <<< eks-nlb
+# <<< eks

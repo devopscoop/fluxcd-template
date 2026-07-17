@@ -45,7 +45,7 @@ spec:
                 name: sops-age
         target:
           kind: Kustomization
-# >>> eks-irsa: deploy.sh uncomments this block when k8s_platform=eks
+# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
 #       # IRSA annotation so the image-reflector-controller can authenticate to AWS ECR to poll image tags
 #       - patch: |
 #           - op: add
@@ -55,7 +55,7 @@ spec:
 #         target:
 #           kind: ServiceAccount
 #           name: image-reflector-controller
-# <<< eks-irsa
+# <<< eks
       # Pin controller images by digest (belt-and-braces on top of the exact
       # distribution.version pin above). These digests correspond to the
       # distribution.version above — run ./update_flux-instance.sh to refresh both.

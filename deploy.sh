@@ -43,8 +43,8 @@ fi
 
 # On EKS, uncomment the EKS-specific blocks that are commented out by default in
 # the app manifests (IRSA serviceAccount annotations, AWS NLB annotations, ...).
-# Each block is delimited by `# >>> eks-<kind>` / `# <<< eks-<kind>` marker
-# comments (e.g. eks-irsa, eks-nlb); we strip the leading comment from the lines
+# Each block is delimited by `# >>> eks` / `# <<< eks` marker comments; we strip
+# the leading comment from the lines
 # between the markers (leaving the markers in place, so this stays idempotent and
 # self-documenting). On non-EKS platforms these AWS features don't exist, so the
 # blocks stay commented.
@@ -53,13 +53,13 @@ if [[ "$k8s_platform" == "eks" ]]; then
     # awk (not sed) for identical behavior on GNU and BSD/Mac. sub() is a no-op
     # on already-uncommented lines, so re-running this is safe.
     awk '
-      /# >>> eks-/ { print; inblk=1; next }
-      /# <<< eks-/ { print; inblk=0; next }
+      /# >>> eks/ { print; inblk=1; next }
+      /# <<< eks/ { print; inblk=0; next }
       inblk { sub(/^# ?/, ""); print; next }
       { print }
     ' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
     git add "$f"
-  done < <(grep -rIl '# >>> eks-' --exclude-dir .git --exclude deploy.sh .)
+  done < <(grep -rIl '# >>> eks' --exclude-dir .git --exclude deploy.sh .)
   if ! git diff HEAD --quiet; then
     git commit -nm "Enabling EKS-specific annotation blocks"
     git push

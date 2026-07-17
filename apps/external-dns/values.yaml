@@ -19,11 +19,11 @@ txtOwnerId: project1-dev
 # Uncomment this block, and authenticate via IRSA by annotating the
 # external-dns ServiceAccount with the IAM role ARN output by aws-eks-template
 # (external_dns_role_arn):
-# >>> eks-irsa: deploy.sh uncomments this block when k8s_platform=eks
+# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
 # serviceAccount:
 #   annotations:
 #     eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT_ID:role/external-dns"
-# <<< eks-irsa
+# <<< eks
 # provider:
 #   name: aws
 # domainFilters:

@@ -86,11 +86,11 @@ loki:
 # IRSA — annotate Loki's ServiceAccount with the IAM role that grants
 # read/write to the buckets above. The EKS pod-identity webhook injects the
 # web-identity token the AWS SDK uses, so no credentials live in this repo.
-# >>> eks-irsa: deploy.sh uncomments this block when k8s_platform=eks
+# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
 # serviceAccount:
 #   annotations:
 #     eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT_ID:role/loki"
-# <<< eks-irsa
+# <<< eks
 
 # Run as one Loki pod and turn off the SimpleScalable targets entirely.
 singleBinary:
