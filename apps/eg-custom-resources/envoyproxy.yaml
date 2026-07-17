@@ -11,9 +11,10 @@
 #   - envoyPDB caps voluntary disruptions (node drains/updates) at one Envoy at
 #     a time so a drain can't take the ingress below two replicas.
 #
-# The service.beta.kubernetes.io/aws-load-balancer-* annotations are EKS-specific
-# (AWS Load Balancer Controller). On non-AWS platforms (k0s/talos + MetalLB),
-# drop them and set the LoadBalancer bits your provider expects.
+# The aws-load-balancer-* annotations below are EKS-specific (AWS Load Balancer
+# Controller), so they live in an eks-nlb marker block (below) that deploy.sh
+# uncomments only when k8s_platform=eks. Non-AWS platforms (k0s/talos + MetalLB)
+# leave it commented and get their provider's default LoadBalancer Service.
 #   - cross-zone-load-balancing-enabled: an AWS NLB withdraws an AZ node's IP
 #     from DNS when that AZ has no healthy target; with a single replica that
 #     leaves the NLB publishing one IP and effectively single-AZ. Cross-zone
@@ -50,9 +51,11 @@ spec:
                   app.kubernetes.io/name: envoy
       envoyPDB:
         maxUnavailable: 1
-      envoyService:
-        annotations:
-          service.beta.kubernetes.io/aws-load-balancer-ip-address-type: dualstack
-          service.beta.kubernetes.io/aws-load-balancer-scheme: internal
-          service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
-          service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
+# >>> eks-nlb: deploy.sh uncomments this block when k8s_platform=eks
+#       envoyService:
+#         annotations:
+#           service.beta.kubernetes.io/aws-load-balancer-ip-address-type: dualstack
+#           service.beta.kubernetes.io/aws-load-balancer-scheme: internal
+#           service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
+#           service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
+# <<< eks-nlb
