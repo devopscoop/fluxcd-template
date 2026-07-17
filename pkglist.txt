@@ -1,0 +1,47 @@
+# Arch Linux package list for fluxcd-template — the pacman/AUR equivalent of
+# the Brewfile. Installs every CLI tool used or referenced by this repo.
+#
+# Requires an AUR helper (yay or paru) because flux-operator and dyff are AUR
+# packages; everything else is in the official repos.
+#
+# Usage:
+#   grep -vE '^(#|$)' pkglist.txt | yay -S --needed -
+#   grep -vE '^(#|$)' pkglist.txt | paru -S --needed -
+
+# age (includes age-keygen) — encrypting/decrypting the SOPS age key
+age
+
+# bash — all repo scripts use `#!/usr/bin/env bash`
+bash
+
+# curl — update_flux-instance.sh queries the GitHub API and ghcr.io
+curl
+
+# dyff — AUR; YAML diffing, referenced in apps/templates/helm/values.yaml
+dyff
+
+# flux-operator — AUR; the Flux Operator CLI used by deploy.sh (NOT the
+# standard `flux` CLI, which appears only in commented-out lines)
+flux-operator
+
+# git — commit/push throughout the bootstrap
+git
+
+# go-yq — YAML edits in deploy scripts. Must be the Go (mikefarah) yq;
+# Arch's `yq` package is the incompatible Python implementation.
+go-yq
+
+# helm — pulling charts, showing values, prototyping installs
+helm
+
+# pre-commit — git hook framework used by .pre-commit-config.yaml
+pre-commit
+
+# python — runs the local validate-flux pre-commit hook
+python
+
+# sops — encrypting/decrypting Helm values secrets
+sops
+
+# vim — documented editor steps for app values files
+vim

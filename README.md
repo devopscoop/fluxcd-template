@@ -8,6 +8,24 @@ This is a template repo that can be used to deploy applications via FluxCD. It h
 helm install nxrm-ha sonatype/nxrm-ha --create-namespace --namespace nxrm-ha --version 82.0.0 --values values.yaml --values <(sops -d helm_secrets.yaml)
 ```
 
+## Install required packages
+
+This repo ships package manifests that install every CLI tool it uses (`age`, `bash`, `curl`, `dyff`, `flux-operator`, `git`, `helm`, `pre-commit`, `python`, `sops`, `vim`, and the Go `yq`):
+
+- macOS, using [Homebrew](https://brew.sh/) and the `Brewfile`:
+
+  ```shell
+  brew bundle
+  ```
+
+- Arch Linux, using the `pkglist.txt`. This requires an AUR helper such as [yay](https://github.com/Jguer/yay) or [paru](https://github.com/Morganamilo/paru), because `flux-operator` and `dyff` are AUR packages:
+
+  ```shell
+  grep -vE '^(#|$)' pkglist.txt | yay -S --needed -
+  ```
+
+On other operating systems, install the tools listed above manually. Two gotchas: the scripts need the Flux Operator CLI (`flux-operator`), not the standard `flux` CLI; and `yq` must be the Go (mikefarah) implementation — on Arch that package is named `go-yq`.
+
 ## Deploying Flux
 
 <https://fluxcd.io/flux/installation/bootstrap/github/>
