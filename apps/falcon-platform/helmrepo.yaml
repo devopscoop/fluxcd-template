@@ -1,0 +1,7 @@
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: crowdstrike
+spec:
+  interval: 60m
+  url: https://crowdstrike.github.io/falcon-helm
