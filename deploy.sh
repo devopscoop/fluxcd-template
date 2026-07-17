@@ -41,26 +41,27 @@ if ! git diff HEAD --quiet; then
   git push
 fi
 
-# On EKS, uncomment the IRSA serviceAccount blocks that are commented out by
-# default in the app values.yaml files. Each block is delimited by
-# `# >>> eks-irsa` / `# <<< eks-irsa` marker comments; we strip the leading
-# comment from the lines between the markers (leaving the markers in place, so
-# this stays idempotent and self-documenting). On non-EKS platforms IRSA
-# doesn't exist, so the blocks stay commented.
+# On EKS, uncomment the EKS-specific blocks that are commented out by default in
+# the app manifests (IRSA serviceAccount annotations, AWS NLB annotations, ...).
+# Each block is delimited by `# >>> eks` / `# <<< eks` marker comments; we strip
+# the leading comment from the lines
+# between the markers (leaving the markers in place, so this stays idempotent and
+# self-documenting). On non-EKS platforms these AWS features don't exist, so the
+# blocks stay commented.
 if [[ "$k8s_platform" == "eks" ]]; then
   while read -r f; do
     # awk (not sed) for identical behavior on GNU and BSD/Mac. sub() is a no-op
     # on already-uncommented lines, so re-running this is safe.
     awk '
-      /# >>> eks-irsa/ { print; inblk=1; next }
-      /# <<< eks-irsa/ { print; inblk=0; next }
+      /# >>> eks/ { print; inblk=1; next }
+      /# <<< eks/ { print; inblk=0; next }
       inblk { sub(/^# ?/, ""); print; next }
       { print }
     ' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
     git add "$f"
-  done < <(grep -rIl '# >>> eks-irsa' --exclude-dir .git --exclude deploy.sh .)
+  done < <(grep -rIl '# >>> eks' --exclude-dir .git --exclude deploy.sh .)
   if ! git diff HEAD --quiet; then
-    git commit -nm "Enabling EKS IRSA serviceAccount annotations"
+    git commit -nm "Enabling EKS-specific annotation blocks"
     git push
   fi
 fi

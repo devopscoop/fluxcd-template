@@ -11,11 +11,11 @@ clusterName: project1-dev
 
 # IRSA: on EKS the controller authenticates with the IAM role created in
 # aws-eks-template (output: aws_load_balancer_controller_role_arn).
-# >>> eks-irsa: deploy.sh uncomments this block when k8s_platform=eks
+# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
 # serviceAccount:
 #   annotations:
 #     eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT_ID:role/aws-load-balancer-controller"
-# <<< eks-irsa
+# <<< eks
 
 podDisruptionBudget:
   maxUnavailable: 1
