@@ -8,6 +8,13 @@
 #     kube-scheduler cluster defaults (which cover both zone AND hostname), so
 #     both keys are restated here, tightened to maxSkew 1. ScheduleAnyway keeps
 #     pods placeable during a zone/node capacity crunch.
+#   - matchLabelKeys (owning-gateway-name): scope each constraint to a SINGLE
+#     Gateway's pods. If several Gateways share this class they each run their
+#     own Envoy fleet; without this key the managed-by/name selector spans ALL
+#     fleets, so the scheduler accepts a layout that stacks two pods of one fleet
+#     on a node, and (where a descheduler runs) RemoveDuplicates evicts and the
+#     scheduler re-stacks it every cycle — an endless LB target flap. No-op with
+#     a single Gateway, so it is safe to set always. GA on k8s 1.34+.
 #   - envoyPDB caps voluntary disruptions (node drains/updates) at one Envoy at
 #     a time so a drain can't take the ingress below two replicas.
 #
@@ -38,6 +45,8 @@ spec:
             - maxSkew: 1
               topologyKey: topology.kubernetes.io/zone
               whenUnsatisfiable: ScheduleAnyway
+              matchLabelKeys:
+                - gateway.envoyproxy.io/owning-gateway-name
               labelSelector:
                 matchLabels:
                   app.kubernetes.io/managed-by: envoy-gateway
@@ -45,6 +54,8 @@ spec:
             - maxSkew: 1
               topologyKey: kubernetes.io/hostname
               whenUnsatisfiable: ScheduleAnyway
+              matchLabelKeys:
+                - gateway.envoyproxy.io/owning-gateway-name
               labelSelector:
                 matchLabels:
                   app.kubernetes.io/managed-by: envoy-gateway
