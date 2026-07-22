@@ -6,6 +6,8 @@ subcharts:
 - **falcon-sensor** — runtime node protection (DaemonSet in `falcon-system`).
 - **falcon-kac** — Kubernetes Admission Controller (in `falcon-kac`).
 - **falcon-image-analyzer** — container image scanning (in `falcon-image-analyzer`).
+  Currently disabled in `values.yaml` — we don't have an Image Assessment
+  license yet.
 
 The HelmRelease lives in the `falcon-platform` namespace; the components deploy
 into their own namespaces (created by the chart's pre-install hook via
