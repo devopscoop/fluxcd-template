@@ -13,8 +13,26 @@ global:
   falcon:
     cid: CHANGEME-CID  # format: ^[0-9a-fA-F]{32}-[0-9a-fA-F]{2}$
 
+falcon-sensor:
+  # The subcharts ship placeholder image names (falcon-node-sensor,
+  # falcon-kac) that resolve to docker.io and fail to pull — the CrowdStrike
+  # registry path and a pinned tag are required. Auth comes from
+  # global.containerRegistry.configJSON in helm_secrets.yaml. List tags with:
+  # falcon-container-sensor-pull.sh --list-tags -t falcon-sensor (or -t falcon-kac)
+  node:
+    image:
+      repository: registry.crowdstrike.com/falcon-sensor/release/falcon-sensor
+      tag: "7.39.0-19204-1"
+
+falcon-kac:
+  image:
+    repository: registry.crowdstrike.com/falcon-kac/release/falcon-kac
+    tag: "7.39.0-3702"
+
 falcon-image-analyzer:
-  # The chart's values schema requires choosing exactly one mode:
-  # deployment (watches the whole cluster) or daemonset (per-node).
-  deployment:
-    enabled: true
+  # Disabled: no license for Image Assessment currently. When licensed, set
+  # enabled: true, choose exactly one mode (deployment.enabled or
+  # daemonset.enabled - the values schema requires it), uncomment the API
+  # credentials in helm_secrets.yaml, and create the falcon-image-analyzer
+  # namespace by hand (createComponentNamespaces only applies on install).
+  enabled: false
