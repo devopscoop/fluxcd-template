@@ -1,7 +1,5 @@
 # kube-prometheus-stack
 
-Created HTTP Basic Auth for alertmanager and prometheus ingresses by following these instructions: <https://kubernetes.github.io/ingress-nginx/examples/auth/basic/>
-
 ## Slack alerts
 
 Alertmanager can send every alert to a Slack channel. To enable it before running deploy.sh:
