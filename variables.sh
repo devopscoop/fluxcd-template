@@ -7,6 +7,9 @@ export git_owner=devopscoop
 export git_repo=project1-dev-deploy
 export k8s_platform=eks # eks, k0s, talos
 export region=us-east-2 # used by loki
+# true to have Alertmanager send alert notifications to Slack. Also set your
+# webhook URL and channel first -- see apps/kube-prometheus-stack/README.md.
+export slack_alerts=false
 
 # GitHub App config for `flux-operator create secret githubapp` (see deploy.sh).
 # None of these are secret: the App ID appears in the JWTs the app signs, and

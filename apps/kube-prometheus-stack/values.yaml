@@ -10,6 +10,22 @@ alertmanager:
       parentRefs:
         - name: eg
           namespace: envoy-gateway-system
+# Send every alert to Slack. The channel below is not secret, but the webhook
+# URL is, so it lives in helm_secrets.yaml (alertmanager.config.global.slack_api_url),
+# which Flux merges over this file -- see valuesFrom in release.yaml.
+# >>> slack: deploy.sh uncomments this block when slack_alerts=true (variables.sh)
+#   config:
+#     route:
+#       receiver: slack
+#     receivers:
+#       # The chart's default route sends Watchdog alerts to the 'null' receiver,
+#       # and setting receivers here replaces the chart's whole list, so keep it.
+#       - name: 'null'
+#       - name: slack
+#         slack_configs:
+#           - channel: '#alerts' # TODO: replace with your Slack channel
+#             send_resolved: true
+# <<< slack
 prometheus:
   route:
     main:

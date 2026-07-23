@@ -41,27 +41,48 @@ if ! git diff HEAD --quiet; then
   git push
 fi
 
-# On EKS, uncomment the EKS-specific blocks that are commented out by default in
-# the app manifests (IRSA serviceAccount annotations, AWS NLB annotations, ...).
-# Each block is delimited by `# >>> eks` / `# <<< eks` marker comments; we strip
-# the leading comment from the lines
-# between the markers (leaving the markers in place, so this stays idempotent and
-# self-documenting). On non-EKS platforms these AWS features don't exist, so the
-# blocks stay commented.
-if [[ "$k8s_platform" == "eks" ]]; then
+# Some manifests ship optional blocks that are commented out by default, each
+# delimited by `# >>> <marker>` / `# <<< <marker>` marker comments. This strips
+# the leading comment from the lines between the given marker's delimiters
+# (leaving the markers in place, so this stays idempotent and self-documenting).
+# WARNING: never write the literal opening marker anywhere except the real
+# markers (in prose, drop the leading hash) -- any file containing it gets fed
+# through awk here.
+uncomment_blocks() {
+  local marker=$1
   while read -r f; do
     # awk (not sed) for identical behavior on GNU and BSD/Mac. sub() is a no-op
     # on already-uncommented lines, so re-running this is safe.
-    awk '
-      /# >>> eks/ { print; inblk=1; next }
-      /# <<< eks/ { print; inblk=0; next }
+    awk -v marker="$marker" '
+      index($0, "# >>> " marker) { print; inblk=1; next }
+      index($0, "# <<< " marker) { print; inblk=0; next }
       inblk { sub(/^# ?/, ""); print; next }
       { print }
     ' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
     git add "$f"
-  done < <(grep -rIl '# >>> eks' --exclude-dir .git --exclude deploy.sh .)
+  done < <(grep -rIl "# >>> ${marker}" --exclude-dir .git --exclude deploy.sh .)
+}
+
+# On EKS, uncomment the EKS-specific blocks in the app manifests (IRSA
+# serviceAccount annotations, AWS NLB annotations, ...). On non-EKS platforms
+# these AWS features don't exist, so the blocks stay commented.
+if [[ "$k8s_platform" == "eks" ]]; then
+  uncomment_blocks eks
   if ! git diff HEAD --quiet; then
     git commit -nm "Enabling EKS-specific annotation blocks"
+    git push
+  fi
+fi
+
+# Uncomment the Alertmanager -> Slack config in apps/kube-prometheus-stack. The
+# channel is set in its values.yaml; the webhook URL (the secret half) comes
+# from its helm_secrets.yaml.decrypted, which gets SOPS-encrypted further down.
+# ${var:-} so set -u doesn't kill the script on a variables.sh from before this
+# variable existed.
+if [[ "${slack_alerts:-false}" == "true" ]]; then
+  uncomment_blocks slack
+  if ! git diff HEAD --quiet; then
+    git commit -nm "Enabling Alertmanager Slack notifications"
     git push
   fi
 fi
