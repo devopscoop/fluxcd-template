@@ -9,7 +9,6 @@ namespace: kube-prometheus-stack
 
 resources:
   - namespace.yaml
-  - auth.secrets.yaml
   - ocirepo.yaml
   - release.yaml
   - grafana-httproute.yaml
