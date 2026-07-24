@@ -1,0 +1,24 @@
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: coraza
+  namespace: flux-system
+spec:
+  # The EnvoyExtensionPolicy needs the Envoy Gateway CRDs (installed by the eg
+  # HelmRelease) and targets the Gateway from eg-custom-resources, which
+  # already depends on eg.
+  dependsOn:
+    - name: eg-custom-resources
+  interval: 10m0s
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  path: apps/coraza
+  prune: true
+  wait: true
+  timeout: 5m0s
+  decryption:
+    provider: sops
+    secretRef:
+      name: sops-age
+  suspend: false
