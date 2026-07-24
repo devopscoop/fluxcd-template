@@ -1,0 +1,46 @@
+# OWASP Coraza (https://coraza.io/) is a ModSecurity-compatible WAF engine,
+# here compiled to a proxy-wasm filter (coraza-proxy-wasm) and attached to the
+# eg Gateway. It runs inside the existing data-plane Envoy pods, so every
+# HTTPRoute through the gateway is inspected with no sidecars, no extra hop,
+# and no new deployment. Envoy Gateway's controller pulls the wasm OCI image
+# and serves it to the Envoy fleet.
+#
+# The OWASP Core Rule Set (CRS) is embedded in the wasm image; the `Include @`
+# lines below resolve to files shipped inside it:
+#   - @recommended-conf: Coraza's baseline engine config (request/response
+#     body access, size limits, ...). It sets `SecRuleEngine DetectionOnly`,
+#     which is why the `SecRuleEngine On` line must stay AFTER it: On blocks
+#     attacks with a 403, DetectionOnly only logs them.
+#   - @crs-setup-conf: stock CRS setup — paranoia level 1, anomaly-scoring
+#     blocking mode.
+#   - @owasp_crs/*.conf: the CRS rules themselves.
+# Rule-match logs go to the Envoy proxy pods' logs (envoy-gateway-system).
+#
+# Tuning for false positives and per-host rule sets: see README.md.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyExtensionPolicy
+metadata:
+  name: coraza
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: eg
+  wasm:
+    - name: coraza
+      # failOpen false = if the wasm module fails to load or crashes, Envoy
+      # returns 500s instead of passing traffic around the WAF. Flip to true
+      # only if you'd rather serve unfiltered traffic than go down.
+      failOpen: false
+      code:
+        type: Image
+        image:
+          url: ghcr.io/corazawaf/coraza-proxy-wasm:0.6.0
+      config:
+        directives_map:
+          default:
+            - Include @recommended-conf
+            - SecRuleEngine On
+            - Include @crs-setup-conf
+            - Include @owasp_crs/*.conf
+        default_directives: default
