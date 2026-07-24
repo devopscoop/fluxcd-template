@@ -61,3 +61,19 @@ grafana:
       # Public URL Grafana uses when generating absolute links (e.g. Explore
       # short links); without it they point at the default localhost:3000.
       root_url: https://grafana.devops.coop/
+# On EKS the scheduler, controller-manager, and etcd run inside the AWS-managed
+# control plane and expose no metrics endpoints, and kube-proxy binds its
+# metrics to 127.0.0.1, so none of these targets can ever be scraped. Disable
+# them so their ServiceMonitors and permanently-firing absence alerts
+# (KubeSchedulerDown, KubeControllerManagerDown, KubeProxyDown, ...) go away.
+# On k0s/talos these components run on your own nodes, so leave them enabled.
+# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
+# kubeScheduler:
+#   enabled: false
+# kubeControllerManager:
+#   enabled: false
+# kubeEtcd:
+#   enabled: false
+# kubeProxy:
+#   enabled: false
+# <<< eks
