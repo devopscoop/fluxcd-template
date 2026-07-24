@@ -10,6 +10,11 @@ alertmanager:
       parentRefs:
         - name: eg
           namespace: envoy-gateway-system
+  alertmanagerSpec:
+    # Public URL Alertmanager uses when generating links (e.g. the title link in
+    # Slack notifications); without it they point at the internal service URL
+    # http://kube-prometheus-stack-alertmanager.kube-prometheus-stack:9093.
+    externalUrl: https://alertmanager.devops.coop
 # Send every alert to Slack. The channel below is not secret, but the webhook
 # URL is, so it lives in helm_secrets.yaml (alertmanager.config.global.slack_api_url),
 # which Flux merges over this file -- see valuesFrom in release.yaml.
@@ -35,6 +40,10 @@ prometheus:
       parentRefs:
         - name: eg
           namespace: envoy-gateway-system
+  prometheusSpec:
+    # Public URL for the "Source" links on alerts (generatorURL); without it
+    # they point at the internal service URL on port 9090.
+    externalUrl: https://prometheus.devops.coop
 grafana:
   # Provision the Loki store (apps/loki) as a datasource on this Grafana so logs
   # are queryable in Explore. Loki runs single-tenant, so no auth header needed.
