@@ -30,6 +30,14 @@ alertmanager:
 #         slack_configs:
 #           - channel: '#alerts' # TODO: replace with your Slack channel
 #             send_resolved: true
+#             # Alertmanager's default Slack message is only a terse title like
+#             # "[FIRING:2] (ns/pod critical)". Keep that as the headline, but
+#             # render each alert's summary, description, and runbook in the body.
+#             title: '{{ template "slack.default.title" . }}'
+#             text: |-
+#               {{ range .Alerts }}*{{ .Labels.alertname }}* `{{ .Labels.severity }}`{{ if .Annotations.summary }} — {{ .Annotations.summary }}{{ end }}
+#               {{ .Annotations.description }}{{ if .Annotations.runbook_url }} <{{ .Annotations.runbook_url }}|:book: runbook>{{ end }}
+#               {{ end }}
 # <<< slack
 prometheus:
   route:
