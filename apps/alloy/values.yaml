@@ -8,16 +8,6 @@ alloy:
   mounts:
     # Mount the node's /var/log so Alloy can read /var/log/pods/.../*.log.
     varlog: true
-  # Set the node name the discovery selector below filters on, rather than
-  # relying on whichever variable a given chart version happens to inject.
-  # sys.env() returns "" for an undefined variable instead of failing, so a
-  # missing value would silently produce "spec.nodeName=", match zero pods,
-  # and collect no logs at all while the DaemonSet still reports Ready.
-  extraEnv:
-    - name: K8S_NODE_NAME
-      valueFrom:
-        fieldRef:
-          fieldPath: spec.nodeName
   configMap:
     content: |-
       // Discover this node's pods (Alloy's ServiceAccount gets the
@@ -25,11 +15,10 @@ alloy:
       discovery.kubernetes "pods" {
         role = "pod"
 
-        // Watch only pods on the same node — K8S_NODE_NAME comes from
-        // spec.nodeName via alloy.extraEnv above. Without this, every DaemonSet
-        // pod watches every pod in the cluster, so API-server watch load grows
-        // quadratically with cluster size. Tailing is node-local anyway
-        // (__path__ below).
+        // Watch only pods on the same node — the chart injects K8S_NODE_NAME
+        // from spec.nodeName. Without this, every DaemonSet pod watches every
+        // pod in the cluster, so API-server watch load grows quadratically
+        // with cluster size. Tailing is node-local anyway (__path__ below).
         selectors {
           role  = "pod"
           field = "spec.nodeName=" + sys.env("K8S_NODE_NAME")

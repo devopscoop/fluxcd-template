@@ -12,11 +12,7 @@ them with Kubernetes metadata, and pushes them to Loki (`apps/loki`).
 - Pod-discovery RBAC is created by the chart (`rbac.create` default `true`).
 - Discovery is node-scoped (`spec.nodeName` field selector): each DaemonSet
   pod watches only its own node's pods, so API-server watch load stays flat
-  as the cluster grows. The node name reaches the config as `K8S_NODE_NAME`,
-  set from the downward API by `alloy.extraEnv` in `values.yaml` — don't
-  remove it, as an unset value makes the selector match no pods at all
-  (`sys.env` returns an empty string rather than failing) and log collection
-  stops with the DaemonSet still reporting Ready.
+  as the cluster grows.
 - This only collects logs. To also gather metrics/traces with the same agent,
   extend the River config with `prometheus.*` / `otelcol.*` components.
 
