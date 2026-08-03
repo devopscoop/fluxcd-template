@@ -10,10 +10,19 @@ alloy:
     varlog: true
   configMap:
     content: |-
-      // Discover every pod in the cluster (Alloy's ServiceAccount gets the
+      // Discover this node's pods (Alloy's ServiceAccount gets the
       // necessary read RBAC from the chart's rbac.create=true default).
       discovery.kubernetes "pods" {
         role = "pod"
+
+        // Watch only pods on the same node — the chart injects K8S_NODE_NAME
+        // from spec.nodeName. Without this, every DaemonSet pod watches every
+        // pod in the cluster, so API-server watch load grows quadratically
+        // with cluster size. Tailing is node-local anyway (__path__ below).
+        selectors {
+          role  = "pod"
+          field = "spec.nodeName=" + sys.env("K8S_NODE_NAME")
+        }
       }
 
       // Turn pod metadata into labels and the on-disk log path.
