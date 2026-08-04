@@ -87,6 +87,15 @@ alloy:
             expressions = { level = "level" }
           }
 
+          // Normalize case so each level has exactly one label value — some
+          // apps log level="INFO" (e.g. the kiwigrid/k8s-sidecar containers
+          // in kube-prometheus-stack and loki). Lines without a level field
+          // are unaffected: they still get no label.
+          stage.template {
+            source   = "level"
+            template = "{{ ToLower .Value }}"
+          }
+
           // level is the field ops queries filter on, and it is bounded
           // (trace/debug/info/warn(ing)/error/fatal), so it is safe as an
           // index label: Loki skips chunks instead of scanning them, and

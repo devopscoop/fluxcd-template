@@ -23,6 +23,8 @@ the CRI envelope (`2026-01-01T00:00:00Z stderr F {...}`) is unwrapped, so the
 stored line is the container's own output and a bare `| json` works at query
 time, and the JSON `level` field is promoted to a Loki index label — so
 `{namespace="x", level="error"}` skips chunks instead of scanning them.
+The level is lowercased first (`INFO` → `info`), so each level maps to
+exactly one label value regardless of the app's casing convention.
 Plain-text log lines are stored unchanged, CRI envelope included.
 
 To promote additional (org-specific) JSON fields, add them to
