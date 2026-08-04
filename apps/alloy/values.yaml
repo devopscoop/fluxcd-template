@@ -69,22 +69,38 @@ alloy:
         forward_to = [loki.process.pod_logs.receiver]
       }
 
-      // Parse JSON app logs at ingest, so queries can filter on level via the
+      // Parse pod logs at ingest, so queries can filter on level via the
       // index instead of re-parsing every line at query time.
       loki.process "pod_logs" {
-        // Only touch lines that are actually JSON (CRI envelope followed by
-        // "{") — plain-text loggers pass through unchanged, keeping their
-        // stored format stable and generating no parse noise.
-        stage.match {
-          selector = "{namespace=~\".+\"} |~ \"^[^ ]+ std(out|err) [FP] \\\\{\""
+        // Unwrap the CRI envelope on every line: takes the real timestamp
+        // from it, reassembles long lines the runtime split into P…P F
+        // chunks (containerd splits at 16k), and stores the container's own
+        // output, so a bare `| json` works at query time. This stage must
+        // see EVERY entry of a stream, never a content-filtered subset: it
+        // buffers P chunks (keyed by stream) until the F chunk arrives, so
+        // an entry that bypasses it pairs the buffer with the wrong line.
+        // Non-CRI-formatted lines pass through untouched.
+        stage.cri {}
 
-          // Unwrap the CRI envelope: takes the real timestamp from it and
-          // replaces the stored line with the container's own output, so a
-          // bare `| json` works at query time.
-          stage.cri {}
+        // Only parse lines that are actually JSON — bare after the CRI
+        // unwrap — so plain-text loggers generate no parse noise.
+        stage.match {
+          selector = "{namespace=~\".+\"} |~ \"^\\\\{\""
 
           stage.json {
             expressions = { level = "level" }
+          }
+
+          // Normalize case so each level has exactly one label value — some
+          // apps log level="INFO" (e.g. the kiwigrid/k8s-sidecar containers
+          // in kube-prometheus-stack and loki). Lines without a level field
+          // still get no label: when the template renders "" (missing or
+          // empty level — the if-guard keeps ToLower off a missing value),
+          // stage.template deletes the key from the extracted map instead of
+          // storing "", so stage.labels has nothing to promote.
+          stage.template {
+            source   = "level"
+            template = "{{ if .Value }}{{ ToLower .Value }}{{ end }}"
           }
 
           // level is the field ops queries filter on, and it is bounded
