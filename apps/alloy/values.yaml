@@ -90,10 +90,13 @@ alloy:
           // Normalize case so each level has exactly one label value — some
           // apps log level="INFO" (e.g. the kiwigrid/k8s-sidecar containers
           // in kube-prometheus-stack and loki). Lines without a level field
-          // are unaffected: they still get no label.
+          // still get no label: when the template renders "" (missing or
+          // empty level — the if-guard keeps ToLower off a missing value),
+          // stage.template deletes the key from the extracted map instead of
+          // storing "", so stage.labels has nothing to promote.
           stage.template {
             source   = "level"
-            template = "{{ ToLower .Value }}"
+            template = "{{ if .Value }}{{ ToLower .Value }}{{ end }}"
           }
 
           // level is the field ops queries filter on, and it is bounded
