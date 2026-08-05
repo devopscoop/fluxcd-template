@@ -100,7 +100,7 @@ alloy:
           // storing "", so stage.labels has nothing to promote.
           stage.template {
             source   = "level"
-            template = "{{ if .Value }}{{ ToLower .Value }}{{ end }}"
+            template = "{{ `{{ if .Value }}{{ ToLower .Value }}{{ end }}` }}"
           }
 
           // level is the field ops queries filter on, and it is bounded
