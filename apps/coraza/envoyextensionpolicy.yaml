@@ -40,6 +40,13 @@ spec:
         directives_map:
           default:
             - Include @recommended-conf
+            # recommended-conf turns response body inspection on, which makes
+            # Envoy buffer text/html responses whole. Anything bigger than the
+            # listener's per-connection buffer limit (32KiB default) gets its
+            # stream reset AFTER the 200 headers went out — browsers surface
+            # that as a dropped/insecure connection. Request inspection (the
+            # attack surface) is unaffected by turning it off.
+            - SecResponseBodyAccess Off
             - SecRuleEngine On
             - Include @crs-setup-conf
             - Include @owasp_crs/*.conf
