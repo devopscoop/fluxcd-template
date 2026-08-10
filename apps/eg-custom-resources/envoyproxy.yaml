@@ -29,6 +29,19 @@
 #     and routable regardless of pod placement (bills inter-AZ data transfer).
 #   - scheme: internal is the safe default. Change to internet-facing for a
 #     public gateway.
+#   - healthcheck-protocol/port/path: the controller's default NLB health
+#     check is a TCP connect on traffic-port, which can't tell "listening"
+#     from "serving" — a replica that accepts connections but fails every
+#     request (e.g. a wasm filter stuck fail-closed) stays in rotation
+#     indefinitely. Probe GET /healthz instead (answered by
+#     httproute-healthz.yaml through the listener's full filter chain) on
+#     10080, the container port Envoy Gateway maps the port-80 listener to
+#     (privileged listener ports get +10000). Health-check annotations apply
+#     to every target group of the Service, so the 443 targets are probed on
+#     10080 too: one health verdict per replica, exactly what we want for
+#     ejecting a broken pod. If you remove the Gateway's port-80 listener or
+#     the healthz route, remove these three annotations as well — otherwise
+#     every target goes unhealthy.
 apiVersion: gateway.envoyproxy.io/v1alpha1
 kind: EnvoyProxy
 metadata:
@@ -69,4 +82,7 @@ spec:
 #           service.beta.kubernetes.io/aws-load-balancer-scheme: internal
 #           service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
 #           service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
+#           service.beta.kubernetes.io/aws-load-balancer-healthcheck-protocol: http
+#           service.beta.kubernetes.io/aws-load-balancer-healthcheck-port: "10080"
+#           service.beta.kubernetes.io/aws-load-balancer-healthcheck-path: /healthz
 # <<< eks
