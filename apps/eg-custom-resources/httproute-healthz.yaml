@@ -1,0 +1,52 @@
+# Health-check endpoint for external load balancers: GET /healthz on the
+# port-80 listener, answered 200 "ok" by Envoy itself (direct response, no
+# backend). Point LB health checks here (on EKS, the aws-load-balancer-
+# healthcheck-* annotations in envoyproxy.yaml do exactly that) instead of at
+# a TCP connect or Envoy's admin /ready on 19001 — those only prove the
+# process is listening. This request instead traverses the listener's FULL
+# HTTP filter chain, the same one real traffic takes, including any policies
+# attached to the Gateway (e.g. the coraza wasm filter). A replica that
+# accepts connections but fails requests inside the chain — a wasm filter
+# stuck fail-closed 503s every request, /ready stays green — fails this check
+# and gets ejected from the load balancer. (Envoy Gateway's ClientTrafficPolicy
+# healthCheck can't do this either: it injects Envoy's health_check filter
+# FIRST in the chain, before wasm, precisely so it ignores such failures.)
+#
+# Routing: the route declares no hostname, so for any host that has its own
+# route on this listener the app's (more hostname-specific) route still wins,
+# /healthz included. This only answers for otherwise-unmatched authorities —
+# such as LB health checkers, which send the bare target IP as Host. With
+# coraza enabled, that IP-as-Host request scores 3 (CRS rule 920350) at
+# paranoia level 1, under the default inbound anomaly threshold of 5, so
+# health checks are not blocked.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: HTTPRouteFilter
+metadata:
+  name: eg-healthz
+spec:
+  directResponse:
+    contentType: text/plain
+    statusCode: 200
+    body:
+      type: Inline
+      inline: ok
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: eg-healthz
+spec:
+  parentRefs:
+    - name: eg
+      sectionName: http
+  rules:
+    - matches:
+        - path:
+            type: Exact
+            value: /healthz
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: gateway.envoyproxy.io
+            kind: HTTPRouteFilter
+            name: eg-healthz
