@@ -10,11 +10,10 @@
 # flipping the scheme later is a two-line parametersRef, not a rename (a
 # Gateway rename is delete+create: new fleet, new LB, DNS cutover).
 #
-# Supporting/ops services (monitoring UIs and the like) are commonly split
-# onto a second internal Gateway so they never ride an internet-facing LB:
-# copy this file as gateway-private.yaml, name the Gateway eg-private (the
-# class default EnvoyProxy already keeps it internal), give it a healthz
-# route like httproute-healthz-public.yaml, and rebind their HTTPRoutes.
+# Supporting/ops services (monitoring UIs and the like) live on the
+# always-internal eg-private Gateway (gateway-private.yaml) instead, so they
+# never ride an internet-facing LB. Route customer-facing apps here, ops
+# tooling there.
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:

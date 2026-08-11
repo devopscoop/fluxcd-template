@@ -7,4 +7,6 @@ resources:
   - gatewayclass.yaml
   - envoyproxy.yaml
   - gateway-public.yaml
+  - gateway-private.yaml
   - httproute-healthz-public.yaml
+  - httproute-healthz-private.yaml

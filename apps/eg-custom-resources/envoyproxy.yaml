@@ -55,9 +55,11 @@
 #     to every target group of the Service, so the 443 targets are probed on
 #     10080 too: one health verdict per replica, exactly what we want for
 #     ejecting a broken pod. Every Gateway using an EnvoyProxy with these
-#     annotations needs a port-80 http listener and a healthz route (reuse the
-#     eg-healthz HTTPRouteFilter and copy the HTTPRoute per Gateway) —
-#     otherwise every one of its targets goes unhealthy.
+#     annotations needs a port-80 http listener and a healthz route — the two
+#     shipped Gateways have theirs (httproute-healthz-public.yaml /
+#     httproute-healthz-private.yaml); give any Gateway you add its own copy
+#     reusing the shared eg-healthz HTTPRouteFilter — otherwise every one of
+#     its targets goes unhealthy.
 apiVersion: gateway.envoyproxy.io/v1alpha1
 kind: EnvoyProxy
 metadata:

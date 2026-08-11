@@ -8,7 +8,7 @@ alertmanager:
       hostnames:
         - alertmanager.devops.coop
       parentRefs:
-        - name: eg-public
+        - name: eg-private
           namespace: envoy-gateway-system
   alertmanagerSpec:
     # Public URL Alertmanager uses when generating links (e.g. the title link in
@@ -46,7 +46,7 @@ prometheus:
       hostnames:
         - prometheus.devops.coop
       parentRefs:
-        - name: eg-public
+        - name: eg-private
           namespace: envoy-gateway-system
   prometheusSpec:
     # Public URL for the "Source" links on alerts (generatorURL); without it
