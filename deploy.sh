@@ -154,10 +154,10 @@ case "$k8s_platform" in
     app_list="metrics-server.yaml aws-load-balancer-controller.yaml eks-storage-classes.yaml cluster-viewers.yaml"
     ;;
   k0s)
-    app_list="metallb.yaml metallb-custom-resources.yaml rook-ceph.yaml rook-ceph-cluster.yaml"
+    app_list="metallb.yaml metallb-custom-resources.yaml rook-ceph.yaml rook-ceph-cluster.yaml eg.yaml eg-custom-resources.yaml"
     ;;
   talos)
-    app_list="metallb.yaml metallb-custom-resources.yaml"
+    app_list="metallb.yaml metallb-custom-resources.yaml eg.yaml eg-custom-resources.yaml"
     ;;
   *)
     echo "ERROR: k8s_platform invalid" >&2

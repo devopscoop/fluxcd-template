@@ -10,6 +10,15 @@
 #     - 2404:84fb:c58f:f09a:80bd:25b1:ef06:2371/128
 #   autoAssign: false
 ---
+# Size this pool for every LoadBalancer Service in the cluster: MetalLB needs
+# one address per requested ipFamily PER SERVICE, and a Service that can't
+# get one sits <pending> forever — a silent failure (nothing pages; external-
+# dns publishes no records for it). The Envoy Gateway app alone creates one
+# Service per Gateway: gateway-public.yaml and gateway-private.yaml (both
+# ipFamily: IPv6 via eg-custom-resources/envoyproxy.yaml) need two IPv6
+# addresses between them, which is why two of each family are listed below.
+# Sharing one address is not an option there: metallb.io/allow-shared-ip
+# requires non-overlapping ports, and both Envoy fleets listen on 80/443.
 apiVersion: metallb.io/v1beta1
 kind: IPAddressPool
 metadata:
@@ -19,4 +28,6 @@ spec:
   addresses:
   # TODO: don't hardcode these...
   - 10.16.23.9/32
+  - 10.16.23.10/32
   - 2404:84fb:c58f:f09a:80bd:25b1:ef06:2371/128
+  - 2404:84fb:c58f:f09a:80bd:25b1:ef06:2372/128
