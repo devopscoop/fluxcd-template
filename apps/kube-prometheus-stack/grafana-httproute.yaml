@@ -4,7 +4,7 @@ metadata:
   name: grafana
 spec:
   parentRefs:
-    - name: eg
+    - name: eg-public
       namespace: envoy-gateway-system
   hostnames:
     - grafana.devops.coop
