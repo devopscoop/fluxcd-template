@@ -24,7 +24,7 @@ metadata:
 spec:
   targetRefs:
     # eg-public only. The eg-private Gateway has its own policy
-    # (envoyextensionpolicy-private.yaml), in DetectionOnly.
+    # (envoyextensionpolicy-private.yaml), also enforcing (but failing open).
     - group: gateway.networking.k8s.io
       kind: Gateway
       name: eg-public

@@ -10,14 +10,14 @@ Why this one:
 
 ## Coverage
 
-Two policies, so the public Gateway can enforce while the private one stays in observation:
+Both Gateways enforce (403 on a CRS match); the two policies differ only in the target Gateway and how a wasm-filter failure is handled (`failOpen`):
 
 | Policy | File | Gateway | Mode | `failOpen` |
 |---|---|---|---|---|
 | `coraza-public` | `envoyextensionpolicy-public.yaml` | `eg-public` | `SecRuleEngine On` — matches get a **403** | `false` (fail closed) |
-| `coraza-private` | `envoyextensionpolicy-private.yaml` | `eg-private` | `SecRuleEngine DetectionOnly` — matches are **logged only** | `true` (fail open) |
+| `coraza-private` | `envoyextensionpolicy-private.yaml` | `eg-private` | `SecRuleEngine On` — matches get a **403** | `true` (fail open) |
 
-`eg-private` fronts the supporting/ops services (grafana, prometheus, ...), which never ride an internet-facing LB, so its policy is defense-in-depth and starts in DetectionOnly — those apps are the most false-positive-prone. Validate against the logs, tune, then promote to enforcing per host if desired.
+`eg-private` fronts the supporting/ops services (grafana, prometheus, ...), which never ride an internet-facing LB. It enforces like the public policy but **fails open** (`failOpen: true`): a wasm-filter failure must not take the internal ops/alerting UIs down — you need them most during an incident, and this is VPN-only, defense-in-depth traffic. Those apps are also the most false-positive-prone (dashboard JSON, query strings), so watch the logs after enabling and add per-rule/per-host exclusions as needed.
 
 ## Enabling
 
@@ -80,5 +80,5 @@ config:
 - Response body inspection is off (`SecResponseBodyAccess Off`). Inspecting responses makes the filter buffer every text/html body whole, and Envoy resets any stream whose body exceeds the listener's per-connection buffer limit (32KiB by default) — after the response headers have already been sent, so browsers report a dropped or insecure connection instead of an error page (this silently broke Grafana's authenticated pages). Only the CRS response-leakage rules (RESPONSE-95x) depend on it; request inspection is unaffected. To re-enable it, raise the buffer with a `ClientTrafficPolicy` `connection.bufferLimit` ≥ `SecResponseBodyLimit` first.
 - CRS rule `920350` ("Host header is a numeric IP address") is dropped for the `/healthz` path via a `ctl:ruleRemoveById` exclusion. Load balancers health-check the Envoy fleets by IP, so every probe carries a numeric-IP Host header and would otherwise log a 920350 warning on each check — high volume, no signal. The exclusion is scoped to `/healthz`, so the rule still fires on real traffic. It is placed before the `@owasp_crs` include because 920350 is a phase-1 rule and `ctl:ruleRemoveById` only affects rules evaluated later in the same phase.
 - The wasm image pins CRS: coraza-proxy-wasm 0.6.0 ships Coraza v3.3.3 + CRS v4.14.0. Upgrading the WAF or the rules = bumping the image tag.
-- `failOpen` differs by policy on purpose. The enforcing public policy uses `failOpen: false` (the default): a broken/unfetchable wasm module fails closed (500s) rather than serve unfiltered traffic. The DetectionOnly private policy uses `failOpen: true`: since it never blocks anyway, a wasm failure must not take down the ops UIs — it fails open and passes traffic.
+- `failOpen` differs by policy on purpose. Both policies enforce, but the internet-facing public policy uses `failOpen: false` (the default): a broken/unfetchable wasm module fails closed (500s) rather than serve unfiltered traffic. The private policy uses `failOpen: true`: a wasm failure must not take down the internal (VPN-only) ops/alerting UIs, so it fails open and passes traffic — availability over strict enforcement for defense-in-depth traffic.
 - This filters north-south traffic at the gateway only. In-cluster (east-west) traffic and any Service exposed via LoadBalancer/NodePort outside the gateway are not covered.

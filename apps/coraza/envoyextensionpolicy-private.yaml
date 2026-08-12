@@ -1,19 +1,18 @@
-# DetectionOnly Coraza WAF for the eg-private Gateway — the supporting/ops
-# services (grafana, prometheus, alertmanager, ...) that never ride an
-# internet-facing LB. Separate policy from the public one
-# (envoyextensionpolicy-public.yaml) because it differs in two deliberate ways:
-#   - Mode. The public policy enforces (SecRuleEngine On → 403). This one is
-#     DetectionOnly: every CRS match is LOGGED, nothing is blocked. An
-#     EnvoyExtensionPolicy carries a single engine mode, so the two can't share
-#     a policy. Private ops UIs are the most false-positive-prone surface
-#     (Grafana dashboard JSON, Prometheus/Flux query strings), so start in
-#     observation: read the logs, tune, then promote to enforcing per host if
-#     desired (see README.md).
-#   - failOpen. The public policy is failOpen:false (if the WAF can't load,
-#     fail closed rather than serve unfiltered traffic — an acceptable trade at
-#     the internet-facing edge). This one is failOpen:TRUE: it never blocks
-#     anyway, so a wasm load/fetch failure must not take the ops UIs down. On a
-#     wasm failure, pass traffic through.
+# Enforcing Coraza WAF for the eg-private Gateway — the supporting/ops services
+# (grafana, prometheus, alertmanager, ...) that never ride an internet-facing
+# LB. Same enforcing engine as the public policy (SecRuleEngine On → 403, in
+# envoyextensionpolicy-public.yaml); a separate policy because it targets a
+# different Gateway and, deliberately, fails OPEN:
+#   - failOpen TRUE (public is failOpen:false). If the coraza wasm fails to load
+#     or crashes, eg-private passes traffic rather than 5xx-ing, so a WAF glitch
+#     cannot take down the internal ops/alerting UIs — the tools you need MOST
+#     during an incident. This is VPN-only, defense-in-depth traffic, so
+#     availability wins over failing closed here; the internet-facing public
+#     policy makes the opposite trade.
+#   - Enforcing at CRS paranoia level 1 will 403 real requests that trip a rule.
+#     Ops UIs are the most false-positive-prone surface (Grafana dashboard JSON,
+#     Prometheus/Flux query strings), so watch the logs after enabling and add
+#     per-rule/per-host exclusions as needed (see README.md).
 #
 # Everything else (pinned wasm image, SecResponseBodyAccess Off, the /healthz
 # 920350 exclusion) matches the public policy — see the comments there.
@@ -28,7 +27,7 @@ spec:
       name: eg-private
   wasm:
     - name: coraza
-      # failOpen true: a log-only WAF must not take the service down. See header.
+      # failOpen true: keep the internal ops UIs up if the wasm fails. See header.
       failOpen: true
       code:
         type: Image
@@ -39,7 +38,7 @@ spec:
           default:
             - Include @recommended-conf
             - SecResponseBodyAccess Off
-            - SecRuleEngine DetectionOnly
+            - SecRuleEngine On
             - Include @crs-setup-conf
             # /healthz is health-checked by IP, tripping CRS 920350 on every
             # probe — dropped here exactly as in the public policy.
