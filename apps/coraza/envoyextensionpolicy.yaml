@@ -1,7 +1,7 @@
 # OWASP Coraza (https://coraza.io/) is a ModSecurity-compatible WAF engine,
 # here compiled to a proxy-wasm filter (coraza-proxy-wasm) and attached to the
-# eg-public Gateway. It runs inside the existing data-plane Envoy pods, so every
-# HTTPRoute through the gateway is inspected with no sidecars, no extra hop,
+# eg-public and eg-private Gateways. It runs inside the existing data-plane Envoy
+# pods, so every HTTPRoute through them is inspected with no sidecars, no extra hop,
 # and no new deployment. Envoy Gateway's controller pulls the wasm OCI image
 # and serves it to the Envoy fleet.
 #
@@ -20,14 +20,16 @@
 apiVersion: gateway.envoyproxy.io/v1alpha1
 kind: EnvoyExtensionPolicy
 metadata:
-  name: coraza-public
+  name: coraza
 spec:
   targetRefs:
-    # eg-public only. The eg-private Gateway has its own policy
-    # (envoyextensionpolicy-private.yaml), also enforcing (but failing open).
+    # One policy, both Gateways — same enforcing, fail-closed WAF on each.
     - group: gateway.networking.k8s.io
       kind: Gateway
       name: eg-public
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: eg-private
   wasm:
     - name: coraza
       # failOpen false = if the wasm module fails to load or crashes, Envoy
