@@ -51,5 +51,13 @@ spec:
             - SecResponseBodyAccess Off
             - SecRuleEngine On
             - Include @crs-setup-conf
+            # The load balancer health-checks each Envoy fleet by IP on
+            # /healthz, so the probe's Host header is a numeric IP — which trips
+            # CRS 920350 ("Host header is a numeric IP address") on every check.
+            # Pure noise, no signal. Drop 920350 for the health-check path only,
+            # leaving it active for real traffic. This MUST precede the CRS
+            # include: 920350 is phase 1, and ctl:ruleRemoveById only skips
+            # rules that run later in the phase (i.e. defined after this one).
+            - 'SecRule REQUEST_URI "@beginsWith /healthz" "id:10001,phase:1,pass,nolog,ctl:ruleRemoveById=920350"'
             - Include @owasp_crs/*.conf
         default_directives: default
