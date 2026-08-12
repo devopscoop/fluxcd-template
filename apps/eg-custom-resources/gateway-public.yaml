@@ -3,7 +3,7 @@
 # (hostname + TLS, typically issued by cert-manager) and restrict allowedRoutes
 # to suit. See https://gateway.envoyproxy.io/docs/tasks/security/tls-cert-manager/
 #
-# Despite the name, this Gateway starts INTERNAL: it sits on the GatewayClass
+# Despite the name, this Gateway starts PRIVATE: it sits on the GatewayClass
 # default EnvoyProxy (eg-private) until you attach the eg-public EnvoyProxy
 # stub via spec.infrastructure.parametersRef (snippet in envoyproxy.yaml).
 # The name says what it is FOR — the listeners you expose to users — so
@@ -11,7 +11,7 @@
 # Gateway rename is delete+create: new fleet, new LB, DNS cutover).
 #
 # Supporting/ops services (monitoring UIs and the like) live on the
-# always-internal eg-private Gateway (gateway-private.yaml) instead, so they
+# always-private eg-private Gateway (gateway-private.yaml) instead, so they
 # never ride an internet-facing LB. Route customer-facing apps here, ops
 # tooling there.
 apiVersion: gateway.networking.k8s.io/v1

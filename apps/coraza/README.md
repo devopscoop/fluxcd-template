@@ -14,7 +14,7 @@ Two policies, so the public Gateway can enforce while the private one stays in o
 
 | Policy | File | Gateway | Mode | `failOpen` |
 |---|---|---|---|---|
-| `coraza` | `envoyextensionpolicy-public.yaml` | `eg-public` | `SecRuleEngine On` — matches get a **403** | `false` (fail closed) |
+| `coraza-public` | `envoyextensionpolicy-public.yaml` | `eg-public` | `SecRuleEngine On` — matches get a **403** | `false` (fail closed) |
 | `coraza-private` | `envoyextensionpolicy-private.yaml` | `eg-private` | `SecRuleEngine DetectionOnly` — matches are **logged only** | `true` (fail open) |
 
 `eg-private` fronts the supporting/ops services (grafana, prometheus, ...), which never ride an internet-facing LB, so its policy is defense-in-depth and starts in DetectionOnly — those apps are the most false-positive-prone. Validate against the logs, tune, then promote to enforcing per host if desired.
@@ -30,7 +30,7 @@ yq -i '.resources = (.resources + ["coraza.yaml"] | unique)' flux/flux-system/ku
 Verify it attached (`Accepted: True`):
 
 ```bash
-kubectl -n envoy-gateway-system get envoyextensionpolicy coraza -o yaml
+kubectl -n envoy-gateway-system get envoyextensionpolicy coraza-public -o yaml
 ```
 
 Then confirm it blocks. With something routable through the gateway:

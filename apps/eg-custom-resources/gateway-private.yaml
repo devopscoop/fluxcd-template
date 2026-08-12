@@ -1,6 +1,6 @@
 # PRIVATE Gateway: supporting/ops services (grafana, prometheus, alertmanager,
 # and the like) live here so they never ride an internet-facing LB. It stays
-# internal via the GatewayClass default EnvoyProxy (eg-private) — unlike
+# private via the GatewayClass default EnvoyProxy (eg-private) — unlike
 # eg-public (gateway-public.yaml), nothing should ever attach the eg-public
 # EnvoyProxy to this Gateway. Like the starting public Gateway it ships with
 # just the http listener; add HTTPS listeners per cluster (hostname + TLS,

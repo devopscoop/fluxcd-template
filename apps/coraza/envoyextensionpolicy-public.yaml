@@ -20,7 +20,7 @@
 apiVersion: gateway.envoyproxy.io/v1alpha1
 kind: EnvoyExtensionPolicy
 metadata:
-  name: coraza
+  name: coraza-public
 spec:
   targetRefs:
     # eg-public only. The eg-private Gateway has its own policy

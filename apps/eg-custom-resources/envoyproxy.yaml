@@ -9,7 +9,7 @@
 #
 # The eg-public EnvoyProxy is a stub: defined and HA-ready, but the starting
 # eg-public Gateway (gateway-public.yaml) deliberately does NOT reference it,
-# so a fresh cluster comes up internal-only. When ready to expose it, attach
+# so a fresh cluster comes up private-only. When ready to expose it, attach
 # the stub in gateway-public.yaml:
 #   spec:
 #     infrastructure:
