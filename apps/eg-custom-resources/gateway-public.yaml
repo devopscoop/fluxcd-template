@@ -5,7 +5,7 @@
 #
 # Despite the name, this Gateway starts PRIVATE: it sits on the GatewayClass
 # default EnvoyProxy (eg-private) until you attach the eg-public EnvoyProxy
-# stub via spec.infrastructure.parametersRef (snippet in envoyproxy.yaml).
+# stub via spec.infrastructure.parametersRef (snippet in envoyproxy-public.yaml).
 # The name says what it is FOR — the listeners you expose to users — so
 # flipping the scheme later is a two-line parametersRef, not a rename (a
 # Gateway rename is delete+create: new fleet, new LB, DNS cutover).

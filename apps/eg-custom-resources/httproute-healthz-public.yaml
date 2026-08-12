@@ -1,7 +1,7 @@
 # Health-check endpoint for external load balancers: GET /healthz on the
 # eg-public Gateway's port-80 listener, answered 200 "ok" by Envoy itself
 # (direct response, no backend). Point LB health checks here (on EKS, the
-# aws-load-balancer-healthcheck-* annotations in envoyproxy.yaml do exactly
+# aws-load-balancer-healthcheck-* annotations in envoyproxy-public.yaml / -private.yaml do exactly
 # that) instead of at
 # a TCP connect or Envoy's admin /ready on 19001 — those only prove the
 # process is listening. This request instead traverses the listener's FULL

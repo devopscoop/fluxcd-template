@@ -7,7 +7,7 @@
 # typically issued by cert-manager) and restrict allowedRoutes to suit.
 #
 # The port-80 listener also answers the LB health check via
-# httproute-healthz-private.yaml (see the healthcheck notes in envoyproxy.yaml).
+# httproute-healthz-private.yaml (see the healthcheck notes in envoyproxy-private.yaml).
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
