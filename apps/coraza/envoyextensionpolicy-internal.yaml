@@ -1,0 +1,59 @@
+# DetectionOnly Coraza WAF for the private Gateway: eg-private fronts the ops
+# UIs (grafana, prometheus, alertmanager, and the like) behind an internal
+# load balancer, so this is defense-in-depth — a compromised VPN client, a
+# malicious insider, or an in-cluster SSRF pivot — not perimeter protection.
+#
+# Separate policy from the public one (envoyextensionpolicy.yaml) on purpose —
+# and necessarily so: a Gateway accepts only ONE EnvoyExtensionPolicy (when two
+# target the same Gateway, the oldest wins and the newer is reported
+# Conflicted), which is why eg-private is targeted here and NOT in
+# envoyextensionpolicy.yaml.
+#   - Mode differs. Public enforces (SecRuleEngine On → 403). Here the engine
+#     is DetectionOnly: every CRS match is LOGGED, nothing is blocked. Start in
+#     observation; these targets are false-positive prone (Grafana dashboard
+#     JSON, Prometheus/Flux query strings — payloads CRS was never tuned for).
+#     Read the logs the way public was validated, tune, and only then consider
+#     enforcing — see README.md.
+#   - failOpen differs. Public is failOpen:false (if the WAF can't load, fail
+#     closed rather than serve unfiltered traffic — an acceptable trade for a
+#     security boundary). Here it is failOpen:TRUE: this WAF never blocks, so a
+#     wasm load/fetch failure taking down grafana/prometheus/flux would be pure
+#     downside (the initial wasm image fetch is exactly such a window). On a
+#     wasm failure, pass traffic through.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyExtensionPolicy
+metadata:
+  name: coraza-internal
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: eg-private
+  wasm:
+    - name: coraza
+      # failOpen true: a log-only WAF must not take the service down. See header.
+      failOpen: true
+      code:
+        type: Image
+        image:
+          url: ghcr.io/corazawaf/coraza-proxy-wasm:0.6.0
+      config:
+        directives_map:
+          default:
+            - Include @recommended-conf
+            # Same rationale as the public policy: response-body inspection
+            # buffers whole text/html bodies and resets any stream over the
+            # listener's 32KiB bufferLimit after headers are sent. Off keeps
+            # request inspection (the attack surface) intact.
+            - SecResponseBodyAccess Off
+            - SecRuleEngine DetectionOnly
+            - Include @crs-setup-conf
+            # Same health-check exclusion as the public policy: the internal LB
+            # probes /healthz by IP (httproute-healthz-private.yaml), so every
+            # probe's numeric-IP Host header would log CRS 920350 — noise that
+            # drowns the very observation logs this DetectionOnly phase exists
+            # to read. Must precede the CRS include: 920350 is phase 1, and
+            # ctl:ruleRemoveById only skips rules defined after it.
+            - 'SecRule REQUEST_URI "@beginsWith /healthz" "id:10001,phase:1,pass,nolog,ctl:ruleRemoveById=920350"'
+            - Include @owasp_crs/*.conf
+        default_directives: default

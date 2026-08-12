@@ -7,3 +7,4 @@ namespace: envoy-gateway-system
 
 resources:
   - envoyextensionpolicy.yaml
+  - envoyextensionpolicy-internal.yaml

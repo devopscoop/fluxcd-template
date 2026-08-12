@@ -10,9 +10,12 @@ Why this one:
 
 ## Coverage
 
-A single `coraza` `EnvoyExtensionPolicy` (`envoyextensionpolicy.yaml`) attaches to **both** Gateways — `eg-public` and `eg-private` — via a two-entry `targetRefs`, with identical config on each: `SecRuleEngine On` (matches get a **403**) and `failOpen: false` (fail closed — a wasm-filter failure returns 5xx rather than serving unfiltered traffic).
+Two `EnvoyExtensionPolicy` resources, one per Gateway. The split is required, not stylistic: a Gateway accepts only one `EnvoyExtensionPolicy` (when two target the same Gateway, the oldest wins and the newer is reported `Conflicted`), and the two Gateways need different modes:
 
-`eg-private` fronts internal, VPN-only ops services (grafana, prometheus, ...) — the most false-positive-prone surface (dashboard JSON, query strings). Since it now fails closed like `eg-public`, a wasm-filter failure will 5xx those ops UIs too, so watch the logs after enabling and add per-rule/per-host exclusions as needed. To instead keep the ops UIs up on a WAF failure, split `eg-private` into its own policy with `failOpen: true`.
+- `envoyextensionpolicy.yaml` → `eg-public`, **enforcing**: `SecRuleEngine On` (matches get a **403**) and `failOpen: false` (fail closed — a wasm-filter failure returns 5xx rather than serving unfiltered traffic).
+- `envoyextensionpolicy-internal.yaml` → `eg-private`, **detection-only**: every CRS match is logged, nothing is blocked, and `failOpen: true` (a log-only filter must not take the ops UIs down on a wasm failure).
+
+`eg-private` fronts internal, VPN-only ops services (grafana, prometheus, ...) — the most false-positive-prone surface (dashboard JSON, query strings), which is why it starts in observation. Read its logs after enabling, add per-rule/per-host exclusions as needed, and only then consider switching it to `SecRuleEngine On` (and decide whether fail-closed is acceptable for the ops UIs at the same time).
 
 ## Enabling
 
@@ -22,10 +25,10 @@ Requires `eg` and `eg-custom-resources` (the flux Kustomization has a `dependsOn
 yq -i '.resources = (.resources + ["coraza.yaml"] | unique)' flux/flux-system/kustomization.yaml
 ```
 
-Verify it attached (`Accepted: True`):
+Verify both policies attached (`Accepted: True`):
 
 ```bash
-kubectl -n envoy-gateway-system get envoyextensionpolicy coraza -o yaml
+kubectl -n envoy-gateway-system get envoyextensionpolicy coraza coraza-internal -o yaml
 ```
 
 Then confirm it blocks. With something routable through the gateway:
@@ -73,7 +76,7 @@ config:
 ## Notes
 
 - Response body inspection is off (`SecResponseBodyAccess Off`). Inspecting responses makes the filter buffer every text/html body whole, and Envoy resets any stream whose body exceeds the listener's per-connection buffer limit (32KiB by default) — after the response headers have already been sent, so browsers report a dropped or insecure connection instead of an error page (this silently broke Grafana's authenticated pages). Only the CRS response-leakage rules (RESPONSE-95x) depend on it; request inspection is unaffected. To re-enable it, raise the buffer with a `ClientTrafficPolicy` `connection.bufferLimit` ≥ `SecResponseBodyLimit` first.
-- CRS rule `920350` ("Host header is a numeric IP address") is dropped for the `/healthz` path via a `ctl:ruleRemoveById` exclusion. Load balancers health-check the Envoy fleets by IP, so every probe carries a numeric-IP Host header and would otherwise log a 920350 warning on each check — high volume, no signal. The exclusion is scoped to `/healthz`, so the rule still fires on real traffic. It is placed before the `@owasp_crs` include because 920350 is a phase-1 rule and `ctl:ruleRemoveById` only affects rules evaluated later in the same phase.
+- CRS rule `920350` ("Host header is a numeric IP address") is dropped for the `/healthz` path via a `ctl:ruleRemoveById` exclusion, in **both** policies. Load balancers health-check the Envoy fleets by IP, so every probe carries a numeric-IP Host header and would otherwise log a 920350 warning on each check — high volume, no signal (and on `eg-private` it would drown the observation logs the detection-only phase exists to read). The exclusion is scoped to `/healthz`, so the rule still fires on real traffic. It is placed before the `@owasp_crs` include because 920350 is a phase-1 rule and `ctl:ruleRemoveById` only affects rules evaluated later in the same phase.
 - The wasm image pins CRS: coraza-proxy-wasm 0.6.0 ships Coraza v3.3.3 + CRS v4.14.0. Upgrading the WAF or the rules = bumping the image tag.
-- `failOpen: false` (the default): a broken/unfetchable wasm module fails closed (5xx) rather than serve unfiltered traffic. This applies on both Gateways, including the internal (VPN-only) `eg-private` ops UIs — so a WAF failure takes those down too. To troubleshoot (or just reach a service) while the WAF is failing closed, bypass the gateway with `kubectl port-forward` straight to the Service — e.g. `kubectl -n <ns> port-forward svc/<grafana> 3000:80`, then open <http://localhost:3000>. That path never touches Envoy or the WAF, so fail-closed can't lock you out during an incident. If you'd rather `eg-private` stay up on a wasm failure automatically, give it its own policy with `failOpen: true`.
+- `failOpen: false` (the default) on the public policy: a broken/unfetchable wasm module fails closed (5xx) rather than serve unfiltered traffic. The internal policy is `failOpen: true` instead — it never blocks anything, so a wasm failure taking down the ops UIs would be pure downside. To troubleshoot (or just reach a service) while a WAF is failing closed, bypass the gateway with `kubectl port-forward` straight to the Service — e.g. `kubectl -n <ns> port-forward svc/<grafana> 3000:80`, then open <http://localhost:3000>. That path never touches Envoy or the WAF, so fail-closed can't lock you out during an incident.
 - This filters north-south traffic at the gateway only. In-cluster (east-west) traffic and any Service exposed via LoadBalancer/NodePort outside the gateway are not covered.
