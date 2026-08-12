@@ -36,7 +36,7 @@
 #     from "serving" — a replica that accepts connections but fails every
 #     request (e.g. a wasm filter stuck fail-closed) stays in rotation
 #     indefinitely. Probe GET /healthz instead (answered by
-#     httproute-healthz-public.yaml through the listener's full filter chain)
+#     httproute-healthz-private.yaml through the listener's full filter chain)
 #     on 10080, the container port Envoy Gateway maps the port-80 listener to
 #     (privileged listener ports get +10000). Health-check annotations apply
 #     to every target group of the Service, so the 443 targets are probed on
