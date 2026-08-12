@@ -1,0 +1,48 @@
+# DetectionOnly Coraza WAF for the eg-private Gateway — the supporting/ops
+# services (grafana, prometheus, alertmanager, ...) that never ride an
+# internet-facing LB. Separate policy from the public one
+# (envoyextensionpolicy-public.yaml) because it differs in two deliberate ways:
+#   - Mode. The public policy enforces (SecRuleEngine On → 403). This one is
+#     DetectionOnly: every CRS match is LOGGED, nothing is blocked. An
+#     EnvoyExtensionPolicy carries a single engine mode, so the two can't share
+#     a policy. Private ops UIs are the most false-positive-prone surface
+#     (Grafana dashboard JSON, Prometheus/Flux query strings), so start in
+#     observation: read the logs, tune, then promote to enforcing per host if
+#     desired (see README.md).
+#   - failOpen. The public policy is failOpen:false (if the WAF can't load,
+#     fail closed rather than serve unfiltered traffic — an acceptable trade at
+#     the internet-facing edge). This one is failOpen:TRUE: it never blocks
+#     anyway, so a wasm load/fetch failure must not take the ops UIs down. On a
+#     wasm failure, pass traffic through.
+#
+# Everything else (pinned wasm image, SecResponseBodyAccess Off, the /healthz
+# 920350 exclusion) matches the public policy — see the comments there.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyExtensionPolicy
+metadata:
+  name: coraza-private
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: eg-private
+  wasm:
+    - name: coraza
+      # failOpen true: a log-only WAF must not take the service down. See header.
+      failOpen: true
+      code:
+        type: Image
+        image:
+          url: ghcr.io/corazawaf/coraza-proxy-wasm:0.6.0
+      config:
+        directives_map:
+          default:
+            - Include @recommended-conf
+            - SecResponseBodyAccess Off
+            - SecRuleEngine DetectionOnly
+            - Include @crs-setup-conf
+            # /healthz is health-checked by IP, tripping CRS 920350 on every
+            # probe — dropped here exactly as in the public policy.
+            - 'SecRule REQUEST_URI "@beginsWith /healthz" "id:10001,phase:1,pass,nolog,ctl:ruleRemoveById=920350"'
+            - Include @owasp_crs/*.conf
+        default_directives: default

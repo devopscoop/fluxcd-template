@@ -1,12 +1,23 @@
 # Coraza WAF
 
-[OWASP Coraza](https://coraza.io/) (Apache-2.0) running the [OWASP Core Rule Set](https://coreruleset.org/) v4, deployed as a [proxy-wasm filter](https://github.com/corazawaf/coraza-proxy-wasm) on the `eg-public` Gateway via an Envoy Gateway `EnvoyExtensionPolicy`. It inspects every request flowing through every HTTPRoute on the gateway and blocks common web attacks (SQL injection, XSS, RCE, protocol abuse, scanners, ...) with a 403.
+[OWASP Coraza](https://coraza.io/) (Apache-2.0) running the [OWASP Core Rule Set](https://coreruleset.org/) v4, deployed as a [proxy-wasm filter](https://github.com/corazawaf/coraza-proxy-wasm) inside the Envoy data plane via Envoy Gateway `EnvoyExtensionPolicy` resources. It inspects every request flowing through the attached Gateways for common web attacks (SQL injection, XSS, RCE, protocol abuse, scanners, ...).
 
 Why this one:
 
 - It runs **inside the existing Envoy data plane** — no sidecars, no second ingress stack, no extra network hop, nothing new to scale or make highly available.
 - Coraza is the actively-maintained OWASP successor to ModSecurity (which is in maintenance mode), speaks the same SecLang rule language, and embeds the industry-standard CRS in the wasm image.
 - Everything is free and open source: Apache-2.0 engine, Apache-2.0 CRS.
+
+## Coverage
+
+Two policies, so the public Gateway can enforce while the private one stays in observation:
+
+| Policy | File | Gateway | Mode | `failOpen` |
+|---|---|---|---|---|
+| `coraza` | `envoyextensionpolicy-public.yaml` | `eg-public` | `SecRuleEngine On` — matches get a **403** | `false` (fail closed) |
+| `coraza-private` | `envoyextensionpolicy-private.yaml` | `eg-private` | `SecRuleEngine DetectionOnly` — matches are **logged only** | `true` (fail open) |
+
+`eg-private` fronts the supporting/ops services (grafana, prometheus, ...), which never ride an internet-facing LB, so its policy is defense-in-depth and starts in DetectionOnly — those apps are the most false-positive-prone. Validate against the logs, tune, then promote to enforcing per host if desired.
 
 ## Enabling
 
@@ -32,7 +43,7 @@ curl -i "http://your-host/anything?q=%3Cscript%3Ealert(1)%3C%2Fscript%3E"   # ex
 
 CRS at the default paranoia level 1 is deliberately conservative, but apps that PUT/POST unusual payloads (Grafana dashboards, Nexus uploads, ...) can still trip it. When something breaks behind the WAF:
 
-1. Switch `SecRuleEngine On` to `SecRuleEngine DetectionOnly` in `envoyextensionpolicy.yaml` (log-only, nothing blocked).
+1. Switch `SecRuleEngine On` to `SecRuleEngine DetectionOnly` in `envoyextensionpolicy-public.yaml` (log-only, nothing blocked).
 2. Reproduce, and find the rule IDs that fired in the Envoy proxy pod logs:
 
    ```bash
@@ -69,5 +80,5 @@ config:
 - Response body inspection is off (`SecResponseBodyAccess Off`). Inspecting responses makes the filter buffer every text/html body whole, and Envoy resets any stream whose body exceeds the listener's per-connection buffer limit (32KiB by default) — after the response headers have already been sent, so browsers report a dropped or insecure connection instead of an error page (this silently broke Grafana's authenticated pages). Only the CRS response-leakage rules (RESPONSE-95x) depend on it; request inspection is unaffected. To re-enable it, raise the buffer with a `ClientTrafficPolicy` `connection.bufferLimit` ≥ `SecResponseBodyLimit` first.
 - CRS rule `920350` ("Host header is a numeric IP address") is dropped for the `/healthz` path via a `ctl:ruleRemoveById` exclusion. Load balancers health-check the Envoy fleets by IP, so every probe carries a numeric-IP Host header and would otherwise log a 920350 warning on each check — high volume, no signal. The exclusion is scoped to `/healthz`, so the rule still fires on real traffic. It is placed before the `@owasp_crs` include because 920350 is a phase-1 rule and `ctl:ruleRemoveById` only affects rules evaluated later in the same phase.
 - The wasm image pins CRS: coraza-proxy-wasm 0.6.0 ships Coraza v3.3.3 + CRS v4.14.0. Upgrading the WAF or the rules = bumping the image tag.
-- `failOpen: false` (the default) means a broken/unfetchable wasm module fails closed (500s) rather than silently disabling the WAF.
+- `failOpen` differs by policy on purpose. The enforcing public policy uses `failOpen: false` (the default): a broken/unfetchable wasm module fails closed (500s) rather than serve unfiltered traffic. The DetectionOnly private policy uses `failOpen: true`: since it never blocks anyway, a wasm failure must not take down the ops UIs — it fails open and passes traffic.
 - This filters north-south traffic at the gateway only. In-cluster (east-west) traffic and any Service exposed via LoadBalancer/NodePort outside the gateway are not covered.

@@ -6,4 +6,5 @@ kind: Kustomization
 namespace: envoy-gateway-system
 
 resources:
-  - envoyextensionpolicy.yaml
+  - envoyextensionpolicy-public.yaml
+  - envoyextensionpolicy-private.yaml
