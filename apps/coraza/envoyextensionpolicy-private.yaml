@@ -1,7 +1,7 @@
 # DetectionOnly Coraza WAF for the eg-private Gateway — the supporting/ops
 # services (grafana, prometheus, alertmanager, ...) that never ride an
 # internet-facing LB. Separate policy from the public one
-# (envoyextensionpolicy.yaml) because it differs in two deliberate ways:
+# (envoyextensionpolicy-public.yaml) because it differs in two deliberate ways:
 #   - Mode. The public policy enforces (SecRuleEngine On → 403). This one is
 #     DetectionOnly: every CRS match is LOGGED, nothing is blocked. An
 #     EnvoyExtensionPolicy carries a single engine mode, so the two can't share

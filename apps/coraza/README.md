@@ -14,7 +14,7 @@ Two policies, so the public Gateway can enforce while the private one stays in o
 
 | Policy | File | Gateway | Mode | `failOpen` |
 |---|---|---|---|---|
-| `coraza` | `envoyextensionpolicy.yaml` | `eg-public` | `SecRuleEngine On` — matches get a **403** | `false` (fail closed) |
+| `coraza` | `envoyextensionpolicy-public.yaml` | `eg-public` | `SecRuleEngine On` — matches get a **403** | `false` (fail closed) |
 | `coraza-private` | `envoyextensionpolicy-private.yaml` | `eg-private` | `SecRuleEngine DetectionOnly` — matches are **logged only** | `true` (fail open) |
 
 `eg-private` fronts the supporting/ops services (grafana, prometheus, ...), which never ride an internet-facing LB, so its policy is defense-in-depth and starts in DetectionOnly — those apps are the most false-positive-prone. Validate against the logs, tune, then promote to enforcing per host if desired.
@@ -43,7 +43,7 @@ curl -i "http://your-host/anything?q=%3Cscript%3Ealert(1)%3C%2Fscript%3E"   # ex
 
 CRS at the default paranoia level 1 is deliberately conservative, but apps that PUT/POST unusual payloads (Grafana dashboards, Nexus uploads, ...) can still trip it. When something breaks behind the WAF:
 
-1. Switch `SecRuleEngine On` to `SecRuleEngine DetectionOnly` in `envoyextensionpolicy.yaml` (log-only, nothing blocked).
+1. Switch `SecRuleEngine On` to `SecRuleEngine DetectionOnly` in `envoyextensionpolicy-public.yaml` (log-only, nothing blocked).
 2. Reproduce, and find the rule IDs that fired in the Envoy proxy pod logs:
 
    ```bash
