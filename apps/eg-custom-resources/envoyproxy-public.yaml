@@ -1,0 +1,60 @@
+# eg-public EnvoyProxy — the internet-facing counterpart to eg-private
+# (envoyproxy-private.yaml). It is a STUB: defined and HA-ready, but the
+# starting eg-public Gateway (gateway-public.yaml) deliberately does NOT
+# reference it, so a fresh cluster comes up private-only. When ready to expose
+# it, attach this stub in gateway-public.yaml:
+#   spec:
+#     infrastructure:
+#       parametersRef:
+#         group: gateway.envoyproxy.io
+#         kind: EnvoyProxy
+#         name: eg-public
+#
+# The HA config (replicas + topology spread + PDB) and the health-check
+# annotations are identical to eg-private — see the rationale in
+# envoyproxy-private.yaml. The only difference is the load-balancer scheme:
+# internet-facing (the eks block below).
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyProxy
+metadata:
+  name: eg-public
+spec:
+  ipFamily: IPv6
+  provider:
+    type: Kubernetes
+    kubernetes:
+      envoyDeployment:
+        replicas: 3
+        pod:
+          topologySpreadConstraints:
+            - maxSkew: 1
+              topologyKey: topology.kubernetes.io/zone
+              whenUnsatisfiable: ScheduleAnyway
+              matchLabelKeys:
+                - gateway.envoyproxy.io/owning-gateway-name
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/managed-by: envoy-gateway
+                  app.kubernetes.io/name: envoy
+            - maxSkew: 1
+              topologyKey: kubernetes.io/hostname
+              whenUnsatisfiable: ScheduleAnyway
+              matchLabelKeys:
+                - gateway.envoyproxy.io/owning-gateway-name
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/managed-by: envoy-gateway
+                  app.kubernetes.io/name: envoy
+      envoyPDB:
+        maxUnavailable: 1
+# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
+#       envoyService:
+#         annotations:
+#           service.beta.kubernetes.io/aws-load-balancer-ip-address-type: dualstack
+#           service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
+#           service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
+#           service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
+#           service.beta.kubernetes.io/aws-load-balancer-healthcheck-protocol: http
+#           service.beta.kubernetes.io/aws-load-balancer-healthcheck-port: "10080"
+#           service.beta.kubernetes.io/aws-load-balancer-healthcheck-path: /healthz
+# <<< eks

@@ -1,5 +1,5 @@
 # The class-level parametersRef is the DEFAULT EnvoyProxy for Gateways on
-# this class: eg-private, so a Gateway is internal unless it explicitly
+# this class: eg-private, so a Gateway is private unless it explicitly
 # attaches eg-public via spec.infrastructure.parametersRef (which overrides
 # this default per Gateway).
 apiVersion: gateway.networking.k8s.io/v1

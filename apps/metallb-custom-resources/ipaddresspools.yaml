@@ -15,7 +15,7 @@
 # get one sits <pending> forever — a silent failure (nothing pages; external-
 # dns publishes no records for it). The Envoy Gateway app alone creates one
 # Service per Gateway: gateway-public.yaml and gateway-private.yaml (both
-# ipFamily: IPv6 via eg-custom-resources/envoyproxy.yaml) need two IPv6
+# ipFamily: IPv6 via eg-custom-resources/envoyproxy-public.yaml / -private.yaml) need two IPv6
 # addresses between them, which is why two of each family are listed below.
 # Sharing one address is not an option there: metallb.io/allow-shared-ip
 # requires non-overlapping ports, and both Envoy fleets listen on 80/443.

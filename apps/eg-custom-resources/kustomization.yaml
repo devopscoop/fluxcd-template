@@ -5,7 +5,8 @@ namespace: envoy-gateway-system
 
 resources:
   - gatewayclass.yaml
-  - envoyproxy.yaml
+  - envoyproxy-public.yaml
+  - envoyproxy-private.yaml
   - gateway-public.yaml
   - gateway-private.yaml
   - httproute-healthz-public.yaml

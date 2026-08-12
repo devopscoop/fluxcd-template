@@ -1,22 +1,9 @@
-# Per-scheme EnvoyProxy configs for the `eg` GatewayClass: eg-private
-# (internal, the GatewayClass default — see gatewayclass.yaml) and eg-public
-# (internet-facing counterpart). A Gateway picks one via
-# spec.infrastructure.parametersRef; any Gateway that doesn't stays on the
-# private default. On AWS the split is the load-balancer scheme annotation in
-# the eks blocks below (internal / internet-facing); on other platforms the
-# two are identical until you express the split with your LB provider's
-# equivalent.
-#
-# The eg-public EnvoyProxy is a stub: defined and HA-ready, but the starting
-# eg-public Gateway (gateway-public.yaml) deliberately does NOT reference it,
-# so a fresh cluster comes up internal-only. When ready to expose it, attach
-# the stub in gateway-public.yaml:
-#   spec:
-#     infrastructure:
-#       parametersRef:
-#         group: gateway.envoyproxy.io
-#         kind: EnvoyProxy
-#         name: eg-public
+# eg-private EnvoyProxy — the DEFAULT for Gateways on the `eg` GatewayClass:
+# gatewayclass.yaml sets it as the class parametersRef, so any Gateway that
+# doesn't attach a different EnvoyProxy stays on this one. On AWS this is the
+# internal-scheme NLB (the eks block below); eg-public (envoyproxy-public.yaml)
+# is the internet-facing counterpart. On non-AWS platforms the two are
+# identical until you express the split with your LB provider's equivalent.
 #
 # High availability (both schemes): put one Envoy per AZ/node and keep every LB
 # node's address live in DNS.
@@ -49,7 +36,7 @@
 #     from "serving" — a replica that accepts connections but fails every
 #     request (e.g. a wasm filter stuck fail-closed) stays in rotation
 #     indefinitely. Probe GET /healthz instead (answered by
-#     httproute-healthz-public.yaml through the listener's full filter chain)
+#     httproute-healthz-private.yaml through the listener's full filter chain)
 #     on 10080, the container port Envoy Gateway maps the port-80 listener to
 #     (privileged listener ports get +10000). Health-check annotations apply
 #     to every target group of the Service, so the 443 targets are probed on
@@ -98,53 +85,6 @@ spec:
 #         annotations:
 #           service.beta.kubernetes.io/aws-load-balancer-ip-address-type: dualstack
 #           service.beta.kubernetes.io/aws-load-balancer-scheme: internal
-#           service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
-#           service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
-#           service.beta.kubernetes.io/aws-load-balancer-healthcheck-protocol: http
-#           service.beta.kubernetes.io/aws-load-balancer-healthcheck-port: "10080"
-#           service.beta.kubernetes.io/aws-load-balancer-healthcheck-path: /healthz
-# <<< eks
----
-# Internet-facing counterpart. A stub until a Gateway references it — see the
-# header note for how to attach it.
-apiVersion: gateway.envoyproxy.io/v1alpha1
-kind: EnvoyProxy
-metadata:
-  name: eg-public
-spec:
-  ipFamily: IPv6
-  provider:
-    type: Kubernetes
-    kubernetes:
-      envoyDeployment:
-        replicas: 3
-        pod:
-          topologySpreadConstraints:
-            - maxSkew: 1
-              topologyKey: topology.kubernetes.io/zone
-              whenUnsatisfiable: ScheduleAnyway
-              matchLabelKeys:
-                - gateway.envoyproxy.io/owning-gateway-name
-              labelSelector:
-                matchLabels:
-                  app.kubernetes.io/managed-by: envoy-gateway
-                  app.kubernetes.io/name: envoy
-            - maxSkew: 1
-              topologyKey: kubernetes.io/hostname
-              whenUnsatisfiable: ScheduleAnyway
-              matchLabelKeys:
-                - gateway.envoyproxy.io/owning-gateway-name
-              labelSelector:
-                matchLabels:
-                  app.kubernetes.io/managed-by: envoy-gateway
-                  app.kubernetes.io/name: envoy
-      envoyPDB:
-        maxUnavailable: 1
-# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
-#       envoyService:
-#         annotations:
-#           service.beta.kubernetes.io/aws-load-balancer-ip-address-type: dualstack
-#           service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
 #           service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
 #           service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
 #           service.beta.kubernetes.io/aws-load-balancer-healthcheck-protocol: http
