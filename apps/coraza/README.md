@@ -1,6 +1,6 @@
 # Coraza WAF
 
-[OWASP Coraza](https://coraza.io/) (Apache-2.0) running the [OWASP Core Rule Set](https://coreruleset.org/) v4, deployed as a [proxy-wasm filter](https://github.com/corazawaf/coraza-proxy-wasm) on the `eg` Gateway via an Envoy Gateway `EnvoyExtensionPolicy`. It inspects every request flowing through every HTTPRoute on the gateway and blocks common web attacks (SQL injection, XSS, RCE, protocol abuse, scanners, ...) with a 403.
+[OWASP Coraza](https://coraza.io/) (Apache-2.0) running the [OWASP Core Rule Set](https://coreruleset.org/) v4, deployed as a [proxy-wasm filter](https://github.com/corazawaf/coraza-proxy-wasm) on the `eg-public` Gateway via an Envoy Gateway `EnvoyExtensionPolicy`. It inspects every request flowing through every HTTPRoute on the gateway and blocks common web attacks (SQL injection, XSS, RCE, protocol abuse, scanners, ...) with a 403.
 
 Why this one:
 
@@ -36,7 +36,7 @@ CRS at the default paranoia level 1 is deliberately conservative, but apps that 
 2. Reproduce, and find the rule IDs that fired in the Envoy proxy pod logs:
 
    ```bash
-   kubectl -n envoy-gateway-system logs deploy/$(kubectl -n envoy-gateway-system get deploy -l gateway.envoyproxy.io/owning-gateway-name=eg -o name | cut -d/ -f2) | grep -o 'id "[0-9]*"' | sort | uniq -c
+   kubectl -n envoy-gateway-system logs deploy/$(kubectl -n envoy-gateway-system get deploy -l gateway.envoyproxy.io/owning-gateway-name=eg-public -o name | cut -d/ -f2) | grep -o 'id "[0-9]*"' | sort | uniq -c
    ```
 
 3. Add targeted exclusions to the `default` directives list, after the CRS include, e.g.:

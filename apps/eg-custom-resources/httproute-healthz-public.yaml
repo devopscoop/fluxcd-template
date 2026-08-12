@@ -1,7 +1,8 @@
 # Health-check endpoint for external load balancers: GET /healthz on the
-# port-80 listener, answered 200 "ok" by Envoy itself (direct response, no
-# backend). Point LB health checks here (on EKS, the aws-load-balancer-
-# healthcheck-* annotations in envoyproxy.yaml do exactly that) instead of at
+# eg-public Gateway's port-80 listener, answered 200 "ok" by Envoy itself
+# (direct response, no backend). Point LB health checks here (on EKS, the
+# aws-load-balancer-healthcheck-* annotations in envoyproxy.yaml do exactly
+# that) instead of at
 # a TCP connect or Envoy's admin /ready on 19001 — those only prove the
 # process is listening. This request instead traverses the listener's FULL
 # HTTP filter chain, the same one real traffic takes, including any policies
@@ -19,6 +20,10 @@
 # coraza enabled, that IP-as-Host request scores 3 (CRS rule 920350) at
 # paranoia level 1, under the default inbound anomaly threshold of 5, so
 # health checks are not blocked.
+#
+# The eg-healthz HTTPRouteFilter is deliberately NOT gateway-suffixed: it is
+# shared. Additional gateways (eg-private, ...) need only their own copy of
+# the HTTPRoute below, referencing this same filter.
 apiVersion: gateway.envoyproxy.io/v1alpha1
 kind: HTTPRouteFilter
 metadata:
@@ -34,10 +39,10 @@ spec:
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
-  name: eg-healthz
+  name: eg-public-healthz
 spec:
   parentRefs:
-    - name: eg
+    - name: eg-public
       sectionName: http
   rules:
     - matches:
