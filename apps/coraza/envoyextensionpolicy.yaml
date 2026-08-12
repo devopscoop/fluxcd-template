@@ -23,8 +23,8 @@ metadata:
   name: coraza
 spec:
   targetRefs:
-    # The public Gateway only: traffic on other Gateways (an internal ops
-    # gateway, ...) is deliberately not WAF-inspected.
+    # eg-public only. The eg-private Gateway has its own policy
+    # (envoyextensionpolicy-private.yaml), in DetectionOnly.
     - group: gateway.networking.k8s.io
       kind: Gateway
       name: eg-public
