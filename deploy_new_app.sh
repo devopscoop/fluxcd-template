@@ -85,7 +85,7 @@ if [[ "${repo_url}" =~ ^oci: ]]; then
 
   # Pull the default values for this Helm chart.
   helm pull "${repo_url}/${chart_name}" --version "${chart_version}"
-  tar -xf "${chart_name}-${chart_version}.tgz" "${chart_name}/values.yaml" -O > "${SCRIPT_DIR}/apps/${app_name}/values.yaml"
+  tar -xOf "${chart_name}-${chart_version}.tgz" "${chart_name}/values.yaml" > "${SCRIPT_DIR}/apps/${app_name}/values.yaml"
   rm "${chart_name}-${chart_version}.tgz"
 
   # Update ocirepo.yaml
