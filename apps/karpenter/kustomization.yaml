@@ -1,0 +1,23 @@
+# https://fluxcd.io/flux/guides/helmreleases/#refer-to-values-in-configmaps-generated-with-kustomize
+# https://fluxcd.io/flux/guides/helmreleases/#refer-to-values-in-secret-generated-with-kustomize-and-sops
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Setting namespace here will ensure that all objects managed by this Kustomization will explicitly be deployed to this namespace. You don't need to put specify `namespace:` anywhere else if you do this.
+namespace: karpenter
+
+resources:
+  - namespace.yaml
+  - ocirepo.yaml
+  - release.yaml
+configMapGenerator:
+  - name: karpenter-values
+    files:
+      - values.yaml=values.yaml
+secretGenerator:
+  - name: karpenter-secrets
+    files:
+      - values.yaml=helm_secrets.yaml
+configurations:
+  - kustomizeconfig.yaml
