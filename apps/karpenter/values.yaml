@@ -1,0 +1,19 @@
+# dyff between <(yq . <(helm show values oci://public.ecr.aws/karpenter/karpenter --version 1.14.0)) <(yq eval '. * load("values.yaml")' <(helm show values oci://public.ecr.aws/karpenter/karpenter --version 1.14.0))
+# vim -O <(helm show values oci://public.ecr.aws/karpenter/karpenter --version 1.14.0) values.yaml
+
+settings:
+  clusterName: project1-dev
+  # SQS queue for native interruption handling (spot interruption, rebalance
+  # recommendations, scheduled maintenance events). aws-eks-template provisions
+  # it (cluster/karpenter.tf, output: karpenter_interruption_queue_name), named
+  # after the cluster.
+  interruptionQueue: project1-dev
+
+# IRSA: on EKS the controller authenticates with the Karpenter controller IAM
+# role. See https://karpenter.sh/docs/getting-started/ for the required
+# policies.
+# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
+# serviceAccount:
+#   annotations:
+#     eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT_ID:role/karpenter"
+# <<< eks

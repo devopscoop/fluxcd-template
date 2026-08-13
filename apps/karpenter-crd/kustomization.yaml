@@ -1,0 +1,24 @@
+# https://fluxcd.io/flux/guides/helmreleases/#refer-to-values-in-configmaps-generated-with-kustomize
+# https://fluxcd.io/flux/guides/helmreleases/#refer-to-values-in-secret-generated-with-kustomize-and-sops
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# The CRDs are cluster-scoped; the HelmRelease itself lives alongside the
+# karpenter app in kube-system, which already exists, so there is no
+# namespace.yaml to create/manage.
+namespace: kube-system
+
+resources:
+  - ocirepo.yaml
+  - release.yaml
+configMapGenerator:
+  - name: karpenter-crd-values
+    files:
+      - values.yaml=values.yaml
+secretGenerator:
+  - name: karpenter-crd-secrets
+    files:
+      - values.yaml=helm_secrets.yaml
+configurations:
+  - kustomizeconfig.yaml

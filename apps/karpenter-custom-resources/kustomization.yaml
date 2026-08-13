@@ -1,0 +1,11 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# No namespace: NodePool and EC2NodeClass are cluster-scoped. This app exists
+# separately from apps/karpenter so it can dependsOn the karpenter
+# Kustomization (flux/flux-system/karpenter-custom-resources.yaml) — the CRs
+# can't be applied until the Helm release has installed their CRDs.
+
+resources:
+  - ec2nodeclass.yaml
+  - nodepool.yaml
