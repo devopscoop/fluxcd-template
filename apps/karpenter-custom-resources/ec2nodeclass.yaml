@@ -1,0 +1,30 @@
+# https://karpenter.sh/docs/concepts/nodeclasses/
+apiVersion: karpenter.k8s.aws/v1
+kind: EC2NodeClass
+metadata:
+  name: default
+spec:
+  # The IAM role Karpenter-launched instances run as. Created in
+  # aws-eks-template (output: karpenter_node_iam_role_name); Karpenter manages
+  # the instance profile for it itself.
+  role: karpenter-node
+
+  # AMI selection. The alias tracks the latest AL2023 EKS-optimized AMI, which
+  # matches the getting-started guide but means new AMI releases roll out to
+  # newly-launched (and drifted) nodes without review. For production,
+  # karpenter.sh recommends pinning a version, e.g. "al2023@v20260801" —
+  # resolve the current one with:
+  #   aws ssm get-parameters-by-path --path /aws/service/eks/optimized-ami --recursive | grep amazon-linux-2023
+  # https://karpenter.sh/docs/tasks/managing-amis/
+  amiSelectorTerms:
+    - alias: al2023@latest
+
+  # Subnets and the node security group are discovered by tag. aws-eks-template
+  # tags the private subnets and the EKS node security group with
+  # karpenter.sh/discovery = <cluster_name> (cluster/main.tf).
+  subnetSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: project1-dev
+  securityGroupSelectorTerms:
+    - tags:
+        karpenter.sh/discovery: project1-dev
