@@ -25,6 +25,7 @@ configMapGenerator:
   - name: radicle-config
     files:
       - config.json=config.json
+      - seeded-repos.txt=seeded-repos.txt
     options:
       disableNameSuffixHash: true
 secretGenerator:

@@ -1,0 +1,25 @@
+# Repositories this seed node replicates, one Radicle ID per line.
+#
+# config.json sets seedingPolicy.default to "block", so the node carries
+# nothing except what is listed here. This file is the whole list: the
+# seed-policies initContainer in values.yaml reconciles policies.db against it
+# on every start, seeding what is listed and unseeding what is not. Deleting a
+# line here is how you stop seeding a repo -- unseeding drops the replication
+# policy, not the data already on the PVC.
+#
+# Each repo is seeded with scope "all", meaning the node follows every remote
+# for it, so contributors' patches and forks replicate too rather than only the
+# delegates' branches.
+#
+# Get a repo's ID with `rad .` inside a working copy, or `rad inspect --rid`.
+# Blank lines and anything after a # are ignored.
+#
+# The list is mounted from a ConfigMap that is read once at startup, so after
+# editing this, let Flux sync and then:
+#
+#   kubectl -n radicle rollout restart statefulset radicle-node
+#
+# Example:
+#   rad:z3gqcJUoA1n9HaHKufZs5FCSGazv5   # radicle heartwood
+
+# --- add yours below ---

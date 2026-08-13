@@ -19,11 +19,11 @@ statefulSet:
       spec:
         accessModes:
           - ReadWriteOnce
-        # config.json seeds with scope "all", so this grows with the network and
-        # not with your own repos. Watch it and resize before it fills.
+        # Sized for the repos in seeded-repos.txt rather than the whole network
+        # -- config.json blocks by default. Revisit as that list grows.
         resources:
           requests:
-            storage: 50Gi
+            storage: 10Gi
 
 # Names everything `radicle-node` rather than `radicle`, the release name the
 # chart falls back to. release.yaml's post-render patch targets the Service by
@@ -51,6 +51,58 @@ command:
   - /usr/local/bin/radicle-node
 args:
   - --force # a stale node/control.sock survives an unclean shutdown on the PVC
+
+# Which repos this node carries is a per-repo policy in node/policies.db on the
+# PVC, not something config.json can express -- config.json only sets the
+# default, which is "block". Left alone that would make the list of seeded repos
+# invisible to git and lost with the volume, so this reconciles the database
+# against seeded-repos.txt before the node starts: seeding what is listed,
+# unseeding what is not. `rad` writes policies.db directly, so it works with the
+# node down, and unseeding drops the policy rather than the replicated data.
+initContainers:
+  - name: seed-policies
+    # Must match image: above -- the chart only templates that into the main
+    # container, so the digest is spelled out twice and has to be bumped twice.
+    image: docker.io/dirk1980/radicle-seed-node@sha256:78ccee526ad4b4f4d7c79c2323b032a7209858a48e1dc9c077272ff1660050e2
+    command:
+      - /bin/sh
+      - -euc
+      - |
+        list=/etc/radicle/seeded-repos.txt
+        desired=$(sed 's/#.*//' "$list" | tr -s '[:space:]' '\n' | grep '^rad:' | sort -u | tr '\n' ' ' || true)
+        current=$(rad seed | grep -o 'rad:[a-zA-Z0-9]*' | sort -u | tr '\n' ' ' || true)
+        for rid in $current; do
+          case " $desired " in
+            *" $rid "*) ;;
+            *) rad unseed "$rid" ;;
+          esac
+        done
+        if [ -n "$desired" ]; then
+          rad seed --no-fetch --scope all $desired
+        fi
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+          - ALL
+      readOnlyRootFilesystem: true
+    # `rad` needs a complete profile, so this mirrors the node's mounts, plus
+    # the ConfigMap itself for the repo list.
+    volumeMounts:
+      - name: radicle-home
+        mountPath: /radicle-home
+      - name: config
+        mountPath: /radicle-home/config.json
+        subPath: config.json
+        readOnly: true
+      - name: node-key
+        mountPath: /radicle-home/keys
+        readOnly: true
+      - name: config
+        mountPath: /etc/radicle
+        readOnly: true
+      - name: tmp
+        mountPath: /tmp
 
 volumes:
   - name: config

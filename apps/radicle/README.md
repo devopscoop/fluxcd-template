@@ -48,11 +48,13 @@ What you hand out to people who want to seed from you is the pair — `rad node 
 <node-id>@radicle.project1-dev.devops.coop:8776
 ```
 
-### 3. Decide how much of the network to carry
+### 3. List the repos to seed
 
-`config.json` ships with `seedingPolicy.default: allow` and `scope: all`, meaning: replicate every repo announced to this node, including every contributor's fork. That is what makes it a *seed* rather than a mirror of your own work, and it means the 50Gi PVC in values.yaml grows with the network rather than with your repos. Watch it.
+`config.json` sets `seedingPolicy.default` to `block`, so the node carries nothing it is not told to. Put the repos you want in `seeded-repos.txt`, one Radicle ID per line — that file is the whole list. The 10Gi PVC in values.yaml is sized for that, not for the network; revisit it as the list grows.
 
-To carry only repos you choose, set `seedingPolicy` to `{"default": "block"}` and add them individually with `rad seed` (below).
+Get an ID with `rad .` inside a working copy, or `rad inspect --rid`.
+
+The alternative is a fully-replicating seed: `{"default": "allow", "scope": "all"}` in `config.json`, which carries every repo announced to the node and grows with the network rather than with your list.
 
 ## Checking on it
 
@@ -68,27 +70,31 @@ Peers connect from the outside, so confirm the LoadBalancer actually got an addr
 kubectl -n radicle get svc radicle-node
 ```
 
-## Seeding individual repos
+## Changing which repos are seeded
 
-```shell
-kubectl -n radicle exec -it radicle-node-0 -- rad seed rad:z3gqcJUoA1n9HaHKufZs5FCSGazv5
-kubectl -n radicle exec -it radicle-node-0 -- rad seed          # list current policies
-kubectl -n radicle exec -it radicle-node-0 -- rad seed --delete rad:…
-```
-
-Note that these policies are written to `node/policies.db` on the PVC — they are **not** in git, and nothing reconciles them. Lose the volume and you lose the list. Only the default policy in `config.json` is declarative. If the specific repos matter, keep the `rad seed` commands somewhere too.
-
-## Changing config.json
-
-`config.json` is a subPath mount, read once at startup, so an edit reconciles into the ConfigMap without reaching the running node. Restart it after Flux has synced:
+Edit `seeded-repos.txt`, let Flux sync, then restart:
 
 ```shell
 kubectl -n radicle rollout restart statefulset radicle-node
 ```
 
+Which repos a node carries is a per-repo policy in `node/policies.db` on the PVC — `config.json` can only set the default. So the `seed-policies` initContainer reconciles that database against `seeded-repos.txt` on every start: it seeds what is listed and unseeds what is not. That keeps the list reviewable in git and rebuildable after a lost volume, which a database on a volume is not.
+
+Removing a line stops replication; it does not delete what is already on the PVC. Repos are seeded with scope `all`, so every remote is followed and contributors' patches and forks replicate too, not just the delegates' branches.
+
+Changing policies by hand with `rad seed` / `rad unseed` in the pod works, but the next restart reverts it to whatever `seeded-repos.txt` says. To inspect the live state:
+
+```shell
+kubectl -n radicle exec -it radicle-node-0 -- rad seed
+```
+
+## Changing config.json
+
+Same as above: `config.json` shares the ConfigMap with `seeded-repos.txt` and is read once at startup, so an edit reconciles into the cluster without reaching the running node until you restart it.
+
 ## Upgrading
 
-The image tracks upstream and is rebuilt whenever Radicle releases, but the digest in values.yaml is what actually pins it, so upgrades are deliberate. Get the current digest:
+The image tracks upstream and is rebuilt whenever Radicle releases, but the digest in values.yaml is what actually pins it, so upgrades are deliberate. It appears **twice** — `image.tag` and the `seed-policies` initContainer, which runs the same image but gets no help from the chart's templating. Bump both. Get the current digest:
 
 ```shell
 tok=$(curl -s "https://auth.docker.io/token?service=registry.docker.io&scope=repository:dirk1980/radicle-seed-node:pull" | sed 's/.*"token":"\([^"]*\)".*/\1/')

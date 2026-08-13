@@ -8,8 +8,7 @@
       "radicle.project1-dev.devops.coop:8776"
     ],
     "seedingPolicy": {
-      "default": "allow",
-      "scope": "all"
+      "default": "block"
     }
   }
 }
