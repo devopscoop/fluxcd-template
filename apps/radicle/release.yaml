@@ -1,0 +1,63 @@
+# https://fluxcd.io/flux/components/helm/helmreleases/
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: radicle
+spec:
+  interval: 10m
+  valuesFrom:
+    - kind: ConfigMap
+      name: radicle-values
+    - kind: Secret
+      name: radicle-secrets
+  chartRef:
+    kind: OCIRepository
+    name: devopscoop-app
+
+  # The app chart renders its Service with no annotations field, so anything the
+  # LoadBalancer needs has to be patched in after Helm renders it.
+  # https://fluxcd.io/flux/components/helm/helmreleases/#post-renderers
+  postRenderers:
+    - kustomize:
+        patches:
+
+          # Publish the name that config.json advertises in
+          # node.externalAddresses. external-dns is already watching Services
+          # (apps/external-dns/values.yaml, sources: service). Without a
+          # resolvable name, peers learn this node's ID over gossip but have
+          # nowhere to dial it.
+          - target:
+              kind: Service
+              name: radicle-node
+            patch: |
+              apiVersion: v1
+              kind: Service
+              metadata:
+                name: radicle-node
+                annotations:
+                  external-dns.alpha.kubernetes.io/hostname: radicle.project1-dev.devops.coop
+
+# On EKS a bare `type: LoadBalancer` falls through to the in-tree provider and
+# gets a Classic LB. The annotations below hand the Service to the AWS Load
+# Balancer Controller and ask for an internet-facing NLB, which is what a seed
+# node needs -- it terminates nothing, it just forwards TCP 8776. Unlike the
+# Envoy Gateway Services in apps/eg-custom-resources, this one wants no
+# healthcheck-* annotations: the NLB's default TCP connect on the target port is
+# the right probe for a protocol with no request/response health endpoint.
+# Non-AWS platforms (k0s/talos + MetalLB) leave this commented and get their
+# provider's default LoadBalancer Service.
+# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
+#           - target:
+#               kind: Service
+#               name: radicle-node
+#             patch: |
+#               apiVersion: v1
+#               kind: Service
+#               metadata:
+#                 name: radicle-node
+#                 annotations:
+#                   service.beta.kubernetes.io/aws-load-balancer-type: external
+#                   service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
+#                   service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
+#                   service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
+# <<< eks

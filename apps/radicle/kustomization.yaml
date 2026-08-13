@@ -1,0 +1,35 @@
+# https://fluxcd.io/flux/guides/helmreleases/#refer-to-values-in-configmaps-generated-with-kustomize
+# https://fluxcd.io/flux/guides/helmreleases/#refer-to-values-in-secret-generated-with-kustomize-and-sops
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Setting namespace here will ensure that all objects managed by this Kustomization will explicitly be deployed to this namespace. You don't need to put specify `namespace:` anywhere else if you do this.
+namespace: radicle
+
+resources:
+  - namespace.yaml
+  - ocirepo.yaml
+  - node-key.secrets.yaml
+  - release.yaml
+configMapGenerator:
+  - name: radicle-values
+    files:
+      - values.yaml=values.yaml
+
+  # Unlike the values above, this one cannot carry a content hash in its name:
+  # values.yaml names it in a volume, and a hashed name would go stale on every
+  # edit. The tradeoff is that editing config.json does not reach the running
+  # node -- it is a subPath mount, read once at startup. Restart after editing;
+  # see README.md.
+  - name: radicle-config
+    files:
+      - config.json=config.json
+    options:
+      disableNameSuffixHash: true
+secretGenerator:
+  - name: radicle-secrets
+    files:
+      - values.yaml=helm_secrets.yaml
+configurations:
+  - kustomizeconfig.yaml

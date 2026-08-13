@@ -1,0 +1,15 @@
+{
+  "node": {
+    "alias": "project1-dev",
+    "listen": [
+      "0.0.0.0:8776"
+    ],
+    "externalAddresses": [
+      "radicle.project1-dev.devops.coop:8776"
+    ],
+    "seedingPolicy": {
+      "default": "allow",
+      "scope": "all"
+    }
+  }
+}
