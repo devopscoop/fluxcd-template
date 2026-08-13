@@ -1,18 +1,14 @@
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
-  name: karpenter
+  name: karpenter-crd
   namespace: flux-system
 spec:
-  # The karpenter chart is installed with crds: Skip; the CRDs come from the
-  # karpenter-crd chart, which must be reconciled first.
-  dependsOn:
-    - name: karpenter-crd
   interval: 10m0s
   sourceRef:
     kind: GitRepository
     name: flux-system
-  path: apps/karpenter
+  path: apps/karpenter-crd
   prune: true
   wait: true
   timeout: 5m0s

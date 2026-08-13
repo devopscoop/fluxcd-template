@@ -4,6 +4,15 @@ kind: HelmRelease
 metadata:
   name: karpenter
 spec:
+  # CRDs are managed by the karpenter-crd chart (apps/karpenter-crd), because
+  # Helm never upgrades CRDs shipped in a chart's crds/ directory — skip them
+  # here so this release doesn't fight over ownership. Keep both charts on the
+  # same version.
+  # https://karpenter.sh/docs/upgrading/upgrade-guide/
+  install:
+    crds: Skip
+  upgrade:
+    crds: Skip
   interval: 10m
   valuesFrom:
     - kind: ConfigMap
