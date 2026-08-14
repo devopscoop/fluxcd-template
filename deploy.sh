@@ -34,8 +34,9 @@ fi
 git pull
 
 # The last repo-rewiring step below points spec.sync.url at this repo's own
-# remote; a fresh template clone still points at the upstream template
-# placeholder repo. Use that to detect an already-bootstrapped repo.
+# remote; a fresh template clone still points at the YOUR_GIT_OWNER
+# placeholder, which is not a legal GitHub owner name (underscores), so a
+# fresh clone can never match a real ${git_owner}/${git_repo} here.
 # NOTE: if a bootstrap run dies between wiring the sync URL and enabling the
 # apps, this reports bootstrapped=true -- finish the remaining steps manually
 # (or revert the sync commit and re-run).
@@ -172,15 +173,14 @@ if [[ "$bootstrapped" == "false" ]]; then
   # Encrypt all the `*.decrypted` files with your new sops age key. Skip
   # apps/templates/ -- that boilerplate is scaffolding for deploy_new_app.sh,
   # not a real secret (encrypt_secrets.sh skips it for the same reason).
+  # Re-encrypt even when a ciphertext with the same content already exists:
+  # encryption picks up the *current* .sops.yaml recipients, so this is what
+  # applies a key rotation. Plaintext never lingers (removed below), so this
+  # can't churn commits across runs.
   while read -r f; do
     enc="${f%.decrypted}"
-    # sops encryption is nondeterministic (fresh data key every time), so
-    # unconditionally re-encrypting would churn out a new ciphertext -- and a
-    # commit -- on every run. Only encrypt when the plaintext actually changed.
-    if ! { [[ -f "${enc}" ]] && sops -d "${enc}" 2>/dev/null | cmp -s - "${f}"; }; then
-      sops --filename-override "${enc}" -e "${f}" > "${enc}"
-      git add "${enc}"
-    fi
+    sops --filename-override "${enc}" -e "${f}" > "${enc}"
+    git add "${enc}"
     # The template tracks its .decrypted boilerplate, but .gitignore keeps
     # later ones untracked, where a plain `git rm` is a fatal error -- hence
     # --ignore-unmatch plus the rm fallback to still clear them off disk.
@@ -188,6 +188,10 @@ if [[ "$bootstrapped" == "false" ]]; then
     rm -f -- "${f}"
   done < <(find . -not -path '*/templates/*' -name '*.decrypted')
   commit_and_push "Encrypting secrets"
+elif find . -not -path '*/templates/*' -name '*.decrypted' | grep -q .; then
+  # The sweep only runs during bootstrap; don't silently leave plaintext
+  # secrets sitting on disk on a re-run.
+  echo "WARNING: *.decrypted files found; run ./encrypt_secrets.sh to encrypt them." >&2
 fi
 
 # Create the flux-system/sops-age secret, so flux has the keys to decrypt secrets.

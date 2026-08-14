@@ -29,7 +29,10 @@ spec:
     domain: "cluster.local"
   sync:
     kind: GitRepository
-    url: https://github.com/devopscoop/project1-dev
+    # YOUR_GIT_OWNER is deliberately not a valid GitHub owner name (underscores
+    # are illegal), so an un-bootstrapped clone can never look bootstrapped to
+    # deploy.sh, which rewrites this url and uses it as its bootstrap sentinel.
+    url: https://github.com/YOUR_GIT_OWNER/project1-dev
     ref: refs/heads/main
     path: fluxcd/flux
     pullSecret: flux-system
