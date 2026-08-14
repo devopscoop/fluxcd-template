@@ -107,6 +107,14 @@ singleBinary:
     # log chunks (those go to S3).
     enabled: true
     size: 10Gi
+  # Loki runs as a single replica with replication_factor 1 and its WAL on the
+  # PVC above, so a spot reclaim stops log ingestion and risks unflushed WAL
+  # data. Pin it to on-demand capacity, per the NodePool contract in
+  # apps/karpenter-custom-resources/nodepool.yaml.
+# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
+#   nodeSelector:
+#     karpenter.sh/capacity-type: on-demand
+# <<< eks
 read:
   replicas: 0
 write:
