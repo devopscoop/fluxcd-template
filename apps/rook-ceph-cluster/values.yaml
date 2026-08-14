@@ -1,2 +1,21 @@
 # dyff between <(yq . <(helm show values rook-release/rook-ceph-cluster --version v1.17.5)) <(yq eval '. * load("values.yaml")' <(helm show values rook-release/rook-ceph-cluster --version v1.17.5))
 # vim -O <(helm show values rook-release/rook-ceph-cluster --version v1.17.5) values.yaml
+
+# Keep every Ceph daemon (mons, mgr, OSDs) off spot capacity: OSD data and mon
+# stores live on node-local disks, so a spot reclaim destroys that node's
+# copies, and spot reclaims correlate (whole instance pools get reclaimed
+# together), so 3-way replication is not real protection. Volume consumers are
+# unaffected -- RBD/CephFS clients don't need Ceph daemons on their own node.
+# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
+# cephClusterSpec:
+#   placement:
+#     all:
+#       nodeAffinity:
+#         requiredDuringSchedulingIgnoredDuringExecution:
+#           nodeSelectorTerms:
+#             - matchExpressions:
+#                 - key: karpenter.sh/capacity-type
+#                   operator: In
+#                   values:
+#                     - on-demand
+# <<< eks

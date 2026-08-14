@@ -42,3 +42,10 @@ spec:
               labelSelector:
                 matchLabels:
                   app.kubernetes.io/name: production-ready
+            # pause_minority (above) pauses the whole cluster if two of the
+            # three replicas go down at once, and spot reclaims correlate, so
+            # keep RabbitMQ on on-demand capacity.
+# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
+#             nodeSelector:
+#               karpenter.sh/capacity-type: on-demand
+# <<< eks

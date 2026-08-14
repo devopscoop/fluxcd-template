@@ -21,6 +21,16 @@ persistence:
   enabled: true
   size: 8Gi
 
+# Nexus is slow to start and its PVC currently also holds the blob stores
+# (blobStores below is empty), so a spot reclaim means repository downtime and
+# a slow recovery. Pin it to on-demand capacity, per the NodePool contract in
+# apps/karpenter-custom-resources/nodepool.yaml.
+# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
+# statefulset:
+#   nodeSelector:
+#     karpenter.sh/capacity-type: on-demand
+# <<< eks
+
 metrics:
   enabled: true
   serviceMonitor:

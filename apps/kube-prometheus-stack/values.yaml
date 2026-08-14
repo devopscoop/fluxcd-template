@@ -28,6 +28,14 @@ alertmanager:
           resources:
             requests:
               storage: 1Gi
+    # Alertmanager is a singleton: if a spot reclaim takes it down, nothing
+    # pages -- including about the reclaim itself. Pin it to on-demand
+    # capacity, per the NodePool contract in
+    # apps/karpenter-custom-resources/nodepool.yaml.
+# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
+#     nodeSelector:
+#       karpenter.sh/capacity-type: on-demand
+# <<< eks
 # Send every alert to Slack. The channel below is not secret, but the webhook
 # URL is, so it lives in helm_secrets.yaml (alertmanager.config.global.slack_api_url),
 # which Flux merges over this file -- see valuesFrom in release.yaml.
@@ -65,6 +73,14 @@ prometheus:
     # Public URL for the "Source" links on alerts (generatorURL); without it
     # they point at the internal service URL on port 9090.
     externalUrl: https://prometheus.devops.coop
+    # Prometheus is a singleton with no persistent storage yet (see the README
+    # TODO), so losing its node wipes all metrics history. Pin it to on-demand
+    # capacity so spot reclaims can't do that; node drains from Karpenter
+    # consolidation still can, until persistence is enabled.
+# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
+#     nodeSelector:
+#       karpenter.sh/capacity-type: on-demand
+# <<< eks
 grafana:
   # Provision the Loki store (apps/loki) as a datasource on this Grafana so logs
   # are queryable in Explore. Loki runs single-tenant, so no auth header needed.
