@@ -1,0 +1,61 @@
+# https://karpenter.sh/docs/concepts/nodepools/
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: default
+spec:
+  template:
+    spec:
+      nodeClassRef:
+        group: karpenter.k8s.aws
+        kind: EC2NodeClass
+        name: default
+
+      requirements:
+        # amd64 to match the existing blue node group's t3a.large instances
+        # (aws-eks-template cluster/main.tf); add arm64 here if the workloads
+        # are multi-arch.
+        - key: kubernetes.io/arch
+          operator: In
+          values: ["amd64"]
+        - key: kubernetes.io/os
+          operator: In
+          values: ["linux"]
+        # Spot with on-demand fallback: with both allowed, Karpenter launches
+        # the cheaper spot capacity and falls back to on-demand when spot is
+        # unavailable. Spot interruptions are already handled natively via the
+        # SQS queue (apps/karpenter/values.yaml settings.interruptionQueue).
+        # Spot requires the account-level AWSServiceRoleForEC2Spot
+        # service-linked role, which aws-eks-template creates
+        # (cluster/karpenter.tf). Workloads that can't tolerate a 2-minute
+        # interruption notice should pin themselves to on-demand with a
+        # karpenter.sh/capacity-type nodeSelector.
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["spot", "on-demand"]
+        # Current-ish general-purpose/compute/memory instance families, per the
+        # getting-started guide. Excludes t-family burstables (CPU-credit
+        # starvation is why aws-eks-template enabled node auto repair) and
+        # anything older than generation 3.
+        - key: karpenter.k8s.aws/instance-category
+          operator: In
+          values: ["c", "m", "r"]
+        - key: karpenter.k8s.aws/instance-generation
+          operator: Gt
+          values: ["2"]
+
+      # Replace nodes after 30 days so they pick up fresh AMIs and don't
+      # accumulate drift (getting-started default).
+      expireAfter: 720h
+
+  # Cap on total resources this NodePool may provision — a runaway-workload
+  # blast-radius limit, not a target. Getting-started default; tune per
+  # cluster.
+  limits:
+    cpu: 1000
+
+  disruption:
+    # Consolidate whenever nodes are empty or underutilized (the point of
+    # running Karpenter), after the node has been disruptable for 1m.
+    consolidationPolicy: WhenEmptyOrUnderutilized
+    consolidateAfter: 1m

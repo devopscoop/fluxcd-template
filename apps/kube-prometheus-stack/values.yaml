@@ -8,13 +8,26 @@ alertmanager:
       hostnames:
         - alertmanager.devops.coop
       parentRefs:
-        - name: eg
+        - name: eg-private
           namespace: envoy-gateway-system
   alertmanagerSpec:
     # Public URL Alertmanager uses when generating links (e.g. the title link in
     # Slack notifications); without it they point at the internal service URL
     # http://kube-prometheus-stack-alertmanager.kube-prometheus-stack:9093.
     externalUrl: https://alertmanager.devops.coop
+    # Persist /alertmanager so silences and the notification log survive pod
+    # restarts (the chart defaults to an emptyDir). The data is only a few KB,
+    # but 1Gi is the practical floor: EBS won't provision smaller, and most
+    # other provisioners round up to it anyway. No storageClassName, so the
+    # cluster's default StorageClass is used.
+    storage:
+      volumeClaimTemplate:
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 1Gi
 # Send every alert to Slack. The channel below is not secret, but the webhook
 # URL is, so it lives in helm_secrets.yaml (alertmanager.config.global.slack_api_url),
 # which Flux merges over this file -- see valuesFrom in release.yaml.
@@ -46,7 +59,7 @@ prometheus:
       hostnames:
         - prometheus.devops.coop
       parentRefs:
-        - name: eg
+        - name: eg-private
           namespace: envoy-gateway-system
   prometheusSpec:
     # Public URL for the "Source" links on alerts (generatorURL); without it

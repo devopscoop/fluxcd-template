@@ -1,0 +1,4 @@
+# dyff between <(yq . <(helm show values oci://public.ecr.aws/karpenter/karpenter-crd --version 1.14.0)) <(yq eval '. * load("values.yaml")' <(helm show values oci://public.ecr.aws/karpenter/karpenter-crd --version 1.14.0))
+# vim -O <(helm show values oci://public.ecr.aws/karpenter/karpenter-crd --version 1.14.0) values.yaml
+
+# No overrides: the chart's only value is additionalAnnotations for the CRDs.

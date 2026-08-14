@@ -1,0 +1,25 @@
+# Companion to httproute-healthz-public.yaml: the same /healthz direct
+# response, bound to the eg-private Gateway's port-80 listener. Health-check
+# annotations live on the EnvoyProxy and apply to every Gateway using it, so
+# each Gateway's fleet needs its own answerer — without this route every
+# eg-private target would go unhealthy. Reuses the shared eg-healthz
+# HTTPRouteFilter defined in httproute-healthz-public.yaml.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: eg-private-healthz
+spec:
+  parentRefs:
+    - name: eg-private
+      sectionName: http
+  rules:
+    - matches:
+        - path:
+            type: Exact
+            value: /healthz
+      filters:
+        - type: ExtensionRef
+          extensionRef:
+            group: gateway.envoyproxy.io
+            kind: HTTPRouteFilter
+            name: eg-healthz

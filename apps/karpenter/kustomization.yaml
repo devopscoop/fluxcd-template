@@ -1,0 +1,25 @@
+# https://fluxcd.io/flux/guides/helmreleases/#refer-to-values-in-configmaps-generated-with-kustomize
+# https://fluxcd.io/flux/guides/helmreleases/#refer-to-values-in-secret-generated-with-kustomize-and-sops
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Karpenter installs into kube-system, per the getting-started guide
+# (KARPENTER_NAMESPACE="kube-system"). It already exists, so there is no
+# namespace.yaml to create/manage.
+# https://karpenter.sh/docs/getting-started/getting-started-with-karpenter/
+namespace: kube-system
+
+resources:
+  - ocirepo.yaml
+  - release.yaml
+configMapGenerator:
+  - name: karpenter-values
+    files:
+      - values.yaml=values.yaml
+secretGenerator:
+  - name: karpenter-secrets
+    files:
+      - values.yaml=helm_secrets.yaml
+configurations:
+  - kustomizeconfig.yaml

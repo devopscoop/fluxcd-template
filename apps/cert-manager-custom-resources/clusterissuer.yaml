@@ -34,7 +34,7 @@ spec:
       #     gatewayHTTPRoute:
       #       parentRefs:
       #       - kind: Gateway
-      #         name: eg
+      #         name: eg-public
       #         namespace: envoy-gateway-system
 
       # - dns01:

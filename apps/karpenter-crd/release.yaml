@@ -1,0 +1,15 @@
+# https://fluxcd.io/flux/components/helm/helmreleases/
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: karpenter-crd
+spec:
+  interval: 10m
+  valuesFrom:
+    - kind: ConfigMap
+      name: karpenter-crd-values
+    - kind: Secret
+      name: karpenter-crd-secrets
+  chartRef:
+    kind: OCIRepository
+    name: karpenter-karpenter-crd

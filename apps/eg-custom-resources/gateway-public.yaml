@@ -1,0 +1,29 @@
+# Minimal starting Gateway: a single HTTP listener open to HTTPRoutes in any
+# namespace. This is intentionally generic — add HTTPS listeners per cluster
+# (hostname + TLS, typically issued by cert-manager) and restrict allowedRoutes
+# to suit. See https://gateway.envoyproxy.io/docs/tasks/security/tls-cert-manager/
+#
+# Despite the name, this Gateway starts PRIVATE: it sits on the GatewayClass
+# default EnvoyProxy (eg-private) until you attach the eg-public EnvoyProxy
+# stub via spec.infrastructure.parametersRef (snippet in envoyproxy-public.yaml).
+# The name says what it is FOR — the listeners you expose to users — so
+# flipping the scheme later is a two-line parametersRef, not a rename (a
+# Gateway rename is delete+create: new fleet, new LB, DNS cutover).
+#
+# Supporting/ops services (monitoring UIs and the like) live on the
+# always-private eg-private Gateway (gateway-private.yaml) instead, so they
+# never ride an internet-facing LB. Route customer-facing apps here, ops
+# tooling there.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: eg-public
+spec:
+  gatewayClassName: eg
+  listeners:
+    - name: http
+      protocol: HTTP
+      port: 80
+      allowedRoutes:
+        namespaces:
+          from: All

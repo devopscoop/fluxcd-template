@@ -1,7 +1,7 @@
 # OWASP Coraza (https://coraza.io/) is a ModSecurity-compatible WAF engine,
 # here compiled to a proxy-wasm filter (coraza-proxy-wasm) and attached to the
-# eg Gateway. It runs inside the existing data-plane Envoy pods, so every
-# HTTPRoute through the gateway is inspected with no sidecars, no extra hop,
+# eg-public and eg-private Gateways. It runs inside the existing data-plane Envoy
+# pods, so every HTTPRoute through them is inspected with no sidecars, no extra hop,
 # and no new deployment. Envoy Gateway's controller pulls the wasm OCI image
 # and serves it to the Envoy fleet.
 #
@@ -23,9 +23,13 @@ metadata:
   name: coraza
 spec:
   targetRefs:
+    # One policy, both Gateways — same enforcing, fail-closed WAF on each.
     - group: gateway.networking.k8s.io
       kind: Gateway
-      name: eg
+      name: eg-public
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: eg-private
   wasm:
     - name: coraza
       # failOpen false = if the wasm module fails to load or crashes, Envoy
@@ -49,5 +53,13 @@ spec:
             - SecResponseBodyAccess Off
             - SecRuleEngine On
             - Include @crs-setup-conf
+            # The load balancer health-checks each Envoy fleet by IP on
+            # /healthz, so the probe's Host header is a numeric IP — which trips
+            # CRS 920350 ("Host header is a numeric IP address") on every check.
+            # Pure noise, no signal. Drop 920350 for the health-check path only,
+            # leaving it active for real traffic. This MUST precede the CRS
+            # include: 920350 is phase 1, and ctl:ruleRemoveById only skips
+            # rules that run later in the phase (i.e. defined after this one).
+            - 'SecRule REQUEST_URI "@beginsWith /healthz" "id:10001,phase:1,pass,nolog,ctl:ruleRemoveById=920350"'
             - Include @owasp_crs/*.conf
         default_directives: default
