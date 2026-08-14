@@ -45,6 +45,46 @@ if [[ "$(yq '.spec.sync.url' flux/flux-system/flux-instance.yaml)" == "https://g
   echo "INFO: repo already bootstrapped; skipping repo rewrites, re-asserting cluster state only."
 fi
 
+# Validate everything the bootstrap will need BEFORE any step below mutates or
+# pushes: failing halfway through would strand the repo (some commits already
+# pushed, sync URL possibly already rewired) in a state that needs manual
+# recovery. The lists themselves are consumed by the app-enabling step at the
+# bottom of the script.
+# Observability is the VictoriaMetrics stack (victoria-metrics, victoria-logs,
+# tempo, otel-collector, goalert; cnpg is here because goalert's database
+# depends on it). The kube-prometheus-stack + alloy + loki alternative stays in
+# the repo but disabled -- the two stacks are either/or (see
+# apps/victoria-metrics/README.md), so to switch back, swap the two groups.
+core_app_list="cert-manager-custom-resources.yaml cert-manager.yaml external-dns.yaml imagepolicies.yaml imagerepositories.yaml imageupdateautomation.yaml sops-age.secrets.yaml cnpg.yaml victoria-metrics.yaml victoria-logs.yaml tempo.yaml otel-collector.yaml goalert.yaml eg.yaml eg-custom-resources.yaml"
+case "$k8s_platform" in
+  eks)
+    app_list="metrics-server.yaml aws-load-balancer-controller.yaml eks-storage-classes.yaml cluster-viewers.yaml karpenter-crd.yaml karpenter.yaml karpenter-custom-resources.yaml"
+    ;;
+  k0s)
+    app_list="metallb.yaml metallb-custom-resources.yaml"
+    ;;
+  talos)
+    app_list="metallb.yaml metallb-custom-resources.yaml"
+    ;;
+  *)
+    echo "ERROR: k8s_platform invalid" >&2
+    exit 1
+    ;;
+esac
+if [[ "$bootstrapped" == "false" ]]; then
+  for app in $core_app_list $app_list; do
+    # A resources entry pointing at a missing file breaks the whole
+    # flux-system kustomize build once pushed, so refuse to enable one. A
+    # .decrypted staging copy counts: the secrets sweep below encrypts it
+    # into place before the apps are enabled. (sops-age.secrets.yaml is
+    # created by hand pre-deploy, in either form -- see README.md.)
+    if [[ ! -f "flux/flux-system/${app}" && ! -f "flux/flux-system/${app}.decrypted" ]]; then
+      echo "ERROR: flux/flux-system/${app} does not exist; refusing to enable it." >&2
+      exit 1
+    fi
+  done
+fi
+
 # Commit and push whatever this script has staged. Gating on the stage (not
 # the working tree) is what keeps re-runs from committing nothing or aborting.
 commit_and_push() {
@@ -197,36 +237,9 @@ if [[ "$bootstrapped" == "false" ]]; then
 
   flux-operator install -f "${SCRIPT_DIR}/flux/flux-system/flux-instance.yaml"
 
-  # Open the Flux floodgates! Enable everything!
-  # Observability is the VictoriaMetrics stack (victoria-metrics, victoria-logs,
-  # tempo, otel-collector, goalert; cnpg is here because goalert's database
-  # depends on it). The kube-prometheus-stack + alloy + loki alternative stays in
-  # the repo but disabled -- the two stacks are either/or (see
-  # apps/victoria-metrics/README.md), so to switch back, swap the two groups.
-  core_app_list="cert-manager-custom-resources.yaml cert-manager.yaml external-dns.yaml imagepolicies.yaml imagerepositories.yaml imageupdateautomation.yaml sops-age.secrets.yaml cnpg.yaml victoria-metrics.yaml victoria-logs.yaml tempo.yaml otel-collector.yaml goalert.yaml eg.yaml eg-custom-resources.yaml"
-  case "$k8s_platform" in
-    eks)
-      app_list="metrics-server.yaml aws-load-balancer-controller.yaml eks-storage-classes.yaml cluster-viewers.yaml karpenter-crd.yaml karpenter.yaml karpenter-custom-resources.yaml"
-      ;;
-    k0s)
-      app_list="metallb.yaml metallb-custom-resources.yaml"
-      ;;
-    talos)
-      app_list="metallb.yaml metallb-custom-resources.yaml"
-      ;;
-    *)
-      echo "ERROR: k8s_platform invalid" >&2
-      exit 1
-      ;;
-  esac
+  # Open the Flux floodgates! Enable everything! ($core_app_list, $app_list,
+  # and the files they name are validated near the top of the script.)
   for app in $core_app_list $app_list; do
-    # A resources entry pointing at a missing file breaks the whole
-    # flux-system kustomize build once pushed, so refuse to add one.
-    # (sops-age.secrets.yaml is created by hand pre-deploy -- see README.md.)
-    if [[ ! -f "flux/flux-system/${app}" ]]; then
-      echo "ERROR: flux/flux-system/${app} does not exist; refusing to enable it." >&2
-      exit 1
-    fi
     yq -i ".resources = (.resources + [\"${app}\"] | unique)" flux/flux-system/kustomization.yaml
   done
   git add flux/flux-system/kustomization.yaml
