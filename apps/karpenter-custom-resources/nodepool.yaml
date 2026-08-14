@@ -21,12 +21,18 @@ spec:
         - key: kubernetes.io/os
           operator: In
           values: ["linux"]
-        # On-demand only. Before adding "spot", the account needs the spot
-        # service-linked role, created once per account with:
-        #   aws iam create-service-linked-role --aws-service-name spot.amazonaws.com
+        # Spot with on-demand fallback: with both allowed, Karpenter launches
+        # the cheaper spot capacity and falls back to on-demand when spot is
+        # unavailable. Spot interruptions are already handled natively via the
+        # SQS queue (apps/karpenter/values.yaml settings.interruptionQueue).
+        # Spot requires the account-level AWSServiceRoleForEC2Spot
+        # service-linked role, which aws-eks-template creates
+        # (cluster/karpenter.tf). Workloads that can't tolerate a 2-minute
+        # interruption notice should pin themselves to on-demand with a
+        # karpenter.sh/capacity-type nodeSelector.
         - key: karpenter.sh/capacity-type
           operator: In
-          values: ["on-demand"]
+          values: ["spot", "on-demand"]
         # Current-ish general-purpose/compute/memory instance families, per the
         # getting-started guide. Excludes t-family burstables (CPU-credit
         # starvation is why aws-eks-template enabled node auto repair) and
