@@ -58,3 +58,8 @@ sources:
 
   # This is needed for external-dns to create records for Gateway API resources.
   - gateway-httproute
+
+  # TCPRoutes carry no hostnames of their own, so records come from the
+  # external-dns.alpha.kubernetes.io/hostname annotation on the route. Used by
+  # apps/radicle/tcproute.yaml.
+  - gateway-tcproute

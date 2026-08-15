@@ -26,8 +26,8 @@ statefulSet:
             storage: 10Gi
 
 # Names everything `radicle-node` rather than `radicle`, the release name the
-# chart falls back to. release.yaml's post-render patch targets the Service by
-# this name.
+# chart falls back to. tcproute.yaml's backendRef points at the Service by this
+# name.
 fullnameOverride: radicle-node
 
 image:
@@ -38,6 +38,8 @@ image:
   # `latest` tag and is rebuilt whenever upstream moves, so the digest below is
   # what actually pins the version -- bump it deliberately after checking what
   # changed. Currently radicle-node 1.10.1. linux/amd64 only.
+  #
+  # TODO: Use an official image or file an issue to create one.
   repository: docker.io/dirk1980/radicle-seed-node
   tag: latest@sha256:78ccee526ad4b4f4d7c79c2323b032a7209858a48e1dc9c077272ff1660050e2
 
@@ -149,12 +151,12 @@ securityContext:
   readOnlyRootFilesystem: true
 
 service:
-  # Peers dial the address in config.json's node.externalAddresses, so this has
-  # to be reachable from outside the cluster. MetalLB assigns from its pool on
-  # bare metal; on EKS see the annotations in release.yaml.
-  type: LoadBalancer
-  # The chart derives the container port from this and names it `http`. The
-  # name is a chart-ism -- what actually crosses this port is the Radicle p2p
+  # ClusterIP (the chart default). Peers reach this node through the eg-public
+  # Gateway, which forwards TCP 8776 to this Service -- see tcproute.yaml. The
+  # node does not own a LoadBalancer of its own.
+  #
+  # The chart derives the container port from this and names it `http`. The name
+  # is a chart-ism -- what actually crosses this port is the Radicle p2p
   # protocol, not HTTP.
   port: 8776
 

@@ -12,6 +12,7 @@ resources:
   - ocirepo.yaml
   - node-key.secrets.yaml
   - release.yaml
+  - tcproute.yaml
 configMapGenerator:
   - name: radicle-values
     files:

@@ -33,20 +33,28 @@ Both files have to be in the Secret. `radicle-node` only reads the private key, 
 
 ### 2. Give it an address peers can reach
 
-Two places have to agree on one hostname:
+The node has no LoadBalancer of its own. Its Service is a ClusterIP, and peers reach it through the shared **eg-public** Gateway, which forwards TCP 8776 to it — a `TCPRoute` (`tcproute.yaml`) attached to a listener of the same name in `apps/eg-custom-resources/gateway-public.yaml`.
+
+Two things have to be true before that path works.
+
+**The Gateway has to actually be public.** `eg-public` ships attached to the *private* EnvoyProxy — the name says what it is for, not where it is. Until you attach the `eg-public` EnvoyProxy stub via `spec.infrastructure.parametersRef` (the snippet is in `envoyproxy-public.yaml`), this node is reachable only from inside the network, and a seed nobody can dial is not seeding anything.
+
+**Two files have to agree on one hostname:**
 
 - `config.json` → `node.externalAddresses` — what the node advertises over gossip.
-- `release.yaml` → the `external-dns.alpha.kubernetes.io/hostname` annotation in the post-render patch — what actually gets an A record pointing at the LoadBalancer.
+- `tcproute.yaml` → the `external-dns.alpha.kubernetes.io/hostname` annotation — what gets a record pointing at the Gateway's load balancer.
 
 Both ship as `radicle.project1-dev.devops.coop`, and deploy.sh rewrites `project1-dev` to your cluster name. If they disagree, peers get an address that does not resolve to this node and inbound replication silently never happens.
 
-On EKS, uncomment the eks marker block in `release.yaml` (deploy.sh does this for you when `k8s_platform=eks`) so the AWS Load Balancer Controller provisions an internet-facing NLB. On k0s/talos, MetalLB assigns from its pool and no annotations are needed.
+A TCPRoute has no `hostnames` field — a TCP stream carries no hostname to route on — so the record comes from that annotation and the listener is dedicated to this one app. That is also why the listener is named `radicle` rather than something generic: a second TCP service needs its own port and its own listener.
 
 What you hand out to people who want to seed from you is the pair — `rad node status` in the pod prints the Node ID:
 
 ```text
 <node-id>@radicle.project1-dev.devops.coop:8776
 ```
+
+One consequence of proxying: `radicle-node` sees connections coming from the Envoy pod, not from the peer. Nothing breaks — Radicle authenticates peers cryptographically by Node ID, not by address — but peer IPs in the node's logs are Envoy's, and per-IP reasoning about traffic has to happen at the Gateway instead.
 
 ### 3. List the repos to seed
 
@@ -64,11 +72,14 @@ kubectl -n radicle exec -it radicle-node-0 -- rad self
 kubectl -n radicle exec -it radicle-node-0 -- rad node routing
 ```
 
-Peers connect from the outside, so confirm the LoadBalancer actually got an address and that DNS caught up:
+Peers connect from the outside, so confirm the route was accepted and that the Gateway it hangs off has an address:
 
 ```shell
-kubectl -n radicle get svc radicle-node
+kubectl -n radicle get tcproute radicle -o yaml   # parents[].conditions: Accepted / ResolvedRefs
+kubectl -n envoy-gateway-system get gateway eg-public
 ```
+
+A route that is not `Accepted` usually means the `radicle` listener is missing from the Gateway, or `sectionName` does not match it.
 
 ## Changing which repos are seeded
 

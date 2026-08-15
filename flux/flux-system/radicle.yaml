@@ -4,6 +4,11 @@ metadata:
   name: radicle
   namespace: flux-system
 spec:
+  # tcproute.yaml needs the TCPRoute CRD (from the eg HelmRelease) and the
+  # eg-public Gateway with its 8776 listener. eg-custom-resources dependsOn eg
+  # and has wait: true, so this covers both.
+  dependsOn:
+    - name: eg-custom-resources
   interval: 10m0s
   sourceRef:
     kind: GitRepository
