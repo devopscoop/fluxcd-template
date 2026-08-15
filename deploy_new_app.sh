@@ -29,13 +29,13 @@ Options:
 Examples:
 
   # Using OCIRepository
-  $0 --app-name my-api --repo-name devopscoop --repo-url oci://registry.gitlab.com/devopscoop/charts --chart-name app --chart-version 0.9.0
+  $0 --app-name my-api --repo-name devopscoop --repo-url oci://registry.gitlab.com/devopscoop/charts --chart-name app --chart-version 0.11.1
 
   # Using HelmRepository
   $0 --app-name my-harbor --repo-name harbor --repo-url https://helm.goharbor.io --chart-name harbor --chart-version 1.17.2
 
   # First-party app with image automation
-  $0 --app-name my-api --repo-name devopscoop --repo-url oci://registry.gitlab.com/devopscoop/charts --chart-name app --chart-version 0.9.0 --image-automation
+  $0 --app-name my-api --repo-name devopscoop --repo-url oci://registry.gitlab.com/devopscoop/charts --chart-name app --chart-version 0.11.1 --image-automation
 
 TOC
   exit 1

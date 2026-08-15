@@ -1,0 +1,189 @@
+# dyff between <(yq . <(helm show values oci://registry.gitlab.com/devopscoop/charts/app --version 0.11.1)) <(yq eval '. * load("values.yaml")' <(helm show values oci://registry.gitlab.com/devopscoop/charts/app --version 0.11.1))
+# vim -O <(helm show values oci://registry.gitlab.com/devopscoop/charts/app --version 0.11.1) values.yaml
+
+# A Radicle seed node: `radicle-node` from the Heartwood stack, replicating and
+# serving repos over the Radicle p2p protocol on TCP 8776. See README.md in this
+# directory for the one-time node-key bootstrap and for how to seed repos.
+
+# The node's git storage, its databases and its control socket all live under
+# RAD_HOME, and the Node ID other peers dial is derived from a keypair that must
+# not change. That makes this a StatefulSet with a PVC -- under a Deployment,
+# every rollout would hand the node an empty volume.
+workloadType: StatefulSet
+replicaCount: 1
+
+statefulSet:
+  volumeClaimTemplates:
+    - metadata:
+        name: radicle-home
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        # Sized for the repos in seeded-repos.txt rather than the whole network
+        # -- config.json blocks by default. Revisit as that list grows.
+        resources:
+          requests:
+            storage: 10Gi
+
+# Names everything `radicle-node` rather than `radicle`, the release name the
+# chart falls back to. tcproute.yaml's backendRef points at the Service by this
+# name.
+fullnameOverride: radicle-node
+
+image:
+  # Radicle publishes no official container image -- upstream ships .deb
+  # packages and systemd units only. This community image unpacks the signed
+  # upstream radicle-x86_64-unknown-linux-musl release tarball onto Fedora, so
+  # the binaries are the ones the Radicle team built. It only ever carries the
+  # `latest` tag and is rebuilt whenever upstream moves, so the digest below is
+  # what actually pins the version -- bump it deliberately after checking what
+  # changed. Currently radicle-node 1.10.1. linux/amd64 only.
+  #
+  # TODO: Use an official image or file an issue to create one.
+  repository: docker.io/dirk1980/radicle-seed-node
+  tag: latest@sha256:78ccee526ad4b4f4d7c79c2323b032a7209858a48e1dc9c077272ff1660050e2
+
+# radicle-node takes --config and --secret, but the `rad` CLI does not: it only
+# ever reads $RAD_HOME/config.json and $RAD_HOME/keys/, and refuses to run
+# ("Radicle profile not found") if either is missing. Since `rad` is how you
+# administer this node -- `rad node status`, `rad seed` -- the config and key are
+# layered into RAD_HOME at the paths it expects instead, and radicle-node is
+# left on its defaults.
+command:
+  - /usr/local/bin/radicle-node
+args:
+  - --force # a stale node/control.sock survives an unclean shutdown on the PVC
+
+# Which repos this node carries is a per-repo policy in node/policies.db on the
+# PVC, not something config.json can express -- config.json only sets the
+# default, which is "block". Left alone that would make the list of seeded repos
+# invisible to git and lost with the volume, so this reconciles the database
+# against seeded-repos.txt before the node starts: seeding what is listed,
+# unseeding what is not. `rad` writes policies.db directly, so it works with the
+# node down, and unseeding drops the policy rather than the replicated data.
+initContainers:
+  - name: seed-policies
+    # Must match image: above -- the chart only templates that into the main
+    # container, so the digest is spelled out twice and has to be bumped twice.
+    image: docker.io/dirk1980/radicle-seed-node@sha256:78ccee526ad4b4f4d7c79c2323b032a7209858a48e1dc9c077272ff1660050e2
+    command:
+      - /bin/sh
+      - -euc
+      - |
+        list=/etc/radicle/seeded-repos.txt
+        desired=$(sed 's/#.*//' "$list" | tr -s '[:space:]' '\n' | grep '^rad:' | sort -u | tr '\n' ' ' || true)
+        current=$(rad seed | grep -o 'rad:[a-zA-Z0-9]*' | sort -u | tr '\n' ' ' || true)
+        for rid in $current; do
+          case " $desired " in
+            *" $rid "*) ;;
+            *) rad unseed "$rid" ;;
+          esac
+        done
+        if [ -n "$desired" ]; then
+          rad seed --no-fetch --scope all $desired
+        fi
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+          - ALL
+      readOnlyRootFilesystem: true
+    # `rad` needs a complete profile, so this mirrors the node's mounts, plus
+    # the ConfigMap itself for the repo list.
+    volumeMounts:
+      - name: radicle-home
+        mountPath: /radicle-home
+      - name: config
+        mountPath: /radicle-home/config.json
+        subPath: config.json
+        readOnly: true
+      - name: node-key
+        mountPath: /radicle-home/keys
+        readOnly: true
+      - name: config
+        mountPath: /etc/radicle
+        readOnly: true
+      - name: tmp
+        mountPath: /tmp
+
+volumes:
+  - name: config
+    configMap:
+      name: radicle-config
+  - name: node-key
+    secret:
+      # It's a reference, not a secret -- detect-secrets flags the keyword.
+      secretName: radicle-node-key # pragma: allowlist secret
+      defaultMode: 288 # 0440 -- fsGroup owns it, so it needs group read
+  # readOnlyRootFilesystem, so give the process somewhere to write scratch files.
+  - name: tmp
+    emptyDir: {}
+
+# The config and key mounts land *inside* the PVC's mount path, shadowing those
+# two paths with read-only copies -- so the identity never touches the PVC and
+# the config can't drift from git, while storage/ and the node databases still
+# persist underneath.
+volumeMounts:
+  - name: radicle-home
+    mountPath: /radicle-home # RAD_HOME, set by the image
+  - name: config
+    mountPath: /radicle-home/config.json
+    subPath: config.json # a single file, so the rest of RAD_HOME stays visible
+    readOnly: true
+  - name: node-key
+    mountPath: /radicle-home/keys
+    readOnly: true
+  - name: tmp
+    mountPath: /tmp
+
+# The image runs as root and declares no user of its own. Nothing here needs
+# it: the binary is statically linked and every path it writes is mounted.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10000
+  runAsGroup: 10000
+  fsGroup: 10000
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+
+service:
+  # ClusterIP (the chart default). Peers reach this node through the eg-public
+  # Gateway, which forwards TCP 8776 to this Service -- see tcproute.yaml. The
+  # node does not own a LoadBalancer of its own.
+  #
+  # The chart derives the container port from this and names it `http`. The name
+  # is a chart-ism -- what actually crosses this port is the Radicle p2p
+  # protocol, not HTTP.
+  port: 8776
+
+# Radicle speaks its own protocol over TCP, so the chart's default HTTP probes
+# can never succeed. `httpGet: null` deletes the chart's handler rather than
+# adding a second one to it -- Helm merges these maps, and a probe with two
+# handlers is rejected.
+startupProbe:
+  httpGet: null
+  tcpSocket:
+    port: http
+  periodSeconds: 5
+  failureThreshold: 30 # first start migrates the COB cache and refs databases
+livenessProbe:
+  httpGet: null
+  tcpSocket:
+    port: http
+  periodSeconds: 30
+readinessProbe:
+  httpGet: null
+  tcpSocket:
+    port: http
+  periodSeconds: 10
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 512Mi
+  limits:
+    memory: 2Gi

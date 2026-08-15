@@ -1,0 +1,24 @@
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: radicle
+  namespace: flux-system
+spec:
+  # tcproute.yaml needs the TCPRoute CRD (from the eg HelmRelease) and the
+  # eg-public Gateway with its 8776 listener. eg-custom-resources dependsOn eg
+  # and has wait: true, so this covers both.
+  dependsOn:
+    - name: eg-custom-resources
+  interval: 10m0s
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  path: apps/radicle
+  prune: true
+  wait: true
+  timeout: 5m0s
+  decryption:
+    provider: sops
+    secretRef:
+      name: sops-age
+  suspend: false
