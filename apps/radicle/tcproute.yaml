@@ -1,0 +1,43 @@
+# Exposes the seed node through the eg-public Gateway instead of giving it a
+# LoadBalancer Service of its own.
+#
+# TCPRoute, not HTTPRoute: what crosses port 8776 is the Radicle p2p protocol,
+# which Envoy cannot parse. This is a plain L4 passthrough -- nothing is
+# terminated, inspected or rewritten. Radicle encrypts and authenticates its own
+# connections (Noise, keyed by Node ID), so there is no TLS here for cert-manager
+# to issue and the coraza WAF, being HTTP-only, does not apply.
+#
+# TCPRoute is in the Gateway API EXPERIMENTAL channel. The eg HelmRelease
+# installs the experimental CRDs (bundle v1.4.1), so `tcproutes` is available;
+# an eg upgrade that switched to the standard channel would break this.
+#
+# Because a TCP stream carries no hostname, TCPRoute has no `hostnames` field --
+# routing is purely by port. That is why the listener this attaches to
+# (apps/eg-custom-resources/gateway-public.yaml) is dedicated to port 8776 and
+# can serve exactly this one backend.
+apiVersion: gateway.networking.k8s.io/v1alpha2
+kind: TCPRoute
+metadata:
+  name: radicle
+  annotations:
+    # With no `hostnames` field to read, external-dns takes the record from this
+    # annotation and points it at the Gateway's load balancer. Requires the
+    # `gateway-tcproute` source, enabled in apps/external-dns/values.yaml.
+    #
+    # This must match config.json's node.externalAddresses -- that is what peers
+    # are told to dial. If the two disagree, peers learn this node's ID over
+    # gossip but have nowhere to reach it, and inbound replication silently
+    # never happens.
+    external-dns.alpha.kubernetes.io/hostname: radicle.project1-dev.devops.coop
+spec:
+  # The public Gateway: peers dial this node from the internet. Note that
+  # eg-public ships attached to the PRIVATE EnvoyProxy -- see README.md, this
+  # node is not reachable until that is switched.
+  parentRefs:
+    - name: eg-public
+      namespace: envoy-gateway-system
+      sectionName: radicle
+  rules:
+    - backendRefs:
+        - name: radicle-node
+          port: 8776
