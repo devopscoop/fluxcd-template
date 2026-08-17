@@ -34,7 +34,7 @@ fi
 git pull
 
 # The last repo-rewiring step below points spec.sync.url at this repo's own
-# remote; a fresh template clone still points at the YOUR_GIT_OWNER
+# remote; a fresh template clone still points at the devopscoop
 # placeholder, which is not a legal GitHub owner name (underscores), so a
 # fresh clone can never match a real ${git_owner}/${git_repo} here.
 # NOTE: if a bootstrap run dies between wiring the sync URL and enabling the
