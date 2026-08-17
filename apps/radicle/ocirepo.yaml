@@ -3,10 +3,8 @@
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: OCIRepository
 metadata:
-
   # ${org_name}-${chart_name}
   name: devopscoop-app
-
 spec:
   interval: 10m
   layerSelector:
@@ -14,9 +12,7 @@ spec:
     operation: copy
   ref:
     tag: 0.11.1
-
   # For private OCI repos, use a kubernetes.io/dockerconfigjson secret
   # secretRef:
   #   name: registry-auth
-
   url: oci://registry.gitlab.com/devopscoop/charts/app

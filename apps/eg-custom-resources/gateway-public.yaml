@@ -27,3 +27,24 @@ spec:
       allowedRoutes:
         namespaces:
           from: All
+
+    # A TCP listener is bound to one app in a way an HTTP listener is not: a TCP
+    # stream carries no hostname, so TCPRoute has no `hostnames` field and
+    # routing is by port alone. Whichever TCPRoute attaches here gets the whole
+    # port. Hence the app-specific name — remove this listener along with the
+    # app, and give the next TCP service its own port and listener.
+    #
+    # Envoy passes this through at L4: Radicle speaks its own encrypted,
+    # peer-authenticated protocol (apps/radicle/tcproute.yaml), so there is
+    # nothing here to terminate or inspect.
+    #
+    # On EKS this adds a target group on 8776. The health check is unaffected —
+    # the annotations in envoyproxy-public.yaml point every target group at the
+    # dedicated :10080 /healthz listener, which Envoy serves regardless of which
+    # port the traffic arrived on.
+    - name: radicle
+      protocol: TCP
+      port: 8776
+      allowedRoutes:
+        namespaces:
+          from: All
