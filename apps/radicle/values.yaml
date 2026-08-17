@@ -6,29 +6,18 @@
 # directory for the one-time node-key bootstrap and for how to seed repos.
 
 # The node's git storage, its databases and its control socket all live under
-# RAD_HOME, and the Node ID other peers dial is derived from a keypair that must
-# not change. That makes this a StatefulSet with a PVC -- under a Deployment,
-# every rollout would hand the node an empty volume.
-workloadType: StatefulSet
+# RAD_HOME, which is the radicle-home PVC (radicle-home-pvc.yaml). The Node ID
+# other peers dial is derived from a keypair that must not change, but that is
+# mounted from a Secret rather than kept on the volume -- so nothing here needs
+# the stable pod identity a StatefulSet would give it, and the chart's default
+# Deployment is enough.
 replicaCount: 1
 
-statefulSet:
-  volumeClaimTemplates:
-    - metadata:
-        name: radicle-home
-      spec:
-        accessModes:
-          - ReadWriteOnce
-        # Sized for the repos in seeded-repos.txt rather than the whole network
-        # -- config.json blocks by default. Revisit as that list grows.
-        resources:
-          requests:
-            storage: 10Gi
-
-# Names everything `radicle-node` rather than `radicle`, the release name the
-# chart falls back to. tcproute.yaml's backendRef points at the Service by this
-# name.
-fullnameOverride: radicle-node
+# One node, one ReadWriteOnce volume: a rolling update would start the new pod
+# while the old one still has that volume attached, and it would sit unschedulable
+# until the rollout timed out. The old pod has to go first.
+strategy:
+  type: Recreate
 
 image:
   # Radicle publishes no official container image -- upstream ships .deb
@@ -107,6 +96,11 @@ initContainers:
         mountPath: /tmp
 
 volumes:
+  # Under a StatefulSet the chart templates this claim for you; a Deployment
+  # gets one claim for the whole workload, declared in radicle-home-pvc.yaml.
+  - name: radicle-home
+    persistentVolumeClaim:
+      claimName: radicle-home
   - name: config
     configMap:
       name: radicle-config

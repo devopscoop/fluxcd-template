@@ -17,7 +17,7 @@
 # The list is mounted from a ConfigMap that is read once at startup, so after
 # editing this, let Flux sync and then:
 #
-#   kubectl -n radicle rollout restart statefulset radicle-node
+#   kubectl -n radicle rollout restart deployment radicle
 #
 # Example:
 #   rad:z3gqcJUoA1n9HaHKufZs5FCSGazv5   # radicle heartwood

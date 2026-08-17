@@ -10,6 +10,7 @@ namespace: radicle
 resources:
   - namespace.yaml
   - ocirepo.yaml
+  - radicle-home-pvc.yaml
   - node-key.secrets.yaml
   - release.yaml
   - tcproute.yaml

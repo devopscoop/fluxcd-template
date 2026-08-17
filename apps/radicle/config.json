@@ -1,6 +1,10 @@
 {
+  "preferredSeeds": [
+    "z6MkrLMMsiPWUcNPHcRajuMi9mDfYckSoJyPwwnknocNYPm7@iris.radicle.network:8776",
+    "z6Mkmqogy2qEM2ummccUthFEaaHvyYmYBYh3dbe9W4ebScxo@rosa.radicle.network:8776"
+  ],
   "node": {
-    "alias": "project1-dev",
+    "alias": "radicle.project1-dev.devops.coop",
     "listen": [
       "0.0.0.0:8776"
     ],

@@ -1,0 +1,36 @@
+# https://gateway-api.sigs.k8s.io/api-types/tcproute/
+# Peers dial this node at the name in config.json's node.externalAddresses. That
+# name resolves to the eg-public Gateway, not to this node -- the node's own
+# Service is a ClusterIP. This route is what connects the two: it claims the
+# Gateway's `radicle` listener (TCP 8776) and forwards the stream to the pod.
+#
+# TCPRoute is still v1alpha2 -- unlike HTTPRoute, it has not graduated to v1.
+apiVersion: gateway.networking.k8s.io/v1alpha2
+kind: TCPRoute
+metadata:
+  name: radicle
+  annotations:
+    # A TCPRoute has no `hostnames` field -- a TCP stream carries no hostname to
+    # route on -- so the DNS record comes from this annotation instead, picked up
+    # by the gateway-tcproute source in apps/external-dns/values.yaml.
+    #
+    # This must stay equal to node.externalAddresses in config.json: that is the
+    # address peers are handed over gossip, and this is what makes it resolve to
+    # the Gateway in front of this node. If they drift, peers dial a name that
+    # points somewhere else and inbound replication silently stops.
+    external-dns.alpha.kubernetes.io/hostname: radicle.project1-dev.devops.coop
+spec:
+  parentRefs:
+    - name: eg-public
+      namespace: envoy-gateway-system
+      # The Gateway carries several listeners and this route is only valid on
+      # the TCP one; without sectionName it would attach to every listener that
+      # allows it. Must match the listener name in
+      # apps/eg-custom-resources/gateway-public.yaml.
+      sectionName: radicle
+  rules:
+    # The chart names the Service after the release, so this is `radicle` -- see
+    # the `service:` block in values.yaml for the port.
+    - backendRefs:
+        - name: radicle
+          port: 8776
