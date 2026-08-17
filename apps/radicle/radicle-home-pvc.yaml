@@ -1,0 +1,21 @@
+# RAD_HOME for the node: its git storage, the COB cache and the node databases.
+# The chart only provisions storage for StatefulSets, so the claim is declared
+# here and mounted by name in values.yaml.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  # Under a StatefulSet this claim was Flux's to create but never to delete.
+  # Declaring it here hands Flux both, so the annotation takes the second one
+  # back: dropping radicle from git leaves the volume behind to be removed
+  # deliberately. See docs/prune.argdown.
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
+  name: radicle-home
+spec:
+  accessModes:
+    - ReadWriteOnce
+  # Sized for the repos in seeded-repos.txt rather than the whole network --
+  # config.json blocks by default. Revisit as that list grows.
+  resources:
+    requests:
+      storage: 10Gi
