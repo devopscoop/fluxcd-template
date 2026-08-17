@@ -36,17 +36,17 @@ Convention for `values.yaml`: strip everything you are not overriding, so the fi
 - `*secrets.yaml` — a real Kubernetes Secret; only `data`/`stringData` are encrypted, so `apiVersion`/`kind` stay readable to the API server.
 - `*helm_secrets.yaml` — Helm values that happen to be sensitive; the whole file is encrypted.
 
-Never open an encrypted file in an editor — use `sops <file>`, which decrypts, opens, and re-encrypts. Plaintext staging files use the `.decrypted` suffix, are gitignored, and are swept up by `encrypt_secrets.sh` (via `sops --filename-override`, so the ciphertext lands under the real filename and gets the right rule). Files under `apps/templates/` are skipped. `deploy.sh` runs the same sweep and `git rm`s the plaintext.
+Never open an encrypted file in an editor — use `sops <file>`, which decrypts, opens, and re-encrypts. Plaintext staging files use the `.decrypted` suffix, are gitignored, and are swept up by `encrypt_secrets.sh` (via `sops --filename-override`, so the ciphertext lands under the real filename and gets the right rule). Files under `apps/templates/` are skipped. `deploy.sh` runs the same sweep during bootstrap (also `git rm`ing the plaintext); on an already-bootstrapped repo it only warns about stray `.decrypted` files and leaves encrypting them to `encrypt_secrets.sh`.
 
 ## Conditional marker blocks
 
-Optional config ships commented out between `>>> <marker>` / `<<< <marker>` comment delimiters (with a leading hash on the real markers). `uncomment_blocks()` in `deploy.sh` strips the leading `# ` from the lines between them, leaving the markers in place so it stays idempotent. Current markers: `eks` (enabled when `k8s_platform=eks` — IRSA service-account annotations, AWS NLB annotations) and `slack` (enabled when `slack_alerts=true` — Alertmanager → Slack, see `apps/kube-prometheus-stack/README.md`).
+Optional config ships commented out between `>>> <marker>` / `<<< <marker>` comment delimiters (with a leading hash on the real markers). `uncomment_blocks()` in `deploy.sh` strips the leading `# ` (hash plus space, or a lone hash) from the lines between them, leaving the markers in place so it stays idempotent. Genuine comments inside a block must use a doubled hash (`## like this`); uncommenting leaves those untouched. Current markers: `eks` (enabled when `k8s_platform=eks` — IRSA service-account annotations, AWS NLB annotations) and `slack` (enabled when `slack_alerts=true` — Alertmanager → Slack, see `apps/kube-prometheus-stack/README.md`).
 
-Gotcha, called out in `deploy.sh` itself: never write the literal opening marker (hash, space, three `>`) anywhere except a real marker. `uncomment_blocks` greps the whole repo for it and rewrites every file that matches — including prose. When writing about markers in docs, drop the leading hash, as above.
+Gotcha, called out in `deploy.sh` itself: never write the literal opening marker (hash, space, three `>`) anywhere except a real marker. `uncomment_blocks` greps every tracked file for it and rewrites every file that matches — including prose. When writing about markers in docs, drop the leading hash, as above.
 
 ## Placeholders that deploy.sh rewrites
 
-`deploy.sh` sed-replaces `project1-dev` → `$cluster_name` and `us-east-2` → `$region` across every file in the repo except itself, then commits and pushes. Treat both strings as reserved: don't introduce unrelated uses, and don't "fix" them to something else in template files. The script also commits and pushes on its own several times, with `git commit -n` to bypass local hooks.
+During bootstrap, `deploy.sh` sed-replaces `project1-dev` → `$cluster_name` and `us-east-2` → `$region` across every tracked file except itself and this file (AGENTS.md mentions the placeholders in prose), then commits and pushes. Treat both strings as reserved: don't introduce unrelated uses, and don't "fix" them to something else in template files. The script also commits and pushes on its own several times, with `git commit -n` to bypass local hooks. None of this happens on an already-bootstrapped repo — see the `deploy.sh` bullet under "Other scripts".
 
 ## Validation
 
@@ -67,7 +67,7 @@ pre-commit run validate-flux --all-files   # just the Flux conventions hook
 
 - `./deploy_new_app.sh` with no arguments prints its usage; it scaffolds a Helm app from the template, pulls the chart's default values into `values.yaml`, and optionally registers it for deploy (`--deploy`) and adds ImageRepository/ImagePolicy entries (`--image-automation`).
 - `./update_flux-instance.sh [FILE]` bumps `flux/flux-system/flux-instance.yaml` to the latest Flux release and re-pins each controller image to its multi-arch digest. Set `GITHUB_TOKEN` to avoid anonymous API rate limits.
-- `./deploy.sh` is the one-time bootstrap; it requires `variables.sh` and pushes to the remote. Don't run it against a repo you aren't bootstrapping.
+- `./deploy.sh` bootstraps a fresh template clone; it requires `variables.sh`, refuses to start on a dirty working tree, and pushes to the remote as it goes. On an already-bootstrapped repo (detected by the Flux sync URL in `flux/flux-system/flux-instance.yaml` pointing at `$git_owner/$git_repo`) it skips every repo-rewriting step and only re-asserts cluster-side state: `flux-operator install` plus the `flux-system` githubapp and `sops-age` secrets.
 
 ## Image automation and promotion
 
