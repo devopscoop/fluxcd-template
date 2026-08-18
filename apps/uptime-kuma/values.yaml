@@ -1,0 +1,2 @@
+# dyff between <(yq . <(helm show values uptime-kuma/uptime-kuma --version 4.2.0)) <(yq eval '. * load("values.yaml")' <(helm show values uptime-kuma/uptime-kuma --version 4.2.0))
+# vim -O <(helm show values uptime-kuma/uptime-kuma --version 4.2.0) values.yaml
