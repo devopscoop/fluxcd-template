@@ -6,8 +6,9 @@ settings:
   # SQS queue for native interruption handling (spot interruption, rebalance
   # recommendations, scheduled maintenance events). aws-eks-template provisions
   # it (cluster/karpenter.tf, output: karpenter_interruption_queue_name), named
-  # after the cluster.
-  interruptionQueue: project1-dev
+  # "<cluster>-karpenter-interruption" — keep this in sync with queue_name
+  # there.
+  interruptionQueue: project1-dev-karpenter-interruption
 
 # IRSA: on EKS the controller authenticates with the Karpenter controller IAM
 # role. See https://karpenter.sh/docs/getting-started/ for the required
