@@ -1,0 +1,10 @@
+# dyff between <(yq . <(helm show values uptime-kuma/uptime-kuma --version 4.2.0)) <(yq eval '. * load("values.yaml")' <(helm show values uptime-kuma/uptime-kuma --version 4.2.0))
+# vim -O <(helm show values uptime-kuma/uptime-kuma --version 4.2.0) values.yaml
+volume:
+  size: 1Gi
+podEnv:
+  # Pre-answer the database step of the first-run wizard so a from-scratch
+  # deploy comes up without manual choices (same backend the instance has
+  # always used). Only the admin account creation remains on first run.
+  - name: UPTIME_KUMA_DB_TYPE
+    value: "embedded-mariadb"
