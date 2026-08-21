@@ -20,22 +20,20 @@ Scaffolded with:
 - Any string in `config.toml` can interpolate a `GATHIO_`-prefixed environment
   variable as `${GATHIO_FOO}`. The MongoDB URL is set that way, from
   `envSecret.GATHIO_MONGODB_URL` in `helm_secrets.yaml`.
-- Image is digest-pinned to 1.6.5 (upstream publishes `linux/amd64`,
-  `linux/arm/v7` and `linux/arm64`). Upstream re-pushes release tags, so
-  re-derive the digest from the tag when bumping rather than trusting an old
-  one.
+- Image is digest-pinned to 1.6.5, written as `<version>@sha256:<digest>` like
+  `apps/radicle` (upstream publishes `linux/amd64`, `linux/arm/v7` and
+  `linux/arm64`). Upstream re-pushes release tags, so re-derive the digest from
+  the tag when bumping rather than trusting an old one.
 
 ## Before this can be enabled
 
-1. **MongoDB.** Gathio needs one and this repo ships none. `groundhog2k/mongodb`
-   is the least machinery: a plain StatefulSet around the official `mongo`
-   image, no operator and no CRDs, and its `userDatabase` block runs
-   `createUser` inside the application database, so the connection string needs
-   no `?authSource=admin`. Bitnami's chart can only pull
-   `bitnami/mongodb:latest` since the August 2025 catalogue change moved every
-   pinned tag to the frozen `bitnamilegacy` repo; Percona's `psmdb` operator is
-   the right answer only if you want replica sets and PBM backups.
-   Put the URL in `helm_secrets.yaml` and run `./encrypt_secrets.sh`.
+1. **MongoDB.** It lives in [`../mongodb-gathio`](../mongodb-gathio/README.md),
+   in this same namespace, so the Service is
+   `mongodb-gathio.gathio.svc.cluster.local:27017`. Fill in the credentials on
+   both sides — `userDatabase` there and `GATHIO_MONGODB_URL` here — and run
+   `./encrypt_secrets.sh`. Deploy `mongodb-gathio.yaml` too: this app
+   `dependsOn` it, so Flux will not apply gathio until that Kustomization is
+   ready.
 1. **Gateway listener.** `values.yaml` attaches an HTTPRoute for
    `gathio.project1-dev.devops.coop`, but `eg-public` ships with only its `http`
    listener. Add an HTTPS listener with `certificateRefs` →
@@ -56,11 +54,8 @@ Scaffolded with:
 - Gathio serves `/` without touching MongoDB, and `mongoose.connect` failures
   are only logged — so with the database down the pod still passes its probes
   and reports Ready, while every event operation 500s.
-- Gathio 1.6.x pins `mongoose ^5.13.22` (Node driver 3.x), which MongoDB only
-  officially supports against server 4.4 and older. Upstream runs `mongo:latest`
-  in `docker-compose.yml` and CI, so current servers work in practice — pin an
-  explicit tag rather than tracking `latest`. On x86-64, MongoDB 5.0+ requires
-  AVX support on the node CPU.
+- The driver/server version caveat and the credential rotation procedure are in
+  [`../mongodb-gathio/README.md`](../mongodb-gathio/README.md).
 
 ## Local prototyping
 

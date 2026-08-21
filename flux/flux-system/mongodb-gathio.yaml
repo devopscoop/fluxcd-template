@@ -1,16 +1,14 @@
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
-  name: gathio
+  name: mongodb-gathio
   namespace: flux-system
 spec:
-  dependsOn:
-    - name: mongodb-gathio
   interval: 10m0s
   sourceRef:
     kind: GitRepository
     name: flux-system
-  path: apps/gathio
+  path: apps/mongodb-gathio
   prune: true
   wait: true
   timeout: 5m0s
