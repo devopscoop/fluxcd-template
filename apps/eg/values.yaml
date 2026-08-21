@@ -1,8 +1,41 @@
 # Envoy Gateway controller (control plane). This is NOT the data-plane Envoy
 # proxy — proxy replicas/HA are set per-Gateway on the EnvoyProxy resources in
 # apps/eg-custom-resources/envoyproxy-public.yaml / -private.yaml.
+#
+# The controller is a runtime dependency of every data-plane pod START, not
+# just a reconciler: a booting Envoy replica pulls its xDS config and any wasm
+# modules (e.g. coraza) from this deployment, so a replica that starts while
+# no controller is reachable comes up with no listeners, and one whose wasm
+# fetch fails comes up fail-closed, 503ing everything. Replicas already
+# running keep serving their last-pushed config either way. Two replicas
+# alone don't protect that window — a node rotation can evict both
+# controllers and the Envoy fleets at the same time, booting every Envoy
+# fail-closed at once — so the controller gets the same HA treatment as the
+# fleets in envoyproxy-private.yaml: a PDB so voluntary disruptions (drains,
+# rotations) move one controller at a time, and zone + hostname topology
+# spread so both replicas can't sit on one node. Declaring any spread
+# disables the kube-scheduler's cluster defaults, so both keys are restated
+# (maxSkew 1, ScheduleAnyway — same reasoning as envoyproxy-private.yaml).
+# The control-plane label is set by the chart on this deployment's pods only,
+# regardless of release name.
+podDisruptionBudget:
+  maxUnavailable: 1
 deployment:
   replicas: 2
+  pod:
+    topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: topology.kubernetes.io/zone
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels:
+            control-plane: envoy-gateway
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels:
+            control-plane: envoy-gateway
 config:
   envoyGateway:
     provider:
