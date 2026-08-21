@@ -21,6 +21,22 @@
 #     single Gateway, so it is safe to set always. GA on k8s 1.34+.
 #   - envoyPDB caps voluntary disruptions (node drains/updates) at one Envoy at
 #     a time so a drain can't take the ingress below two replicas.
+#   - envoyDeployment.patch repoints the envoy container's probes (startup,
+#     readiness, liveness) from Envoy's admin readiness (/ready on 19003) to
+#     GET /healthz on 10080 — the same through-the-full-filter-chain check
+#     the LB health-check annotations below use. /ready only proves xDS
+#     config arrived and listeners are up; it stays green while the filter
+#     chain rejects every request — e.g. a fail-closed wasm filter (coraza)
+#     whose module fetch from the controller failed, a state that otherwise
+#     persists until a pod delete or a config re-push happens to retrigger
+#     the fetch. Probing /healthz instead makes such a replica go NotReady
+#     (dropping it from endpoints, which also deregisters it from ip-target
+#     LBs) and then restarts it via liveness — self-healing instead of an
+#     operator page. Only each probe's path/port are patched; counts and
+#     timings keep Envoy Gateway's defaults, whose startup probe allows
+#     30×10s for the first config and wasm fetch to land before liveness
+#     arms. This makes the port-80 listener + healthz route a requirement on
+#     EVERY platform, not just EKS where the health-check annotations apply.
 #
 # The aws-load-balancer-* annotations below are EKS-specific (AWS Load Balancer
 # Controller), so they live in eks marker blocks that deploy.sh uncomments only
@@ -78,6 +94,30 @@ spec:
                 matchLabels:
                   app.kubernetes.io/managed-by: envoy-gateway
                   app.kubernetes.io/name: envoy
+        # Probes through the filter chain instead of admin /ready — rationale
+        # in the header. StrategicMerge matches containers by name and merges
+        # per-field, so only each probe's httpGet path/port change; every
+        # other probe field keeps Envoy Gateway's default.
+        patch:
+          type: StrategicMerge
+          value:
+            spec:
+              template:
+                spec:
+                  containers:
+                    - name: envoy
+                      startupProbe:
+                        httpGet:
+                          path: /healthz
+                          port: 10080
+                      readinessProbe:
+                        httpGet:
+                          path: /healthz
+                          port: 10080
+                      livenessProbe:
+                        httpGet:
+                          path: /healthz
+                          port: 10080
       envoyPDB:
         maxUnavailable: 1
 # >>> eks: deploy.sh uncomments this block when k8s_platform=eks

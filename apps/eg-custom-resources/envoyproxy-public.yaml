@@ -10,10 +10,11 @@
 #         kind: EnvoyProxy
 #         name: eg-public
 #
-# The HA config (replicas + topology spread + PDB) and the health-check
-# annotations are identical to eg-private — see the rationale in
-# envoyproxy-private.yaml. The only difference is the load-balancer scheme:
-# internet-facing (the eks block below).
+# The HA config (replicas + topology spread + PDB + the probes-through-the-
+# filter-chain patch) and the health-check annotations are identical to
+# eg-private — see the rationale in envoyproxy-private.yaml. The only
+# difference is the load-balancer scheme: internet-facing (the eks block
+# below).
 apiVersion: gateway.envoyproxy.io/v1alpha1
 kind: EnvoyProxy
 metadata:
@@ -45,6 +46,30 @@ spec:
                 matchLabels:
                   app.kubernetes.io/managed-by: envoy-gateway
                   app.kubernetes.io/name: envoy
+        # Probes through the filter chain instead of admin /ready — rationale
+        # in envoyproxy-private.yaml. StrategicMerge matches containers by
+        # name and merges per-field, so only each probe's httpGet path/port
+        # change; every other probe field keeps Envoy Gateway's default.
+        patch:
+          type: StrategicMerge
+          value:
+            spec:
+              template:
+                spec:
+                  containers:
+                    - name: envoy
+                      startupProbe:
+                        httpGet:
+                          path: /healthz
+                          port: 10080
+                      readinessProbe:
+                        httpGet:
+                          path: /healthz
+                          port: 10080
+                      livenessProbe:
+                        httpGet:
+                          path: /healthz
+                          port: 10080
       envoyPDB:
         maxUnavailable: 1
 # >>> eks: deploy.sh uncomments this block when k8s_platform=eks
