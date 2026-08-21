@@ -1,0 +1,14 @@
+# AutoKuma tracks which Uptime Kuma entities IT created in a small database
+# under /data. If that database is lost, AutoKuma forgets its entities and
+# recreates every definition on the next sync — duplicating all monitors — so
+# this volume must persist across pod restarts.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: autokuma-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi

@@ -1,0 +1,94 @@
+# AutoKuma — config-as-code for Uptime Kuma
+#
+# Uptime Kuma v2 has no import/export or API for declarative config: monitors,
+# notifications, and status pages live only in its SQLite database. AutoKuma
+# closes that gap: it connects to Uptime Kuma's socket.io API and reconciles
+# the entity definitions mounted at /monitors (from the autokuma-monitors
+# ConfigMap, see kustomization.yaml) into the running instance. Editing a file
+# under monitors/ in git is how you add/change/remove a monitor — see
+# README.md in this directory for the workflow.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: autokuma
+  labels:
+    app: autokuma
+spec:
+  replicas: 1
+  # /data is ReadWriteOnce; Recreate stops the old pod before the new one
+  # starts so rollouts don't deadlock on the volume.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: autokuma
+  template:
+    metadata:
+      labels:
+        app: autokuma
+    spec:
+      containers:
+        - name: autokuma
+          # 2.1.0-rc.2 pre-release, deliberately: the 2.0.0 release cannot log
+          # in against Uptime Kuma 2.5 (connect/login race, BigBoot/AutoKuma
+          # #190) and has no /health endpoint for the probes below. The rc adds
+          # /health and reconnect-on-EngineIO-error (#157); the liveness probe
+          # covers the remaining wedge class (#191, ServerError never drops the
+          # cached client). Verified locally against this instance before
+          # deploying. Revisit when 2.1.0 final ships.
+          image: ghcr.io/bigboot/autokuma:2.1.0-rc.2
+          env:
+            - name: AUTOKUMA__KUMA__URL
+              value: "http://uptime-kuma.uptime-kuma.svc.cluster.local:3001"
+            - name: AUTOKUMA__STATIC_MONITORS
+              value: "/monitors"
+            # ConfigMap volumes surface every file as a symlink into ..data/,
+            # and AutoKuma's file source skips symlinks by default — without
+            # this it silently finds zero definitions.
+            - name: AUTOKUMA__FILES__FOLLOW_SYMLINKS
+              value: "true"
+            # No Docker socket in this cluster; without this AutoKuma tries to
+            # watch container labels and logs connection errors forever.
+            - name: AUTOKUMA__DOCKER__ENABLED
+              value: "false"
+            # Deleting a definition file deletes the monitor in Uptime Kuma
+            # (only entities AutoKuma itself created — it never touches ones
+            # made through the UI). This is what makes monitors/ declarative.
+            - name: AUTOKUMA__ON_DELETE
+              value: "delete"
+          envFrom:
+            # AUTOKUMA__KUMA__USERNAME / AUTOKUMA__KUMA__PASSWORD
+            - secretRef:
+                name: autokuma-kuma-credentials
+          # NO health probes, deliberately, despite AutoKuma serving /health on
+          # :8090: it binds 0.0.0.0 (IPv4 only, also on master) while this
+          # cluster's pods are IPv6-only, so kubelet's probe against the pod
+          # IPv6 address is always refused — the probe would kill a healthy
+          # container every failureThreshold x period. The image has no shell,
+          # ruling out an exec probe against IPv4 localhost. Re-add httpGet
+          # probes on /health when upstream binds [::] (a sync that wedges on
+          # an application-level ServerError needs a manual pod restart until
+          # then — see BigBoot/AutoKuma#191).
+          ports:
+            - name: health
+              containerPort: 8090
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: monitors
+              mountPath: /monitors
+              readOnly: true
+          resources:
+            requests:
+              cpu: 25m
+              memory: 64Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: autokuma-data
+        - name: monitors
+          configMap:
+            name: autokuma-monitors

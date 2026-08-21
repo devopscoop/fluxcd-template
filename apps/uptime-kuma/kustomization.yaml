@@ -11,10 +11,25 @@ resources:
   - namespace.yaml
   - helmrepo.yaml
   - release.yaml
+  - httproute.yaml
+  # AutoKuma (config-as-code for the Uptime Kuma instance above — see
+  # README.md). It lives in this app so it deploys to the same namespace and
+  # after the Namespace object, with no cross-app dependsOn needed.
+  - kuma-credentials.secrets.yaml
+  - pvc.yaml
+  - deployment.yaml
 configMapGenerator:
   - name: uptime-kuma-values
     files:
       - values.yaml=values.yaml
+  # AutoKuma entity definitions (monitors, groups, notifications, status
+  # pages) live in monitors/ and are mounted into the AutoKuma container at
+  # /monitors. List every new file here — kustomize does not glob. The
+  # generated name gets a content-hash suffix, so editing a definition rolls
+  # the Deployment and AutoKuma picks it up immediately.
+  - name: autokuma-monitors
+    files:
+      - monitors/website.toml
 secretGenerator:
   - name: uptime-kuma-secrets
     files:
