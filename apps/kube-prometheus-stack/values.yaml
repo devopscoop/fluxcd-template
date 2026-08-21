@@ -73,10 +73,30 @@ prometheus:
     # Public URL for the "Source" links on alerts (generatorURL); without it
     # they point at the internal service URL on port 9090.
     externalUrl: https://prometheus.devops.coop
-    # Prometheus is a singleton with no persistent storage yet (see the README
-    # TODO), so losing its node wipes all metrics history. Pin it to on-demand
-    # capacity so spot reclaims can't do that; node drains from Karpenter
-    # consolidation still can, until persistence is enabled.
+    # Persist the TSDB so metrics history survives pod rescheduling and node
+    # replacement (the chart defaults to an emptyDir, which dies with its
+    # node). No storageClassName, so the cluster's default StorageClass is
+    # used. Note EBS volumes are zonal: after a node loss the pod stays
+    # Pending until a node exists in the volume's AZ again.
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 50Gi
+    # Keep 30 days of history (the chart defaults to 10d). Sizing rule of
+    # thumb: disk = ingested samples/s x retention seconds x ~2 bytes; a small
+    # cluster ingests a few thousand samples/s, so 30d lands in the 15-35GB
+    # range. retentionSize caps the TSDB below the volume size so Prometheus
+    # prunes the oldest blocks instead of filling the disk and crash-looping;
+    # grow storage and retentionSize together.
+    retention: 30d
+    retentionSize: 45GB
+    # Prometheus is a singleton: pin it to on-demand capacity, per the
+    # NodePool contract in apps/karpenter-custom-resources/nodepool.yaml, so a
+    # spot reclaim can't interrupt scraping and alert evaluation.
 # >>> eks: deploy.sh uncomments this block when k8s_platform=eks
 #     nodeSelector:
 #       karpenter.sh/capacity-type: on-demand
