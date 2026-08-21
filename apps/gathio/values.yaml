@@ -18,8 +18,8 @@ statefulSet:
 replicaCount: 1
 
 image:
-  repository: ghcr.io/lowercasename/gathio@sha256
-  tag: "999c2370cb7f8148be772d12289e0dc658001ec5ea9979d91da4dce942ee6129" # 1.6.5
+  repository: ghcr.io/lowercasename/gathio
+  tag: "1.6.5@sha256:999c2370cb7f8148be772d12289e0dc658001ec5ea9979d91da4dce942ee6129"
 
 service:
   port: 3000
