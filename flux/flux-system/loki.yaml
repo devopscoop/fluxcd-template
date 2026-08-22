@@ -4,6 +4,11 @@ metadata:
   name: loki
   namespace: flux-system
 spec:
+  # The loki chart renders its ServiceMonitor only when the ServiceMonitor CRD
+  # already exists at install time (a Capabilities.APIVersions check in the
+  # chart), so on a fresh bootstrap kube-prometheus-stack must land first.
+  dependsOn:
+    - name: kube-prometheus-stack
   interval: 10m0s
   sourceRef:
     kind: GitRepository

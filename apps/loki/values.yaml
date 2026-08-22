@@ -122,12 +122,28 @@ write:
 backend:
   replicas: 0
 
-# The memcached-backed caches request several GB of memory by default. Off for
-# a minimal install; enable them later if query performance needs it.
+# Memcached-backed caches. The chunk cache stays off: the chart default is
+# allocatedMemory: 8192, and the chart requests floor(1.2 * allocatedMemory)
+# of memory — nearly 10Gi, more than the cluster's remaining headroom. If
+# query latency is still a problem with the results cache on, enable it with
+# an explicit (smaller) allocatedMemory rather than the default.
 chunksCache:
   enabled: false
+# The results cache is the high-value, low-cost half (~1.2Gi request at the
+# chart-default 1024 MB): dashboards auto-refresh the same ranges over and
+# over, and without it every refresh recomputes every query against S3.
 resultsCache:
-  enabled: false
+  enabled: true
+
+# Scrape Loki's own metrics (ingest rate, stream count, query latency, cache
+# hits, ...). The Prometheus CR only selects ServiceMonitors carrying its Helm
+# release name as a label — without it, kube-prometheus-stack silently ignores
+# the ServiceMonitor.
+monitoring:
+  serviceMonitor:
+    enabled: true
+    labels:
+      release: kube-prometheus-stack
 
 # Extra components we don't need for a basic logging store.
 lokiCanary:
