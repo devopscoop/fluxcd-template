@@ -8,6 +8,13 @@ alloy:
   mounts:
     # Mount the node's /var/log so Alloy can read /var/log/pods/.../*.log.
     varlog: true
+  # Sized from krr (2026-08-22, 14d dev usage); memory req=limit, no CPU limit.
+  resources:
+    requests:
+      cpu: 15m
+      memory: 192Mi
+    limits:
+      memory: 192Mi
   configMap:
     content: |-
       // Discover this node's pods (Alloy's ServiceAccount gets the
@@ -121,3 +128,12 @@ alloy:
           url = "http://loki-gateway.loki.svc.cluster.local/loki/api/v1/push"
         }
       }
+
+configReloader:
+  # Sized from krr (2026-08-22, 14d dev usage); memory req=limit, no CPU limit.
+  resources:
+    requests:
+      cpu: 10m
+      memory: 128Mi
+    limits:
+      memory: 128Mi

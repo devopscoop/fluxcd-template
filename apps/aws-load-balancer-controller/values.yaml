@@ -19,3 +19,12 @@ clusterName: project1-dev
 
 podDisruptionBudget:
   maxUnavailable: 1
+
+# Sized from Prometheus (2026-08-22, 14d dev usage); memory req=limit, no CPU
+# limit.
+resources:
+  requests:
+    cpu: 10m
+    memory: 128Mi
+  limits:
+    memory: 128Mi

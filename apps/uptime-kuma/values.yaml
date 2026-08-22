@@ -8,3 +8,18 @@ podEnv:
   # always used). Only the admin account creation remains on first run.
   - name: UPTIME_KUMA_DB_TYPE
     value: "embedded-mariadb"
+
+# Sized from krr (2026-08-22, 14d dev usage); memory req=limit, no CPU limit.
+resources:
+  requests:
+    cpu: 25m
+    memory: 384Mi
+  limits:
+    memory: 384Mi
+
+# Singleton on an RWO PVC (embedded mariadb): Recreate terminates the old pod
+# before starting the new one, so a deploy can't deadlock on the volume or
+# briefly run two instances against the same database. (Chart default is
+# RollingUpdate.)
+strategy:
+  type: Recreate
