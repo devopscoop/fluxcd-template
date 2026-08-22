@@ -22,6 +22,15 @@ podDisruptionBudget:
   maxUnavailable: 1
 deployment:
   replicas: 2
+  envoyGateway:
+    # Sized from krr (2026-08-22, 14d dev usage): peak ~143Mi. Overrides the
+    # chart defaults (100m/256Mi requests, 1Gi memory limit); no CPU limit.
+    resources:
+      requests:
+        cpu: 10m
+        memory: 192Mi
+      limits:
+        memory: 192Mi
   pod:
     topologySpreadConstraints:
       - maxSkew: 1

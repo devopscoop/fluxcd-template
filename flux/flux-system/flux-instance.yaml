@@ -110,6 +110,9 @@ spec:
           name: image-automation-controller
       # Controller resource requests/limits (operator-rendered Deployments, so
       # these must be set here rather than via a kustomize patch in the repo).
+      # `cpu: null` strips the CPU limit the distribution's size profile bakes
+      # in — CPU limits only cause CFS throttling; the request already
+      # guarantees fair share under contention.
       - patch: |
           apiVersion: apps/v1
           kind: Deployment
@@ -125,6 +128,7 @@ spec:
                         cpu: 10m
                         memory: 209Mi
                       limits:
+                        cpu: null
                         memory: 209Mi
         target:
           kind: Deployment
@@ -144,10 +148,13 @@ spec:
                         cpu: 10m
                         memory: 100Mi
                       limits:
+                        cpu: null
                         memory: 100Mi
         target:
           kind: Deployment
           name: image-automation-controller
+      # image-reflector was sized at 1069Mi from an earlier peak; 14d usage now
+      # tops out around 100Mi (krr, 2026-08-22), so right-sized to 256Mi.
       - patch: |
           apiVersion: apps/v1
           kind: Deployment
@@ -161,9 +168,10 @@ spec:
                     resources:
                       requests:
                         cpu: 10m
-                        memory: 1069Mi
+                        memory: 256Mi
                       limits:
-                        memory: 1069Mi
+                        cpu: null
+                        memory: 256Mi
         target:
           kind: Deployment
           name: image-reflector-controller
@@ -182,6 +190,7 @@ spec:
                         cpu: 23m
                         memory: 234Mi
                       limits:
+                        cpu: null
                         memory: 234Mi
         target:
           kind: Deployment
@@ -201,6 +210,7 @@ spec:
                         cpu: 10m
                         memory: 100Mi
                       limits:
+                        cpu: null
                         memory: 100Mi
         target:
           kind: Deployment
@@ -220,7 +230,28 @@ spec:
                         cpu: 10m
                         memory: 328Mi
                       limits:
+                        cpu: null
                         memory: 328Mi
         target:
           kind: Deployment
           name: source-controller
+      - patch: |
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: source-watcher
+          spec:
+            template:
+              spec:
+                containers:
+                  - name: manager
+                    resources:
+                      requests:
+                        cpu: 10m
+                        memory: 128Mi
+                      limits:
+                        cpu: null
+                        memory: 128Mi
+        target:
+          kind: Deployment
+          name: source-watcher

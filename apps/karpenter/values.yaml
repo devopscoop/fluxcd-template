@@ -18,3 +18,15 @@ settings:
 #   annotations:
 #     eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT_ID:role/karpenter"
 # <<< eks
+
+controller:
+  # Sized from Prometheus (2026-08-22, 14d dev usage): p95 CPU ~29m, peak
+  # memory ~307Mi. Extra memory headroom on purpose: Karpenter's footprint
+  # grows with cluster size, and if it OOMs the cluster can't provision
+  # nodes. No CPU limit (avoids throttling).
+  resources:
+    requests:
+      cpu: 30m
+      memory: 512Mi
+    limits:
+      memory: 512Mi

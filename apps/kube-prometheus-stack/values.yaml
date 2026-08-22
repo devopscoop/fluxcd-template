@@ -15,6 +15,15 @@ alertmanager:
     # Slack notifications); without it they point at the internal service URL
     # http://kube-prometheus-stack-alertmanager.kube-prometheus-stack:9093.
     externalUrl: https://alertmanager.devops.coop
+
+    # Sized from krr (2026-08-22, 14d dev usage); memory req=limit, no CPU limit.
+    resources:
+      requests:
+        cpu: 10m
+        memory: 128Mi
+      limits:
+        memory: 128Mi
+
     # Persist /alertmanager so silences and the notification log survive pod
     # restarts (the chart defaults to an emptyDir). The data is only a few KB,
     # but 1Gi is the practical floor: EBS won't provision smaller, and most
@@ -73,6 +82,15 @@ prometheus:
     # Public URL for the "Source" links on alerts (generatorURL); without it
     # they point at the internal service URL on port 9090.
     externalUrl: https://prometheus.devops.coop
+    # Sized from krr (2026-08-22, 14d dev usage): peak ~1.1Gi. Extra headroom
+    # because TSDB memory grows with series cardinality and query load; no CPU
+    # limit.
+    resources:
+      requests:
+        cpu: 75m
+        memory: 1536Mi
+      limits:
+        memory: 1536Mi
     # Persist the TSDB so metrics history survives pod rescheduling and node
     # replacement (the chart defaults to an emptyDir, which dies with its
     # node). No storageClassName, so the cluster's default StorageClass is
@@ -118,6 +136,55 @@ grafana:
       # Public URL Grafana uses when generating absolute links (e.g. Explore
       # short links); without it they point at the default localhost:3000.
       root_url: https://grafana.devops.coop/
+  # Sized from krr (2026-08-22, 14d dev usage); memory req=limit, no CPU limit.
+  resources:
+    requests:
+      cpu: 10m
+      memory: 192Mi
+    limits:
+      memory: 192Mi
+  # Dashboard/datasource provisioning sidecars share this block.
+  sidecar:
+    resources:
+      requests:
+        cpu: 10m
+        memory: 128Mi
+      limits:
+        memory: 128Mi
+
+# Sized from krr (2026-08-22, 14d dev usage); memory req=limit, no CPU limit.
+prometheusOperator:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 128Mi
+    limits:
+      memory: 128Mi
+  # Config-reloader sidecars on the Prometheus and Alertmanager pods.
+  prometheusConfigReloader:
+    resources:
+      requests:
+        cpu: 10m
+        memory: 64Mi
+      limits:
+        memory: 64Mi
+
+kube-state-metrics:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 128Mi
+    limits:
+      memory: 128Mi
+
+prometheus-node-exporter:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 64Mi
+    limits:
+      memory: 64Mi
+
 # On EKS the scheduler, controller-manager, and etcd run inside the AWS-managed
 # control plane and expose no metrics endpoints, and kube-proxy binds its
 # metrics to 127.0.0.1, so none of these targets can ever be scraped. Disable
