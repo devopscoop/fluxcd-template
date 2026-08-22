@@ -7,18 +7,31 @@ kind: Kustomization
 # Setting namespace here will ensure that all objects managed by this Kustomization will explicitly be deployed to this namespace. You don't need to put specify `namespace:` anywhere else if you do this.
 namespace: gathio
 
+# Two HelmReleases in one directory: gathio and the MongoDB it needs. The
+# mongodb.* files are the second release's half of the same four-file pattern
+# (source, release, values, helm secrets). The dot in
+# mongodb.helm_secrets.yaml is load-bearing -- .sops.yaml selects its rule on
+# the filename, and mongodb-helm_secrets.yaml would match no rule at all.
 resources:
   - namespace.yaml
   - ocirepo.yaml
   - config.yaml
   - release.yaml
+  - mongodb.helmrepo.yaml
+  - mongodb.release.yaml
 configMapGenerator:
   - name: gathio-values
     files:
       - values.yaml=values.yaml
+  - name: mongodb-values
+    files:
+      - values.yaml=mongodb.values.yaml
 secretGenerator:
   - name: gathio-secrets
     files:
       - values.yaml=helm_secrets.yaml
+  - name: mongodb-secrets
+    files:
+      - values.yaml=mongodb.helm_secrets.yaml
 configurations:
   - kustomizeconfig.yaml

@@ -1,15 +1,17 @@
 # https://fluxcd.io/flux/components/helm/helmreleases/
+# MongoDB for gathio. Same directory, same namespace, so the Service is
+# mongodb.gathio.svc.cluster.local:27017.
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
-  name: mongodb-gathio
+  name: mongodb
 spec:
   interval: 10m
   valuesFrom:
     - kind: ConfigMap
-      name: mongodb-gathio-values
+      name: mongodb-values
     - kind: Secret
-      name: mongodb-gathio-secrets
+      name: mongodb-secrets
   chart:
     spec:
       chart: mongodb

@@ -4,8 +4,6 @@ metadata:
   name: gathio
   namespace: flux-system
 spec:
-  dependsOn:
-    - name: mongodb-gathio
   interval: 10m0s
   sourceRef:
     kind: GitRepository

@@ -4,6 +4,10 @@ kind: HelmRelease
 metadata:
   name: gathio
 spec:
+  # Both releases are in one Flux Kustomization, so ordering is a
+  # HelmRelease-level dependsOn rather than a Kustomization-level one.
+  dependsOn:
+    - name: mongodb
   interval: 10m
   valuesFrom:
     - kind: ConfigMap
