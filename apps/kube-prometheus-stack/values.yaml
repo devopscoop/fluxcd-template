@@ -45,6 +45,7 @@ alertmanager:
 #     nodeSelector:
 #       karpenter.sh/capacity-type: on-demand
 # <<< eks
+
 # Send every alert to Slack. The channel below is not secret, but the webhook
 # URL is, so it lives in helm_secrets.yaml (alertmanager.config.global.slack_api_url),
 # which Flux merges over this file -- see valuesFrom in release.yaml.
@@ -151,39 +152,6 @@ grafana:
         memory: 128Mi
       limits:
         memory: 128Mi
-
-# Sized from krr (2026-08-22, 14d dev usage); memory req=limit, no CPU limit.
-prometheusOperator:
-  resources:
-    requests:
-      cpu: 10m
-      memory: 128Mi
-    limits:
-      memory: 128Mi
-  # Config-reloader sidecars on the Prometheus and Alertmanager pods.
-  prometheusConfigReloader:
-    resources:
-      requests:
-        cpu: 10m
-        memory: 64Mi
-      limits:
-        memory: 64Mi
-
-kube-state-metrics:
-  resources:
-    requests:
-      cpu: 10m
-      memory: 128Mi
-    limits:
-      memory: 128Mi
-
-prometheus-node-exporter:
-  resources:
-    requests:
-      cpu: 10m
-      memory: 64Mi
-    limits:
-      memory: 64Mi
 
 # Sized from krr (2026-08-22, 14d dev usage); memory req=limit, no CPU limit.
 prometheusOperator:
