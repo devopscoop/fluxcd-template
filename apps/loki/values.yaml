@@ -28,19 +28,32 @@ loki:
   # so the scan fails with "no useable address found". Two overrides are
   # needed:
   #   bind_addr: "::" — skip the interface scan for the listener socket
-  #   advertise_addr: ${POD_IP} — skip the interface scan for the advertise IP
+  #   advertise_addr: the pod IP — skip the interface scan for the advertise IP
   # POD_IP is injected by the downward API in singleBinary.extraEnv below.
   # Loki expands ${VAR} from the environment at startup.
+  #
+  # The '{{ "${POD_IP}" }}' wrapping is load-bearing. Loki's expand-env is a
+  # textual substitution into config.yaml BEFORE YAML parsing, so the IP must
+  # land inside quotes: a pod can draw the suffix-zero address of its ENI
+  # prefix (e.g. 2600:aaaa:bbb:cccc:dddd::), and unquoted, that trailing "::"
+  # before a newline is a YAML mapping indicator — Loki crashloops with
+  # "mapping values are not allowed in this context". Writing "${POD_IP}" with
+  # plain quotes here does NOT survive: loki.calculatedConfig round-trips
+  # values through fromYaml|toYaml, and Helm's toYaml re-emits the string
+  # unquoted. A string starting with {{ is the escape hatch — toYaml must
+  # single-quote it, and the chart's final tpl pass then substitutes the
+  # expression INSIDE those quotes, leaving instance_addr: '${POD_IP}' in the
+  # ConfigMap.
   structuredConfig:
     memberlist:
       bind_addr:
         - "::"
-      advertise_addr: ${POD_IP}
+      advertise_addr: '{{ "${POD_IP}" }}'
     # Each ring component (query-scheduler, ingester, distributor, etc.) has a
     # lifecycler that also calls GetFirstAddressOf when instance_addr is unset.
     # Setting it here in common propagates to all rings at once.
     common:
-      instance_addr: ${POD_IP}
+      instance_addr: '{{ "${POD_IP}" }}'
 
   # A real install requires an explicit schema. tsdb + v13 is the current
   # recommended combination.
