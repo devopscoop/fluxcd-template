@@ -119,7 +119,13 @@ prometheus:
 #     nodeSelector:
 #       karpenter.sh/capacity-type: on-demand
 # <<< eks
+
 grafana:
+  grafana.ini:
+    server:
+      # Public URL Grafana uses when generating absolute links (e.g. Explore
+      # short links); without it they point at the default localhost:3000.
+      root_url: https://grafana.devops.coop/
   # Provision the Loki store (apps/loki) as a datasource on this Grafana so logs
   # are queryable in Explore. Loki runs single-tenant, so no auth header needed.
   additionalDataSources:
@@ -130,12 +136,6 @@ grafana:
       url: http://loki-gateway.loki.svc.cluster.local
       jsonData:
         maxLines: 1000
-
-  grafana.ini:
-    server:
-      # Public URL Grafana uses when generating absolute links (e.g. Explore
-      # short links); without it they point at the default localhost:3000.
-      root_url: https://grafana.devops.coop/
   # Sized from krr (2026-08-22, 14d dev usage); memory req=limit, no CPU limit.
   resources:
     requests:
@@ -151,6 +151,39 @@ grafana:
         memory: 128Mi
       limits:
         memory: 128Mi
+
+# Sized from krr (2026-08-22, 14d dev usage); memory req=limit, no CPU limit.
+prometheusOperator:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 128Mi
+    limits:
+      memory: 128Mi
+  # Config-reloader sidecars on the Prometheus and Alertmanager pods.
+  prometheusConfigReloader:
+    resources:
+      requests:
+        cpu: 10m
+        memory: 64Mi
+      limits:
+        memory: 64Mi
+
+kube-state-metrics:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 128Mi
+    limits:
+      memory: 128Mi
+
+prometheus-node-exporter:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 64Mi
+    limits:
+      memory: 64Mi
 
 # Sized from krr (2026-08-22, 14d dev usage); memory req=limit, no CPU limit.
 prometheusOperator:
