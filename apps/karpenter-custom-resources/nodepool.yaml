@@ -43,6 +43,15 @@ spec:
         - key: karpenter.k8s.aws/instance-generation
           operator: Gt
           values: ["2"]
+        # Nitro only: IPv6 clusters require VPC CNI prefix delegation, which
+        # Xen-based instances (c3/m3/r3, c4/m4/r4 — all allowed by the
+        # generation filter above) don't support. Such nodes register but
+        # never go Ready (ipamd crash-loops), and nothing reaps them: EC2
+        # status checks stay ok, and Karpenter's NodeRepair feature gate is
+        # off by default.
+        - key: karpenter.k8s.aws/instance-hypervisor
+          operator: In
+          values: ["nitro"]
 
       # Replace nodes after 30 days so they pick up fresh AMIs and don't
       # accumulate drift (getting-started default).
