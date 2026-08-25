@@ -36,7 +36,7 @@ Convention for `values.yaml`: strip everything you are not overriding, so the fi
 - `*secrets.yaml` — a real Kubernetes Secret; only `data`/`stringData` are encrypted, so `apiVersion`/`kind` stay readable to the API server.
 - `*helm_secrets.yaml` — Helm values that happen to be sensitive; the whole file is encrypted.
 
-Never open an encrypted file in an editor — use `sops <file>`, which decrypts, opens, and re-encrypts. Plaintext staging files use the `.decrypted` suffix, are gitignored, and are swept up by `encrypt_secrets.sh` (via `sops --filename-override`, so the ciphertext lands under the real filename and gets the right rule). Files under `apps/templates/` are skipped. `deploy.sh` runs the same sweep during bootstrap (also `git rm`ing the plaintext); on an already-bootstrapped repo it only warns about stray `.decrypted` files and leaves encrypting them to `encrypt_secrets.sh`.
+Never open an encrypted file in an editor — use `sops <file>`, which decrypts, opens, and re-encrypts. Plaintext staging files use the `.decrypted` suffix, are gitignored, and are swept up by `encrypt_secrets.sh` (via `sops --filename-override`, so the ciphertext lands under the real filename and gets the right rule). Files under `apps/templates/` are skipped. `deploy.sh` calls `encrypt_secrets.sh` during bootstrap and commits the result (including the deletions of the tracked `.decrypted` boilerplate); on an already-bootstrapped repo it only warns about stray `.decrypted` files and leaves encrypting them to `encrypt_secrets.sh`.
 
 ## Conditional marker blocks
 

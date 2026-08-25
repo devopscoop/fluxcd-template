@@ -190,27 +190,21 @@ flux-operator create secret githubapp flux-system \
   --app-private-key-file="$GITHUB_APP_PRIVATE_KEY_FILE"
 
 if [[ "$bootstrapped" == "false" ]]; then
-  # Encrypt all the `*.decrypted` files with your new sops age key. Skip
-  # apps/templates/ -- that boilerplate is scaffolding for deploy_new_app.sh,
-  # not a real secret (encrypt_secrets.sh skips it for the same reason).
-  # Re-encrypt even when a ciphertext with the same content already exists:
-  # encryption picks up the *current* .sops.yaml recipients, so this is what
-  # applies a key rotation. Plaintext never lingers (removed below), so this
-  # can't churn commits across runs.
-  while read -r f; do
-    enc="${f%.decrypted}"
-    sops --filename-override "${enc}" -e "${f}" > "${enc}"
-    git add "${enc}"
-    # The template tracks its .decrypted boilerplate, but .gitignore keeps
-    # later ones untracked, where a plain `git rm` is a fatal error -- hence
-    # --ignore-unmatch plus the rm fallback to still clear them off disk.
-    git rm --ignore-unmatch -qf -- "${f}"
-    rm -f -- "${f}"
-  done < <(find . -not -path '*/templates/*' -name '*.decrypted')
+  # Encrypt the `*.yaml.decrypted` files with the new sops age key.
+  # encrypt_secrets.sh owns the crypto: it skips apps/templates/ (scaffolding
+  # for deploy_new_app.sh, not a real secret), re-encrypts unconditionally so
+  # the *current* .sops.yaml recipients apply, and removes the plaintext from
+  # disk. Bootstrap only adds the git bookkeeping. `git add -A` is exact here:
+  # the script refused to start on a dirty tree and every step above commits
+  # what it stages, so the only changes at this point are the new ciphertexts
+  # and the plaintext deletions (the template *tracks* its .decrypted
+  # boilerplate, so those deletions must be staged too, not just rm'ed).
+  ./encrypt_secrets.sh
+  git add -A
   commit_and_push "Encrypting secrets"
 elif find . -not -path '*/templates/*' -name '*.decrypted' | grep -q .; then
-  # The sweep only runs during bootstrap; don't silently leave plaintext
-  # secrets sitting on disk on a re-run.
+  # Encryption only runs during bootstrap (a re-run must not surprise-commit),
+  # but don't silently leave plaintext secrets sitting on disk either.
   echo "WARNING: *.decrypted files found; run ./encrypt_secrets.sh to encrypt them." >&2
 fi
 
