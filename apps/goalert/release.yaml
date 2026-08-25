@@ -1,0 +1,15 @@
+# https://fluxcd.io/flux/components/helm/helmreleases/
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: goalert
+spec:
+  interval: 10m
+  valuesFrom:
+    - kind: ConfigMap
+      name: goalert-values
+    - kind: Secret
+      name: goalert-secrets
+  chartRef:
+    kind: OCIRepository
+    name: devopscoop-app

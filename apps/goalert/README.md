@@ -1,12 +1,12 @@
 # GoAlert
 
-[GoAlert](https://github.com/target/goalert) on-call scheduling, escalation policies, and paging, served at <https://goalert.devops.coop> (public Gateway, so on-call can reach it from a phone off VPN — see the tradeoff note in `httproute.yaml`). It is the alerting tail of the alternative observability stack: the Alertmanager in `apps/victoria-metrics` routes alerts to it, and GoAlert decides who gets paged, how, and what happens when they don't answer.
+[GoAlert](https://github.com/target/goalert) on-call scheduling, escalation policies, and paging, served at <https://goalert.devops.coop> (public Gateway, so on-call can reach it from a phone off VPN — see the tradeoff note in `values.yaml`'s `httpRoute` block). It is the alerting tail of the observability stack: the Alertmanager in `apps/victoria-metrics` routes alerts to it, and GoAlert decides who gets paged, how, and what happens when they don't answer.
 
-Why GoAlert: Grafana OnCall OSS went into maintenance mode in March 2025 and its repo was archived in March 2026, which leaves GoAlert (built and run by Target, actively maintained) as the serious self-hosted on-call scheduler. There is no official Helm chart and the community ones are stale toys, so this app is plain manifests: a CloudNativePG `Cluster` for Postgres (`db-cluster.yaml`) plus a stateless Deployment (`deployment.yaml`) — GoAlert keeps all state in the database and applies its own schema migrations at startup.
+Why GoAlert: Grafana OnCall OSS went into maintenance mode in March 2025 and its repo was archived in March 2026, which leaves GoAlert (built and run by Target, actively maintained) as the serious self-hosted on-call scheduler. GoAlert publishes no Helm chart of its own and the community ones are stale toys, so this app runs the image on the generic [devopscoop app chart](https://github.com/devopscoop/charts/tree/main/devopscoop/app) (the same chart `deploy_new_app.sh` scaffolds with): the chart renders the Deployment, Service, and HTTPRoute from `values.yaml`, and a CloudNativePG `Cluster` (`db-cluster.yaml`) provides Postgres — GoAlert keeps all state in the database and applies its own schema migrations at startup.
 
 ## First run
 
-1. Before the first deploy, create the data-encryption key (see below). Flux blocks on the SOPS Secret existing.
+1. Before the first deploy, set the data-encryption key in `helm_secrets.yaml.decrypted` (see below). Nothing blocks on it — deploy.sh would happily encrypt the `CHANGEME` placeholder, which then silently becomes the key.
 2. Wait for the database and the app to come up (the flux Kustomization `dependsOn` cnpg, so ordering is handled; first boot also runs the schema migrations):
 
    ```shell
@@ -25,7 +25,7 @@ Why GoAlert: Grafana OnCall OSS went into maintenance mode in March 2025 and its
 
 ## Data-encryption key
 
-`data-encryption-key.secrets.yaml` (SOPS) holds `GOALERT_DATA_ENCRYPTION_KEY`. GoAlert passes it through a key derivation function and encrypts sensitive data it stores in Postgres (e.g. signing keys) with the result — so it can be any string, but losing or changing it invalidates that data, and every replica must use the same value. To create or rotate: recreate `data-encryption-key.secrets.yaml.decrypted` (see git history for the shape), fill in a value from `openssl rand -base64 32`, and run `../../encrypt_secrets.sh`.
+`helm_secrets.yaml` (SOPS) holds `GOALERT_DATA_ENCRYPTION_KEY` under the chart's `envSecret` key — the chart creates a Secret from it and envFroms it into the Deployment. GoAlert passes the value through a key derivation function and encrypts sensitive data it stores in Postgres (e.g. signing keys) with the result — so it can be any string, but losing or changing it invalidates that data, and every replica must use the same value. Before bootstrap: fill a value from `openssl rand -base64 32` into `helm_secrets.yaml.decrypted` and run `../../encrypt_secrets.sh`. On a running cluster: edit in place with `sops helm_secrets.yaml`.
 
 ## Wiring Alertmanager to GoAlert
 
