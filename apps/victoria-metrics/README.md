@@ -11,7 +11,7 @@ The metrics half of the VictoriaMetrics observability stack, via the [victoria-m
 
 ## Either/or with kube-prometheus-stack
 
-victoria-metrics + victoria-logs + tempo + otel-collector + goalert form an **alternative stack** to kube-prometheus-stack + alloy + loki. Deploy one stack or the other, never both:
+victoria-metrics + victoria-logs + tempo + otel-collector + goalert form the **default observability stack**; kube-prometheus-stack + alloy + loki stay in the repo as the disabled alternative. Deploy one stack or the other, never both:
 
 - **Shared hostnames** — both stacks claim `grafana.devops.coop` and `alertmanager.devops.coop`; two HTTPRoutes for one hostname would fight over traffic.
 - **One Grafana** — each stack ships its own Grafana provisioned with its own datasources; running two means two dashboards UIs on the same URL.
@@ -29,14 +29,7 @@ To enable it on an already-deployed cluster instead, uncomment the `>>> slack` b
 
 ## Enabling this app
 
-The app ships disabled. To deploy it, add its Flux Kustomization to the resources list in `flux/flux-system/kustomization.yaml`:
-
-```yaml
-resources:
-  - victoria-metrics.yaml
-```
-
-(and remove `kube-prometheus-stack.yaml`, `alloy.yaml`, and `loki.yaml` if they're present — see the either/or section above).
+This stack is the default: deploy.sh's `core_app_list` registers `victoria-metrics.yaml`, `victoria-logs.yaml`, `tempo.yaml`, `otel-collector.yaml`, `goalert.yaml` (plus `cnpg.yaml` for GoAlert's database) in `flux/flux-system/kustomization.yaml` at bootstrap. To switch a cluster to the kube-prometheus-stack + alloy + loki alternative instead, swap the two groups in that resources list (or in deploy.sh's `core_app_list` before bootstrapping) — never enable both, per the either/or section above.
 
 ## Notes
 

@@ -1,5 +1,5 @@
-# dyff between <(yq . <(helm show values grafana/tempo --version 1.24.4)) <(yq eval '. * load("values.yaml")' <(helm show values grafana/tempo --version 1.24.4))
-# vim -O <(helm show values grafana/tempo --version 1.24.4) values.yaml
+# dyff between <(yq . <(helm show values grafana-community/tempo --version 2.3.0)) <(yq eval '. * load("values.yaml")' <(helm show values grafana-community/tempo --version 2.3.0))
+# vim -O <(helm show values grafana-community/tempo --version 2.3.0) values.yaml
 
 # Single-process Tempo backed by S3-compatible object storage — the traces
 # store of the VictoriaMetrics-based observability stack. This chart only does
@@ -125,10 +125,11 @@ tempo:
 # memberlist, which fails on an IPv6-only cluster (and is pointless for a
 # singleton anyway; see the ingester comment). The only escape hatch the
 # chart offers is replacing the whole generated config. This is a verbatim
-# copy of the chart's default `config` template (chart 1.24.4) with ONE
+# copy of the chart's default `config` template (chart 2.3.0) with ONE
 # addition, marked inline. On chart upgrades, re-diff this block against the
 # `config` key in the chart's default values.
 config: |
+    stream_over_http_enabled: {{ .Values.tempo.streamOverHttpEnabled }}
     memberlist:
       cluster_label: "{{ .Release.Name }}.{{ .Release.Namespace }}"
     multitenancy_enabled: {{ .Values.tempo.multitenancyEnabled }}

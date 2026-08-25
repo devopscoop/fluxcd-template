@@ -1,6 +1,6 @@
 # GoAlert
 
-[GoAlert](https://github.com/target/goalert) on-call scheduling, escalation policies, and paging, served at <https://goalert.devops.coop> (private Gateway — see the tradeoff note in `httproute.yaml`). It is the alerting tail of the alternative observability stack: the Alertmanager in `apps/victoria-metrics` routes alerts to it, and GoAlert decides who gets paged, how, and what happens when they don't answer.
+[GoAlert](https://github.com/target/goalert) on-call scheduling, escalation policies, and paging, served at <https://goalert.devops.coop> (public Gateway, so on-call can reach it from a phone off VPN — see the tradeoff note in `httproute.yaml`). It is the alerting tail of the alternative observability stack: the Alertmanager in `apps/victoria-metrics` routes alerts to it, and GoAlert decides who gets paged, how, and what happens when they don't answer.
 
 Why GoAlert: Grafana OnCall OSS went into maintenance mode in March 2025 and its repo was archived in March 2026, which leaves GoAlert (built and run by Target, actively maintained) as the serious self-hosted on-call scheduler. There is no official Helm chart and the community ones are stale toys, so this app is plain manifests: a CloudNativePG `Cluster` for Postgres (`db-cluster.yaml`) plus a stateless Deployment (`deployment.yaml`) — GoAlert keeps all state in the database and applies its own schema migrations at startup.
 

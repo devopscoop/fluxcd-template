@@ -1,5 +1,10 @@
 # Alloy
 
+> **Ships disabled.** Part of the kube-prometheus-stack + alloy + loki
+> alternative stack; the default log collector is the OpenTelemetry Collector
+> (`apps/otel-collector`) — see `apps/victoria-metrics/README.md`. Never run
+> both log collectors: each independently tails every pod's logs.
+
 [Grafana Alloy](https://grafana.com/docs/alloy/) as a cluster-wide log
 collector — the official replacement for the now-deprecated Promtail. Runs as a
 DaemonSet (one pod per node), tails pod log files under `/var/log/pods`, labels

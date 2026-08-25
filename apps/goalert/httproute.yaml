@@ -1,16 +1,17 @@
-# The PRIVATE Gateway, deliberately — the opposite call from uptime-kuma:
-# a status page is only useful if it stays reachable when internal
-# infrastructure is down, but GoAlert holds on-call schedules and contact
-# methods, so it stays off the internet-facing LB by default. If on-call must
-# reach it without VPN (to ack a page from a phone), move it to eg-public —
-# GoAlert has its own authentication.
+# The public Gateway, deliberately — the same reasoning as uptime-kuma's
+# status page: a pager is only useful if on-call can reach it when they're
+# paged, which means from a phone, off VPN, possibly while the private
+# gateway's infrastructure is the thing that broke. GoAlert has its own
+# authentication. This is the exception to gateway-public.yaml's
+# "ops tooling stays on eg-private" guidance; if that tradeoff isn't right
+# for a cluster, point parentRefs back at eg-private.
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
   name: goalert
 spec:
   parentRefs:
-    - name: eg-private
+    - name: eg-public
       namespace: envoy-gateway-system
   hostnames:
     - goalert.devops.coop

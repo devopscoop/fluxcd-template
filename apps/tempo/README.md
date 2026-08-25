@@ -21,9 +21,9 @@ fullnameOverride needed):
   The Grafana in `apps/victoria-metrics` provisions a Tempo datasource
   pointing here.
 
-The chart also renders Jaeger/Zipkin/OpenCensus/legacy-OTLP Service ports by
-default. Nothing sends to them, and on this IPv6-only cluster those receivers
-bind IPv4-only anyway — see the receivers comment in `values.yaml`.
+The chart also renders Jaeger/Zipkin/legacy-OTLP Service ports by default.
+Nothing sends to them, and on this IPv6-only cluster those receivers bind
+IPv4-only anyway — see the receivers comment in `values.yaml`.
 
 ## Before deploying
 
@@ -61,13 +61,15 @@ keep working.
 
 ## Notes
 
-- The `tempo` chart is marked deprecated in the `grafana` Helm repo: it moved
-  to [grafana-community/helm-charts](https://github.com/grafana-community/helm-charts)
-  after 2026-01-30, and new versions (chart 2.x) only land there. 1.24.4 is
-  the last version in the `grafana` repo, pinned here for consistency with
-  `apps/loki`'s HelmRepository; when bumping past it, switch `helmrepo.yaml`
-  to the community repo and re-diff `values.yaml` (2.x is a major bump).
-
+- The chart comes from
+  [grafana-community/helm-charts](https://github.com/grafana-community/helm-charts):
+  the `tempo` chart moved there from the `grafana` repo after 2026-01-30, and
+  new versions only land in the new home (the `grafana` repo copy is frozen
+  at 1.24.4 and marked deprecated). This app made the promised 1.24.4 → 2.x
+  jump; despite the major-version bump, no values keys changed — 2.x mainly
+  added an optional Gateway API HTTPRoute and dropped the OpenCensus
+  receiver. Note this is a different HelmRepository than `apps/loki`'s
+  `grafana`.
 - Retention is 30 days (`tempo.retention`, rendered into the compactor's
   `block_retention`), parity with the 30-day metrics retention in
   `apps/victoria-metrics` and the 31-day logs retention in
