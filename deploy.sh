@@ -74,9 +74,11 @@ if [[ "$k8s_platform" == "eks" ]]; then
   fi
 fi
 
-# Uncomment the Alertmanager -> Slack config in apps/kube-prometheus-stack. The
-# channel is set in its values.yaml; the webhook URL (the secret half) comes
-# from its helm_secrets.yaml.decrypted, which gets SOPS-encrypted further down.
+# Uncomment the Alertmanager -> Slack config in apps/kube-prometheus-stack and
+# apps/victoria-metrics (the grep below finds every slack block repo-wide). The
+# channel is set in each app's values.yaml; the webhook URL (the secret half)
+# comes from its helm_secrets.yaml.decrypted, which gets SOPS-encrypted further
+# down.
 # ${var:-} so set -u doesn't kill the script on a variables.sh from before this
 # variable existed.
 if [[ "${slack_alerts:-false}" == "true" ]]; then

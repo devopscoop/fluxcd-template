@@ -40,7 +40,7 @@ Never open an encrypted file in an editor — use `sops <file>`, which decrypts,
 
 ## Conditional marker blocks
 
-Optional config ships commented out between `>>> <marker>` / `<<< <marker>` comment delimiters (with a leading hash on the real markers). `uncomment_blocks()` in `deploy.sh` strips the leading `# ` from the lines between them, leaving the markers in place so it stays idempotent. Current markers: `eks` (enabled when `k8s_platform=eks` — IRSA service-account annotations, AWS NLB annotations) and `slack` (enabled when `slack_alerts=true` — Alertmanager → Slack, see `apps/kube-prometheus-stack/README.md`).
+Optional config ships commented out between `>>> <marker>` / `<<< <marker>` comment delimiters (with a leading hash on the real markers). `uncomment_blocks()` in `deploy.sh` strips the leading `# ` from the lines between them, leaving the markers in place so it stays idempotent. Current markers: `eks` (enabled when `k8s_platform=eks` — IRSA service-account annotations, AWS NLB annotations) and `slack` (enabled when `slack_alerts=true` — Alertmanager → Slack, in both `apps/kube-prometheus-stack` and `apps/victoria-metrics`; see their READMEs).
 
 Gotcha, called out in `deploy.sh` itself: never write the literal opening marker (hash, space, three `>`) anywhere except a real marker. `uncomment_blocks` greps the whole repo for it and rewrites every file that matches — including prose. When writing about markers in docs, drop the leading hash, as above.
 
