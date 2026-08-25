@@ -1,0 +1,262 @@
+# dyff between <(yq . <(helm show values victoria-metrics/victoria-metrics-k8s-stack --version 0.91.2)) <(yq eval '. * load("values.yaml")' <(helm show values victoria-metrics/victoria-metrics-k8s-stack --version 0.91.2))
+# vim -O <(helm show values victoria-metrics/victoria-metrics-k8s-stack --version 0.91.2) values.yaml
+
+# Without this the chart names every CR "victoria-metrics-victoria-metrics-k8s-stack"
+# (release + chart name), and the operator derives Service names from CR names,
+# giving DNS names like vmsingle-victoria-metrics-victoria-metrics-k8s-stack.
+# Other apps hardcode these URLs (otel-collector remote-writes to vmsingle), so
+# keep them short and stable: vmsingle-victoria-metrics, vmalertmanager-victoria-metrics, ...
+fullnameOverride: victoria-metrics
+
+# The VictoriaMetrics operator turns the VM* CRs below into running pods.
+victoria-metrics-operator:
+  operator:
+    # This is the chart default, pinned because the either/or swap with
+    # kube-prometheus-stack depends on it: the operator mirrors
+    # prometheus-operator objects (ServiceMonitor, PodMonitor, PrometheusRule,
+    # Probe, ScrapeConfig) into their VM equivalents, so charts written for
+    # prometheus-operator plug into this stack unchanged. Note the chart does
+    # NOT install the prometheus-operator CRDs themselves -- see README.md.
+    disable_prometheus_converter: false
+  # Initial guesses (resize with krr after 14d of usage); memory req=limit,
+  # no CPU limit.
+  resources:
+    requests:
+      cpu: 10m
+      memory: 128Mi
+    limits:
+      memory: 128Mi
+
+vmsingle:
+  spec:
+    # Keep 30 days of history, parity with the kube-prometheus-stack app (the
+    # chart default is "1", meaning one calendar month).
+    retentionPeriod: 30d
+    # The cluster is IPv6-only, and every VictoriaMetrics binary listens and
+    # dials tcp4-only unless this flag is set (lib/netutil hardcodes "tcp4"
+    # otherwise) -- without it the pod can't accept service traffic or pass
+    # probes, because the pod has no IPv4 address. Same flag on vmagent and
+    # vmalert below. Alertmanager, Grafana, and the exporters are ordinary
+    # dual-stack Go listeners and need nothing.
+    extraArgs:
+      enableTCP6: "true"
+    # 20Gi holds 30d comfortably: VictoriaMetrics compresses to well under a
+    # byte per sample (roughly 7x denser than Prometheus's TSDB), so this is
+    # the counterpart of the 50Gi Prometheus volume in
+    # apps/kube-prometheus-stack. There is no retentionSize equivalent to
+    # tune: when the disk does fill, vmsingle switches to read-only instead of
+    # crash-looping. No storageClassName, so the cluster's default
+    # StorageClass is used.
+    storage:
+      accessModes:
+        - ReadWriteOnce
+      resources:
+        requests:
+          storage: 20Gi
+    # Initial guesses (resize with krr after 14d of usage); memory req=limit,
+    # no CPU limit.
+    resources:
+      requests:
+        cpu: 50m
+        memory: 512Mi
+      limits:
+        memory: 512Mi
+    # vmsingle is a singleton: if a spot reclaim takes it down, ingestion and
+    # rule evaluation stop with it. Pin it to on-demand capacity, per the
+    # NodePool contract in apps/karpenter-custom-resources/nodepool.yaml.
+# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
+#     nodeSelector:
+#       karpenter.sh/capacity-type: on-demand
+# <<< eks
+
+alertmanager:
+  spec:
+    # Public URL Alertmanager uses when generating links (e.g. the title link
+    # in Slack notifications); without it they point at the internal service
+    # URL http://vmalertmanager-victoria-metrics.victoria-metrics:9093.
+    externalURL: https://alertmanager.devops.coop
+
+    # Initial guesses (resize with krr after 14d of usage); memory req=limit,
+    # no CPU limit.
+    resources:
+      requests:
+        cpu: 10m
+        memory: 128Mi
+      limits:
+        memory: 128Mi
+
+    # Persist /alertmanager so silences and the notification log survive pod
+    # restarts (the operator defaults to an emptyDir). The data is only a few
+    # KB, but 1Gi is the practical floor: EBS won't provision smaller, and
+    # most other provisioners round up to it anyway. No storageClassName, so
+    # the cluster's default StorageClass is used.
+    storage:
+      volumeClaimTemplate:
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 1Gi
+    # Alertmanager is a singleton: if a spot reclaim takes it down, nothing
+    # pages -- including about the reclaim itself. Pin it to on-demand
+    # capacity, per the NodePool contract in
+    # apps/karpenter-custom-resources/nodepool.yaml. (Gossip clustering only
+    # starts at replicaCount > 1, so single-replica Alertmanager also sidesteps
+    # any memberlist-over-IPv6 concerns -- see apps/loki/values.yaml.)
+# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
+#     nodeSelector:
+#       karpenter.sh/capacity-type: on-demand
+# <<< eks
+
+# Send every alert to Slack. The channel below is not secret, but the webhook
+# URL is, so it lives in helm_secrets.yaml (alertmanager.config.global.slack_api_url),
+# which Flux merges over this file -- see valuesFrom in release.yaml.
+# >>> slack: deploy.sh uncomments this block when slack_alerts=true (variables.sh)
+#   config:
+#     route:
+#       receiver: slack
+#     receivers:
+#       # The chart's default route sends unmatched alerts to the 'blackhole'
+#       # receiver, and setting receivers here replaces the chart's whole list,
+#       # so keep it.
+#       - name: blackhole
+#       - name: slack
+#         slack_configs:
+#           - channel: '#alerts' # TODO: replace with your Slack channel
+#             send_resolved: true
+#             # Alertmanager's default Slack message is only a terse title like
+#             # "[FIRING:2] (ns/pod critical)". Keep that as the headline, but
+#             # render each alert's summary, description, and runbook in the body.
+#             title: '{{ template "slack.default.title" . }}'
+#             text: |-
+#               {{ range .Alerts }}*{{ .Labels.alertname }}* `{{ .Labels.severity }}`{{ if .Annotations.summary }} — {{ .Annotations.summary }}{{ end }}
+#               {{ .Annotations.description }}{{ if .Annotations.runbook_url }} <{{ .Annotations.runbook_url }}|:book: runbook>{{ end }}
+#               {{ end }}
+# <<< slack
+
+# Grafana sits behind a repo-managed HTTPRoute (grafana-httproute.yaml), not
+# the subchart's ingress, so the chart can't discover its public URL and
+# renders vmalert's -external.url as a bare "http://". vmalert embeds this URL
+# in every alert's "source" link (it deep-links into Grafana Explore).
+external:
+  grafana:
+    host: https://grafana.devops.coop
+
+vmalert:
+  spec:
+    # See the IPv6-only note on vmsingle.
+    extraArgs:
+      enableTCP6: "true"
+    # Initial guesses (resize with krr after 14d of usage); memory req=limit,
+    # no CPU limit.
+    resources:
+      requests:
+        cpu: 10m
+        memory: 128Mi
+      limits:
+        memory: 128Mi
+
+vmagent:
+  spec:
+    # See the IPv6-only note on vmsingle. enableTCP6 also covers dialing, which
+    # vmagent needs to scrape targets that only have IPv6 addresses.
+    extraArgs:
+      enableTCP6: "true"
+    # Initial guesses (resize with krr after 14d of usage); memory req=limit,
+    # no CPU limit. vmagent memory grows with the number of scraped series, so
+    # expect to bump this first.
+    resources:
+      requests:
+        cpu: 25m
+        memory: 256Mi
+      limits:
+        memory: 256Mi
+
+# The chart auto-provisions the VictoriaMetrics (prometheus-type) datasource
+# pointing at the vmsingle service
+# (http://vmsingle-victoria-metrics.victoria-metrics.svc.cluster.local:8428),
+# plus an Alertmanager datasource, so neither needs wiring up here. The two
+# entries below point at the sibling apps/victoria-logs and apps/tempo apps.
+# They are `extra` datasources rather than external.vl/vt URLs on purpose:
+# setting external.vl.read.url would insert the chart's internal vmauth proxy
+# between vmalert and its datasource, one more moving part in the alerting
+# path for no benefit until we alert on logs.
+defaultDatasources:
+  extra:
+    - name: VictoriaLogs
+      type: victoriametrics-logs-datasource
+      uid: victorialogs
+      access: proxy
+      url: http://victoria-logs-server.victoria-logs.svc.cluster.local:9428
+    - name: Tempo
+      type: tempo
+      uid: tempo
+      access: proxy
+      url: http://tempo.tempo.svc.cluster.local:3200
+
+grafana:
+  grafana.ini:
+    server:
+      # Public URL Grafana uses when generating absolute links (e.g. Explore
+      # short links); without it they point at the default localhost:3000.
+      # Same hostname as the kube-prometheus-stack Grafana: the two stacks are
+      # either/or, so only one of them ever answers on it.
+      root_url: https://grafana.devops.coop/
+  # The VictoriaLogs datasource above and the "VictoriaMetrics (DS)"
+  # datasource the chart provisions by default are Grafana plugins, not
+  # built-in types. Grafana downloads them at startup, which needs egress to
+  # grafana.com/api (the dashboard/rule sync-job needs similar egress to
+  # raw.githubusercontent.com).
+  plugins:
+    - victoriametrics-logs-datasource
+    - victoriametrics-metrics-datasource
+  # Initial guesses (resize with krr after 14d of usage); memory req=limit,
+  # no CPU limit.
+  resources:
+    requests:
+      cpu: 10m
+      memory: 192Mi
+    limits:
+      memory: 192Mi
+  # Dashboard/datasource provisioning sidecars share this block.
+  sidecar:
+    resources:
+      requests:
+        cpu: 10m
+        memory: 128Mi
+      limits:
+        memory: 128Mi
+
+# Initial guesses (resize with krr after 14d of usage); memory req=limit, no
+# CPU limit.
+prometheus-node-exporter:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 64Mi
+    limits:
+      memory: 64Mi
+
+kube-state-metrics:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 128Mi
+    limits:
+      memory: 128Mi
+
+# On EKS the scheduler, controller-manager, and etcd run inside the AWS-managed
+# control plane and expose no metrics endpoints, so none of these targets can
+# ever be scraped. Disable them so their scrape objects and permanently-firing
+# absence alerts go away. (Unlike kube-prometheus-stack, kube-proxy scraping is
+# already off by default in this chart.) On k0s/talos these components run on
+# your own nodes, so leave them enabled.
+# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
+# kubeScheduler:
+#   enabled: false
+# kubeControllerManager:
+#   enabled: false
+# kubeEtcd:
+#   enabled: false
+# <<< eks

@@ -1,0 +1,26 @@
+# Scrape the collector's own metrics (accepted/refused/sent counts per
+# pipeline, queue depth, ...) from the :8888 metrics port exposed on the
+# Service (ports.metrics.enabled in values.yaml).
+#
+# The chart only offers a prometheus-operator ServiceMonitor, but this stack
+# deliberately does not install the monitoring.coreos.com CRDs (they are
+# owned by kube-prometheus-stack — see apps/victoria-metrics/README.md), so
+# enabling it would fail to apply on a pure VictoriaMetrics cluster. Instead,
+# scrape natively with the VictoriaMetrics operator's own CRD, mirroring what
+# the chart's ServiceMonitor would have selected. VMServiceScrape is an
+# operator.victoriametrics.com CRD, so victoria-metrics must land first —
+# the flux Kustomization's dependsOn enforces that ordering.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMServiceScrape
+metadata:
+  name: otel-collector
+spec:
+  # Match the labels the chart puts on its Service (component distinguishes
+  # the agent DaemonSet from a future gateway Deployment release).
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: opentelemetry-collector
+      app.kubernetes.io/instance: otel-collector
+      component: agent-collector
+  endpoints:
+    - port: metrics

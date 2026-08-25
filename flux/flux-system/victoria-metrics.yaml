@@ -1,0 +1,22 @@
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: victoria-metrics
+  namespace: flux-system
+spec:
+  # No dependsOn: this app installs the VictoriaMetrics operator and its CRDs,
+  # which the other apps in this stack (victoria-logs, tempo, otel-collector)
+  # depend on -- it's the root of that ordering, not a leaf.
+  interval: 10m0s
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  path: apps/victoria-metrics
+  prune: true
+  wait: true
+  timeout: 5m0s
+  decryption:
+    provider: sops
+    secretRef:
+      name: sops-age
+  suspend: false

@@ -1,0 +1,65 @@
+# dyff between <(yq . <(helm show values victoria-metrics/victoria-logs-single --version 0.13.9)) <(yq eval '. * load("values.yaml")' <(helm show values victoria-metrics/victoria-logs-single --version 0.13.9))
+# vim -O <(helm show values victoria-metrics/victoria-logs-single --version 0.13.9) values.yaml
+
+# Single-node VictoriaLogs (StatefulSet, one replica — the chart default).
+# This is the logs half of the VictoriaMetrics stack and the alternative to
+# apps/loki; run one or the other, not both.
+server:
+  # The chart's default fullname is <release>-<chart>-server, i.e. the
+  # unwieldy victoria-logs-victoria-logs-single-server. Pin the name so the
+  # Service resolves at the address the sibling apps are configured with:
+  # http://victoria-logs-server.victoria-logs.svc.cluster.local:9428
+  # (apps/otel-collector pushes logs there; Grafana in apps/victoria-metrics
+  # queries it).
+  fullnameOverride: victoria-logs-server
+
+  # Keep logs from growing on disk forever. 31 days, matching the loki app's
+  # retention (limits_config.retention_period: 744h there). Units are
+  # h/d/w/y; a bare number means months (the chart default is 1 = 1 month).
+  retentionPeriod: 31d
+
+  # The cluster is IPv6-only (see the memberlist comment in
+  # apps/loki/values.yaml for background). VictoriaLogs has no ring or
+  # memberlist, but its listener is IPv4-only unless told otherwise
+  # (-enableTCP6: "Whether to enable IPv6 for listening and dialing. By
+  # default, only IPv4 TCP and UDP are used") — without it the pod binds
+  # 0.0.0.0 only and nothing can reach :9428 at the pod's IPv6 address.
+  # Helm merges this map over the chart's default extraArgs (envflag.*,
+  # loggerFormat, http.shutdownDelay), so those defaults stay in effect.
+  extraArgs:
+    enableTCP6: true
+
+  persistentVolume:
+    # The key difference from Loki: open-source single-node VictoriaLogs
+    # stores to local disk only — there is no object-storage backend — so
+    # durability rides entirely on this PV, and disk usage grows with
+    # ingestion. VictoriaLogs compresses aggressively, so 20Gi goes a long
+    # way (chart default is 10Gi); grow it with usage.
+    enabled: true
+    size: 20Gi
+
+  # Initial guesses — no usage data yet; resize with krr after ~14d of dev
+  # usage. Memory req=limit, no CPU limit.
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      memory: 512Mi
+
+  # VictoriaLogs runs as a single replica writing straight to the PVC above,
+  # so a spot reclaim stops log ingestion and risks losing data not yet
+  # flushed to disk. Pin it to on-demand capacity, per the NodePool contract
+  # in apps/karpenter-custom-resources/nodepool.yaml.
+# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
+#   nodeSelector:
+#     karpenter.sh/capacity-type: on-demand
+# <<< eks
+
+  # Scrape VictoriaLogs' own metrics (ingest rate, active merges, query
+  # latency, disk usage, ...). VMServiceScrape is a VictoriaMetrics-operator
+  # CRD and the chart renders it unconditionally when enabled, so the
+  # operator from apps/victoria-metrics must be installed first — the flux
+  # Kustomization's dependsOn enforces that ordering.
+  vmServiceScrape:
+    enabled: true

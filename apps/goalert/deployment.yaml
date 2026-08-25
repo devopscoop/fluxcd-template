@@ -1,0 +1,87 @@
+# GoAlert — on-call schedules, escalation policies, and paging. All state
+# lives in Postgres (db-cluster.yaml); this container is stateless.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: goalert
+  labels:
+    app: goalert
+spec:
+  # GoAlert supports multiple replicas against the same database (they must
+  # all share the same data-encryption-key Secret) — bump this if the pager
+  # itself needs HA.
+  replicas: 1
+  selector:
+    matchLabels:
+      app: goalert
+  template:
+    metadata:
+      labels:
+        app: goalert
+    spec:
+      containers:
+        - name: goalert
+          # Latest release (2025-10-06). Upstream is active (Target), but
+          # releases are infrequent — check the releases page when touching
+          # this, not just Docker Hub's `latest`.
+          image: goalert/goalert:v0.34.1
+          env:
+            # CNPG generates this Secret from db-cluster.yaml; `uri` is a
+            # ready-made libpq connection string for the goalert database.
+            # GoAlert applies its schema migrations against it at startup.
+            - name: GOALERT_DB_URL
+              valueFrom:
+                secretKeyRef:
+                  name: goalert-db-app
+                  key: uri
+            # Externally routable URL — GoAlert uses it to build links in
+            # notifications, validate auth callbacks, and render the webhook
+            # URLs shown next to integration keys.
+            - name: GOALERT_PUBLIC_URL
+              value: "https://goalert.devops.coop"
+            # See data-encryption-key.secrets.yaml (SOPS) and README.md.
+            - name: GOALERT_DATA_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: goalert-data-encryption-key
+                  key: GOALERT_DATA_ENCRYPTION_KEY
+          ports:
+            # The image sets GOALERT_LISTEN=:8081 — all interfaces, and Go's
+            # ":port" listener is dual-stack, so probes work on this cluster's
+            # IPv6-only pod network.
+            - name: http
+              containerPort: 8081
+          # The HTTP listener only comes up after the startup DB migrations
+          # have applied, so first boot (or an upgrade with big migrations)
+          # needs headroom: the startup probe allows ~150s before the
+          # liveness probe takes over.
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+          # Initial guesses — resize with krr after some real usage; memory
+          # req=limit, no CPU limit.
+          resources:
+            requests:
+              cpu: 25m
+              memory: 256Mi
+            limits:
+              memory: 256Mi
+      # The pager is the last workload that should ride spot capacity: if the
+      # node running GoAlert is reclaimed, paging goes silent until the pod
+      # reschedules. Pin it to on-demand, per the NodePool contract in
+      # apps/karpenter-custom-resources/nodepool.yaml.
+# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
+#       nodeSelector:
+#         karpenter.sh/capacity-type: on-demand
+# <<< eks

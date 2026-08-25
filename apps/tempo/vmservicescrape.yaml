@@ -1,0 +1,25 @@
+# Scrape Tempo's own metrics (ingest rate, generator remote-write health,
+# query latency, ...) from the tempo-prom-metrics port (:3200 — Tempo serves
+# /metrics on the same port as its query API).
+#
+# The chart only offers a prometheus-operator ServiceMonitor, but this stack
+# deliberately does not install the monitoring.coreos.com CRDs (they are
+# owned by kube-prometheus-stack — see apps/victoria-metrics/README.md), so
+# enabling it would fail to apply on a pure VictoriaMetrics cluster. Instead,
+# scrape natively with the VictoriaMetrics operator's own CRD. The selector
+# uses only the stable instance labels — the chart's own ServiceMonitor
+# selects on helm.sh/chart: tempo-<version>, which silently stops matching on
+# every chart bump. VMServiceScrape is an operator.victoriametrics.com CRD,
+# so victoria-metrics must land first — the flux Kustomization's dependsOn
+# enforces that ordering.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMServiceScrape
+metadata:
+  name: tempo
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tempo
+      app.kubernetes.io/instance: tempo
+  endpoints:
+    - port: tempo-prom-metrics

@@ -1,0 +1,182 @@
+# dyff between <(yq . <(helm show values open-telemetry/opentelemetry-collector --version 0.170.0)) <(yq eval '. * load("values.yaml")' <(helm show values open-telemetry/opentelemetry-collector --version 0.170.0))
+# vim -O <(helm show values open-telemetry/opentelemetry-collector --version 0.170.0) values.yaml
+
+# One collector per node, like the Alloy DaemonSet this replaces: each pod
+# tails its own node's log files AND receives OTLP pushed by that node's
+# workloads through the Service below. If app-pushed OTLP volume ever
+# outgrows per-node agents, split the roles: keep this DaemonSet for log
+# collection and add a second release of this chart as a gateway Deployment
+# (mode: deployment, no logsCollection) behind the Service for OTLP traffic.
+mode: daemonset
+
+# The chart refuses to render without an explicit image choice — there is no
+# default distribution. The metrics pipeline's prometheusremotewrite exporter
+# forces the contrib distribution: the slimmer otelcol-k8s distribution ships
+# everything else used here (file_log receiver, k8s_attributes processor,
+# otlp/otlphttp exporters, file_storage extension) but not that exporter.
+# ghcr.io is the canonical registry (also dodges Docker Hub pull limits); the
+# tag defaults to the chart's appVersion (0.158.0), so it is pinned by the
+# chart version in release.yaml.
+image:
+  repository: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib
+
+# The chart's default fullname is <release>-<chart>, i.e. the unwieldy
+# otel-collector-opentelemetry-collector. Pin the name so the Service lands
+# at the address workloads are told to push to:
+# otel-collector.otel-collector.svc.cluster.local (:4317 gRPC / :4318 HTTP).
+fullnameOverride: otel-collector
+
+presets:
+  # Tail pod stdout/stderr under /var/log/pods — the replacement for Alloy's
+  # discovery.kubernetes + loki.source.file pipeline. The preset mounts the
+  # hostPaths, appends the file_log receiver to the logs pipeline, and its
+  # `container` operator does what Alloy's stage.cri did: real timestamp from
+  # the CRI envelope, stream attribute, reassembly of runtime-split partial
+  # lines, plus namespace/pod/container attributes parsed from the file path.
+  logsCollection:
+    enabled: true
+    # Persist file_log read offsets on the host (/var/lib/otelcol) so a
+    # collector restart resumes where it left off instead of re-reading
+    # (duplicates) or starting at end (gaps). Chart-documented trade-off:
+    # the container then runs as root to write that hostPath.
+    storeCheckpoints: true
+  # Enrich all three signals with k8s.namespace.name / k8s.pod.name /
+  # k8s.container.name / owner-workload resource attributes — the parallel of
+  # Alloy's discovery.relabel labels. The preset creates the read RBAC,
+  # prepends the k8s_attributes processor to every pipeline, and in daemonset
+  # mode scopes its informer to the local node (filter.node_from_env_var) —
+  # the same watch-load fix as Alloy's spec.nodeName field selector, without
+  # which API-server watch load grows quadratically with cluster size.
+  kubernetesAttributes:
+    enabled: true
+
+config:
+  # The cluster is IPv6-only (see the memberlist comment in
+  # apps/loki/values.yaml for background). The chart's defaults render every
+  # listen endpoint as ${env:MY_POD_IP}:<port>; the collector substitutes the
+  # env var textually at startup, and with an IPv6 pod IP the result
+  # (2600::5:4317) fails Go's host:port parsing — "too many colons in
+  # address". Every listener actually used is re-declared here with the
+  # address bracketed, so the substituted value parses ([2600::5]:4317).
+  extensions:
+    health_check:
+      endpoint: "[${env:MY_POD_IP}]:13133"
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: "[${env:MY_POD_IP}]:4317"
+        http:
+          endpoint: "[${env:MY_POD_IP}]:4318"
+    # Drop the default receivers we don't route (null deletes them from the
+    # generated config): jaeger/zipkin are legacy trace wire formats —
+    # workloads here speak OTLP — and prometheus is the collector's :8888
+    # self-scrape, which would push the same series vmagent already scrapes
+    # via the VMServiceScrape (vmservicescrape.yaml), ingesting them twice.
+    # Their defaults also carry the unbracketed-IPv6 endpoints described
+    # above.
+    jaeger: null
+    prometheus: null
+    zipkin: null
+  exporters:
+    # All three pipelines are rerouted below, so the chart's default debug
+    # exporter has no remaining consumer.
+    debug: null
+    # Logs → VictoriaLogs (apps/victoria-logs). The otlphttp exporter treats
+    # `endpoint` as a base URL and appends the standard /v1/logs to it, but
+    # VictoriaLogs serves OTLP ingestion under its own prefix, so the full
+    # path goes in `logs_endpoint`, which is used verbatim.
+    otlphttp/victoria-logs:
+      logs_endpoint: http://victoria-logs-server.victoria-logs.svc.cluster.local:9428/insert/opentelemetry/v1/logs
+    # Traces → Tempo (apps/tempo) over OTLP gRPC. The exporter defaults to
+    # TLS; in-cluster traffic here is plaintext, so opt out explicitly.
+    otlp/tempo:
+      endpoint: tempo.tempo.svc.cluster.local:4317
+      tls:
+        insecure: true
+    # Metrics → VictoriaMetrics (apps/victoria-metrics) via Prometheus
+    # remote write. Division of labor: vmagent SCRAPES infrastructure and
+    # exporter metrics itself; this pipeline only carries metrics that
+    # applications PUSH over OTLP.
+    prometheusremotewrite/victoria-metrics:
+      endpoint: http://vmsingle-victoria-metrics.victoria-metrics.svc.cluster.local:8428/api/v1/write
+  service:
+    pipelines:
+      # Helm replaces lists instead of merging them, so each pipeline
+      # restates its receiver list minus the receivers dropped above and
+      # swaps the debug exporter for the real backend. The presets inject
+      # their pieces after this merge (file_log into the logs receivers,
+      # k8s_attributes ahead of every processor list); the chart-default
+      # memory_limiter + batch processors are maps, not lists, so they
+      # survive the merge untouched.
+      logs:
+        exporters:
+          - otlphttp/victoria-logs
+      metrics:
+        receivers:
+          - otlp
+        exporters:
+          - prometheusremotewrite/victoria-metrics
+      traces:
+        receivers:
+          - otlp
+        exporters:
+          - otlp/tempo
+    telemetry:
+      metrics:
+        # Same IPv6 bracket fix as the receivers above: the self-telemetry
+        # reader joins host and port with a bare "%s:%d", so an unbracketed
+        # IPv6 host fails to listen.
+        readers:
+          - pull:
+              exporter:
+                prometheus:
+                  host: "[${env:MY_POD_IP}]"
+                  port: 8888
+
+# In daemonset mode the chart also opens a hostPort for every enabled port by
+# default. Workloads reach the collector through the Service, not node IPs,
+# so drop the hostPorts (null deletes the key): they are forbidden by the
+# "baseline" Pod Security level and invite node port conflicts — this keeps
+# the pod's security footprint at hostPath-mounts-only, same as apps/alloy.
+# The jaeger/zipkin ports follow their receivers out.
+ports:
+  otlp:
+    enabled: true
+    hostPort: null
+  otlp-http:
+    enabled: true
+    hostPort: null
+  jaeger-compact:
+    enabled: false
+  jaeger-thrift:
+    enabled: false
+  jaeger-grpc:
+    enabled: false
+  zipkin:
+    enabled: false
+  # The :8888 self-telemetry port must be on the Service for the
+  # VMServiceScrape (vmservicescrape.yaml) to have an endpoint to point at.
+  # The chart's own serviceMonitor option stays off: it renders a
+  # prometheus-operator CRD this stack doesn't install — see the comment in
+  # vmservicescrape.yaml.
+  metrics:
+    enabled: true
+
+# A daemonset gets no Service unless explicitly enabled. Enable it as the
+# stable OTLP endpoint for workloads. The chart defaults a daemonset Service
+# to internalTrafficPolicy: Local, so each pod's pushes land on its own
+# node's collector — no cross-node hop, and per-node backpressure stays local.
+service:
+  enabled: true
+
+# Initial guesses — no usage data yet; resize with krr after ~14d of dev
+# usage. Memory req=limit, no CPU limit. The chart derives GOMEMLIMIT and the
+# memory_limiter processor's ceiling from the memory limit (80% each), so the
+# limit is load-bearing beyond eviction protection.
+resources:
+  requests:
+    cpu: 50m
+    memory: 256Mi
+  limits:
+    memory: 256Mi

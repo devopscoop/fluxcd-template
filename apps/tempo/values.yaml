@@ -1,0 +1,214 @@
+# dyff between <(yq . <(helm show values grafana/tempo --version 1.24.4)) <(yq eval '. * load("values.yaml")' <(helm show values grafana/tempo --version 1.24.4))
+# vim -O <(helm show values grafana/tempo --version 1.24.4) values.yaml
+
+# Single-process Tempo backed by S3-compatible object storage — the traces
+# store of the VictoriaMetrics-based observability stack. This chart only does
+# monolithic (single-binary) mode, which is plenty for up to a few tens of
+# GB/day of spans; for more, switch to the tempo-distributed chart.
+# apps/otel-collector pushes OTLP spans in; the Grafana in
+# apps/victoria-metrics queries back out on port 3200.
+
+tempo:
+  # The cluster is IPv6-only (see the long memberlist comment in
+  # apps/loki/values.yaml for the background). The chart's default OTLP
+  # endpoints bind 0.0.0.0 — an IPv4-only wildcard in Go — so the receivers
+  # would be unreachable from other pods, which only have IPv6 addresses;
+  # "[::]" accepts both families. apps/otel-collector sends OTLP here on 4317
+  # (gRPC) and 4318 (HTTP). The chart's default Jaeger receivers stay as they
+  # are (Helm merges maps, and the chart's port templates break if they're
+  # nulled out); they remain IPv4-bound and unused.
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: "[::]:4317"
+        http:
+          endpoint: "[::]:4318"
+
+  # Only one instance runs, so swap the default memberlist ring kvstore for an
+  # in-process one. With every active ring on inmemory, Tempo never
+  # instantiates memberlist at all (dskit builds it lazily on first use),
+  # which sidesteps the IPv6 bind/advertise failures Loki needed POD_IP
+  # plumbing for — dskit's memberlist only scans for IPv4 addresses.
+  # enable_inet6 fixes the ring lifecycler's own interface scan the same way
+  # (GetFirstAddressOf finds no usable IPv4 on eth0 otherwise, and the
+  # ingester refuses to start). The metrics-generator ring needs the same two
+  # fixes, but the chart has no values key for it — that half lives in the
+  # `config` override below.
+  ingester:
+    lifecycler:
+      ring:
+        kvstore:
+          store: inmemory
+      enable_inet6: true
+
+  # Object storage (AWS S3). Bucket name and region are non-secret and live
+  # here. Authentication is via IRSA (see serviceAccount.annotations below),
+  # so there are NO static access keys — Tempo's S3 client (minio-go) walks a
+  # credentials chain that ends at the projected web-identity token
+  # automatically.
+  storage:
+    trace:
+      backend: s3
+      s3:
+        bucket: devopscoop-project1-dev-tempo-traces
+        region: us-east-2
+        # Unlike Loki's AWS-SDK client, Tempo requires an explicit endpoint.
+        # The dualstack one is load-bearing: the cluster is IPv6-only and the
+        # plain s3.<region> endpoint only publishes A records. AWS S3 uses
+        # virtual-hosted-style addressing, so path-style stays off.
+        endpoint: s3.dualstack.us-east-2.amazonaws.com
+        forcepathstyle: false
+        # --- Static-key / non-AWS alternative (e.g. Rook-Ceph RGW, MinIO) -----
+        # If you don't use IRSA, point endpoint above at your backend and
+        # supply credentials via helm_secrets.yaml instead of the
+        # serviceAccount annotation below. For path-style backends, also flip
+        # forcepathstyle to true.
+        # endpoint: CHANGEME-s3-endpoint
+        # insecure: false
+      # --- Local-disk alternative ------------------------------------------
+      # The chart's default backend: trace blocks stay on the PVC (mounted at
+      # /var/tempo by `persistence` below) instead of S3. Fine for a
+      # throwaway cluster — traces then live and die with the volume.
+      # backend: local
+      # local:
+      #   path: /var/tempo/traces
+
+  # Keep traces from growing in the bucket forever; the chart renders this
+  # into compactor.compaction.block_retention (the compactor runs
+  # in-process). 30 days, parity with the 30d metrics retention in
+  # apps/victoria-metrics and the 31d logs retention in apps/victoria-logs.
+  retention: 720h # 30 days
+
+  # Derive metrics from the span stream: span-metrics gives RED
+  # (rate/errors/duration) series per service and operation, service-graphs
+  # gives the edges Grafana's service-graph view renders on the Tempo
+  # datasource. Both land in VictoriaMetrics via remote write, so this needs
+  # the sibling apps/victoria-metrics app. If vmsingle is unreachable the
+  # generator logs remote-write errors and drops samples — trace ingest and
+  # query keep working. `enabled` only starts the generator component; the
+  # processors themselves are switched on per-tenant via `overrides` below.
+  metricsGenerator:
+    enabled: true
+    remoteWriteUrl: http://vmsingle-victoria-metrics.victoria-metrics.svc.cluster.local:8428/api/v1/write
+    storage:
+      # The chart default is /tmp/tempo (an emptyDir); put the generator's
+      # remote-write WAL on the PVC instead, as the chart itself recommends
+      # for production.
+      path: /var/tempo/metrics
+
+  # Single tenant (multitenancy stays off), so the `defaults` block applies
+  # to everything.
+  overrides:
+    defaults:
+      metrics_generator:
+        processors:
+          - service-graphs
+          - span-metrics
+
+  # The chart's default 1Gi Go ballast would keep the GC from collecting
+  # until the heap is far past the 512Mi limit below — a guaranteed OOMKill.
+  # Go's GC hasn't needed the ballast trick since GOGC/GOMEMLIMIT matured;
+  # drop it.
+  memBallastSizeMbs: 0
+  # Initial guesses (resize with krr after 14d of usage); memory req=limit,
+  # no CPU limit.
+  resources:
+    requests:
+      cpu: 50m
+      memory: 512Mi
+    limits:
+      memory: 512Mi
+
+# The chart exposes most of Tempo's config file through the tempo.* keys
+# above, but not metrics_generator.ring — and that ring defaults to
+# memberlist, which fails on an IPv6-only cluster (and is pointless for a
+# singleton anyway; see the ingester comment). The only escape hatch the
+# chart offers is replacing the whole generated config. This is a verbatim
+# copy of the chart's default `config` template (chart 1.24.4) with ONE
+# addition, marked inline. On chart upgrades, re-diff this block against the
+# `config` key in the chart's default values.
+config: |
+    memberlist:
+      cluster_label: "{{ .Release.Name }}.{{ .Release.Namespace }}"
+    multitenancy_enabled: {{ .Values.tempo.multitenancyEnabled }}
+    usage_report:
+      reporting_enabled: {{ .Values.tempo.reportingEnabled }}
+    compactor:
+      compaction:
+        block_retention: {{ .Values.tempo.retention }}
+    distributor:
+      receivers:
+        {{- toYaml .Values.tempo.receivers | nindent 8 }}
+    ingester:
+      {{- toYaml .Values.tempo.ingester | nindent 6 }}
+    server:
+      {{- toYaml .Values.tempo.server | nindent 6 }}
+    storage:
+      {{- toYaml .Values.tempo.storage | nindent 6 }}
+    querier:
+      {{- toYaml .Values.tempo.querier | nindent 6 }}
+    query_frontend:
+      {{- toYaml .Values.tempo.queryFrontend | nindent 6 }}
+    overrides:
+      {{- toYaml .Values.tempo.overrides | nindent 6 }}
+      {{- if .Values.tempo.metricsGenerator.enabled }}
+    metrics_generator:
+      # Local addition — not in the chart's default config template. See the
+      # comment above `config:` in apps/tempo/values.yaml.
+      ring:
+        kvstore:
+          store: inmemory
+        enable_inet6: true
+      # End local addition.
+      {{- if .Values.tempo.metricsGenerator.processor }}
+      processor:
+        {{- toYaml .Values.tempo.metricsGenerator.processor | nindent 8 }}
+      {{- end }}
+      {{- if .Values.tempo.metricsGenerator.registry }}
+      registry:
+        {{- toYaml .Values.tempo.metricsGenerator.registry | nindent 8 }}
+      {{- end }}
+      storage:
+        path: {{ .Values.tempo.metricsGenerator.storage.path | quote }}
+        {{- if .Values.tempo.metricsGenerator.storage.remote_write }}
+        remote_write:
+          {{- toYaml .Values.tempo.metricsGenerator.storage.remote_write | nindent 10 }}
+        {{- else }}
+        remote_write:
+          - url: {{ .Values.tempo.metricsGenerator.remoteWriteUrl }}
+        {{- end }}
+      traces_storage:
+        path: {{ .Values.tempo.metricsGenerator.traces_storage.path | quote }}
+      {{- end }}
+
+# IRSA — annotate Tempo's ServiceAccount with the IAM role that grants
+# read/write to the bucket above. The EKS pod-identity webhook injects the
+# web-identity token Tempo's S3 client uses, so no credentials live in this
+# repo.
+# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
+# serviceAccount:
+#   annotations:
+#     eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT_ID:role/tempo"
+# <<< eks
+
+# The PVC (mounted at /var/tempo) holds only what must survive a restart: the
+# ingester WAL and not-yet-flushed head blocks, plus the metrics-generator's
+# remote-write WAL. Trace blocks live in S3. 10Gi is the chart default,
+# pinned because the WAL sizing leans on it (same size as loki's WAL volume).
+persistence:
+  enabled: true
+  size: 10Gi
+
+# Tempo runs as a single replica with its WAL on the PVC above, so a spot
+# reclaim stops trace ingestion and risks unflushed WAL data. Pin it to
+# on-demand capacity, per the NodePool contract in
+# apps/karpenter-custom-resources/nodepool.yaml.
+# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
+# nodeSelector:
+#   karpenter.sh/capacity-type: on-demand
+# <<< eks
+
+# The chart's serviceMonitor option stays off (its default): it renders a
+# prometheus-operator CRD this stack doesn't install. Tempo's own metrics are
+# scraped natively instead — see vmservicescrape.yaml.
