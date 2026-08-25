@@ -5,9 +5,11 @@
 # On a fresh template clone it performs the full bootstrap: placeholder
 # substitution, enabling optional blocks, encrypting secrets, wiring Flux
 # sync/decryption, and enabling the apps -- committing and pushing as it goes.
-# On an already-bootstrapped repo (detected below via the Flux sync URL) it
-# skips every repo-rewriting step and only re-asserts cluster-side state
-# (flux-operator install + secrets), so re-running it never rewrites the repo.
+# On an already-bootstrapped repo (detected below via a sentinel annotation)
+# the one-time rewrites (placeholders, secrets sweep, sync wiring, app
+# enabling) are skipped; a re-run only uncomments marker blocks in apps added
+# since the last run (a no-op when there are none) and re-asserts cluster-side
+# state (flux-operator install + secrets).
 
 # https://vaneyckt.io/posts/safer_bash_scripts_with_set_euxo_pipefail/
 set -Eeuo pipefail
@@ -24,26 +26,39 @@ source variables.sh
 
 # This script stages and commits files as it goes, so pre-existing changes
 # would either get swept into its commits or leave `git commit` with an empty
-# stage. Bail early instead.
+# stage. Bail early instead. (This also catches a previous run that died
+# mid-edit before committing: reset or stash the leftovers, then re-run.)
 if ! git diff --quiet || ! git diff --cached --quiet; then
   echo "ERROR: working tree not clean. Commit or stash your changes first." >&2
   exit 1
 fi
 
-# Start from the latest main so the pushes below don't get rejected mid-run.
+# Start from the latest main so the pushes below don't get rejected mid-run...
 git pull
+# ...and publish anything a previous run committed but failed to push (push is
+# a no-op when the remote is current). Without this, a run that died on its
+# final push would strand that commit locally forever: the re-run may have
+# nothing new to commit, so no later push would happen, while the cluster
+# syncs from a remote that never got the commit.
+git push
 
-# The last repo-rewiring step below points spec.sync.url at this repo's own
-# remote; a fresh template clone still points at the devopscoop
-# placeholder, which is not a legal GitHub owner name (underscores), so a
-# fresh clone can never match a real ${git_owner}/${git_repo} here.
-# NOTE: if a bootstrap run dies between wiring the sync URL and enabling the
-# apps, this reports bootstrapped=true -- finish the remaining steps manually
-# (or revert the sync commit and re-run).
+# Bootstrapped detection. The final repo-rewiring commit below does two things
+# at once: it points spec.sync.url at this repo's own remote and stamps the
+# fluxcd-template/bootstrapped annotation. Require BOTH here. The URL alone
+# can misfire: the template's placeholder URL ends in project1-dev, which the
+# sed step below rewrites to ${cluster_name}, so a re-run after a
+# mid-bootstrap failure would see devopscoop/${cluster_name} -- which matches
+# ${git_owner}/${git_repo} whenever the owner really is devopscoop and the
+# repo is named after its cluster. The annotation only ever appears in the
+# final wiring commit, so fresh and half-bootstrapped clones can never match.
+# The URL check still earns its keep by tying the sentinel to THIS repo's
+# identity: an already-bootstrapped repo cloned to seed a different repo reads
+# as un-bootstrapped instead of silently skipping the re-wiring.
 bootstrapped=false
-if [[ "$(yq '.spec.sync.url' flux/flux-system/flux-instance.yaml)" == "https://github.com/${git_owner}/${git_repo}" ]]; then
+if [[ "$(yq '.metadata.annotations."fluxcd-template/bootstrapped"' flux/flux-system/flux-instance.yaml)" == "true" \
+   && "$(yq '.spec.sync.url' flux/flux-system/flux-instance.yaml)" == "https://github.com/${git_owner}/${git_repo}" ]]; then
   bootstrapped=true
-  echo "INFO: repo already bootstrapped; skipping repo rewrites, re-asserting cluster state only."
+  echo "INFO: repo already bootstrapped; skipping one-time rewrites, converging marker blocks and re-asserting cluster state."
 fi
 
 # Validate everything the bootstrap will need BEFORE any step below mutates or
@@ -144,7 +159,11 @@ uncomment_blocks() {
 # On EKS, uncomment the EKS-specific blocks in the app manifests (IRSA
 # serviceAccount annotations, AWS NLB annotations, ...). On non-EKS platforms
 # these AWS features don't exist, so the blocks stay commented.
-if [[ "$bootstrapped" == "false" && "$k8s_platform" == "eks" ]]; then
+# Deliberately NOT gated on $bootstrapped: an app added after bootstrap ships
+# with its marker blocks still commented, so re-runs converge them. This is
+# safe to repeat -- uncommenting is a no-op for blocks already open, and
+# commit_and_push skips an empty stage.
+if [[ "$k8s_platform" == "eks" ]]; then
   uncomment_blocks eks
   commit_and_push "Enabling EKS-specific annotation blocks"
 fi
@@ -153,10 +172,11 @@ fi
 # apps/victoria-metrics (the grep below finds every slack block repo-wide). The
 # channel is set in each app's values.yaml; the webhook URL (the secret half)
 # comes from its helm_secrets.yaml.decrypted, which gets SOPS-encrypted further
-# down.
+# down during bootstrap. Like the eks step above, this runs on every
+# invocation so later-added apps get their blocks opened too.
 # ${var:-} so set -u doesn't kill the script on a variables.sh from before this
 # variable existed.
-if [[ "$bootstrapped" == "false" && "${slack_alerts:-false}" == "true" ]]; then
+if [[ "${slack_alerts:-false}" == "true" ]]; then
   uncomment_blocks slack
   commit_and_push "Enabling Alertmanager Slack notifications"
 fi
@@ -222,10 +242,22 @@ if [[ "$bootstrapped" == "false" ]]; then
   yq -i '.spec.update.path |= ("'"${flux_path}"'/" + sub("^'"${flux_path}"'/", ""))' flux/flux-system/imageupdateautomation.yaml
   git add flux/flux-system/imageupdateautomation.yaml
 
-  # Add sync section so flux knows where to find its code. This is the LAST
-  # yq edit before the commit because its url doubles as the bootstrapped
-  # sentinel above.
+  # Open the Flux floodgates! Enable everything! ($core_app_list, $app_list,
+  # and the files they name are validated near the top of the script.)
+  for app in $core_app_list $app_list; do
+    yq -i ".resources = (.resources + [\"${app}\"] | unique)" flux/flux-system/kustomization.yaml
+  done
+  git add flux/flux-system/kustomization.yaml
+
+  # Add sync section so flux knows where to find its code, and stamp the
+  # bootstrapped annotation (the sentinel checked at the top). This is the
+  # LAST edit, and everything from the decryption patch to here lands in ONE
+  # commit: the annotation flips the sentinel, so no repo rewrite may come
+  # after it. A run that dies before this commit re-runs as un-bootstrapped;
+  # one that dies after it is repo-side complete, and the unconditional
+  # flux-operator install/secret steps re-assert the cluster side.
   yq -i "
+    .metadata.annotations.\"fluxcd-template/bootstrapped\" = \"true\" |
     .spec.sync.kind = \"GitRepository\" |
     .spec.sync.url = \"https://github.com/${git_owner}/${git_repo}\" |
     .spec.sync.ref = \"refs/heads/main\" |
@@ -235,19 +267,9 @@ if [[ "$bootstrapped" == "false" ]]; then
     " "${SCRIPT_DIR}/flux/flux-system/flux-instance.yaml"
   git add "${SCRIPT_DIR}/flux/flux-system/flux-instance.yaml"
 
-  commit_and_push "Adding sync and decryption."
-  # flux reconcile source git flux-system
-  # flux reconcile kustomization flux-system
+  commit_and_push "Wiring Flux sync and decryption; enabling apps"
 
   flux-operator install -f "${SCRIPT_DIR}/flux/flux-system/flux-instance.yaml"
-
-  # Open the Flux floodgates! Enable everything! ($core_app_list, $app_list,
-  # and the files they name are validated near the top of the script.)
-  for app in $core_app_list $app_list; do
-    yq -i ".resources = (.resources + [\"${app}\"] | unique)" flux/flux-system/kustomization.yaml
-  done
-  git add flux/flux-system/kustomization.yaml
-  commit_and_push "Enabling Flux Kustomizations"
   # flux reconcile source git flux-system
   # flux reconcile kustomization flux-system
 fi
