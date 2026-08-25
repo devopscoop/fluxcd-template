@@ -3,8 +3,6 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 labels:
   - pairs:
-resources:
-  - gotk-components.yaml
-  - gotk-sync.yaml
-patchesStrategicMerge:
-  - flux-resources-patch.yaml
+# Populated by deploy.sh's app-enabling step during bootstrap (and by
+# deploy_new_app.sh --deploy afterwards).
+resources: []

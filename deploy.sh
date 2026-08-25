@@ -1,10 +1,18 @@
 #!/usr/bin/env bash
 
 # This script is idempotent, fails fast, and should be safe to run against a running cluster. It requires the variables.sh file.
+#
+# On a fresh template clone it performs the full bootstrap: placeholder
+# substitution, enabling optional blocks, encrypting secrets, wiring Flux
+# sync/decryption, and enabling the apps -- committing and pushing as it goes.
+# On an already-bootstrapped repo (detected below via a sentinel annotation)
+# the one-time rewrites (placeholders, secrets sweep, sync wiring, app
+# enabling) are skipped; a re-run only uncomments marker blocks in apps added
+# since the last run (a no-op when there are none) and re-asserts cluster-side
+# state (flux-operator install + secrets).
 
-# TODO: Remove x to disable debug output after someone with a Mac tests this script.
 # https://vaneyckt.io/posts/safer_bash_scripts_with_set_euxo_pipefail/
-set -Eexuo pipefail
+set -Eeuo pipefail
 
 # https://stackoverflow.com/questions/59895/how-do-i-get-the-directory-where-a-bash-script-is-located-from-within-the-script
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
@@ -16,140 +24,48 @@ cd "${SCRIPT_DIR}"
 # shellcheck source=/dev/null
 source variables.sh
 
-# Replace project1-dev with cluster_name in all files except this script.
-# Have to use -i.bak because Mac sed is garbage.
-while read -r f; do
-  sed -i.bak "s/project1-dev/${cluster_name}/g" "${f}"
-  rm "${f}.bak"
-  git add "${f}"
-done < <(grep -rIl project1-dev --exclude-dir .git --exclude deploy.sh .)
-
-# Replace us-east-2 with region in all files except this script.
-# Have to use -i.bak because Mac sed is garbage.
-while read -r f; do
-  sed -i.bak "s/us-east-2/${region}/g" "${f}"
-  rm "${f}.bak"
-  git add "${f}"
-done < <(grep -rIl us-east-2 --exclude-dir .git --exclude deploy.sh .)
-
-# This if statement is needed for idempotency. Don't commit and push if there are no changes.
-if ! git diff HEAD --quiet; then
-
-  # Using -n so that SOME PEOPLE'S pre-commit hooks don't freak out and break things. Talking about myself here. I have a large collection of hooks.
-  git commit -nm "Replacing project1-dev with ${cluster_name}"
-
-  git push
+# This script stages and commits files as it goes, so pre-existing changes
+# would either get swept into its commits or leave `git commit` with an empty
+# stage. Bail early instead. (This also catches a previous run that died
+# mid-edit before committing: reset or stash the leftovers, then re-run.)
+if ! git diff --quiet || ! git diff --cached --quiet; then
+  echo "ERROR: working tree not clean. Commit or stash your changes first." >&2
+  exit 1
 fi
 
-# Some manifests ship optional blocks that are commented out by default, each
-# delimited by `# >>> <marker>` / `# <<< <marker>` marker comments. This strips
-# the leading comment from the lines between the given marker's delimiters
-# (leaving the markers in place, so this stays idempotent and self-documenting).
-# WARNING: never write the literal opening marker anywhere except the real
-# markers (in prose, drop the leading hash) -- any file containing it gets fed
-# through awk here.
-uncomment_blocks() {
-  local marker=$1
-  while read -r f; do
-    # awk (not sed) for identical behavior on GNU and BSD/Mac. sub() is a no-op
-    # on already-uncommented lines, so re-running this is safe.
-    awk -v marker="$marker" '
-      index($0, "# >>> " marker) { print; inblk=1; next }
-      index($0, "# <<< " marker) { print; inblk=0; next }
-      inblk { sub(/^# ?/, ""); print; next }
-      { print }
-    ' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
-    git add "$f"
-  done < <(grep -rIl "# >>> ${marker}" --exclude-dir .git --exclude deploy.sh .)
-}
-
-# On EKS, uncomment the EKS-specific blocks in the app manifests (IRSA
-# serviceAccount annotations, AWS NLB annotations, ...). On non-EKS platforms
-# these AWS features don't exist, so the blocks stay commented.
-if [[ "$k8s_platform" == "eks" ]]; then
-  uncomment_blocks eks
-  if ! git diff HEAD --quiet; then
-    git commit -nm "Enabling EKS-specific annotation blocks"
-    git push
-  fi
-fi
-
-# Uncomment the Alertmanager -> Slack config in apps/kube-prometheus-stack and
-# apps/victoria-metrics (the grep below finds every slack block repo-wide). The
-# channel is set in each app's values.yaml; the webhook URL (the secret half)
-# comes from its helm_secrets.yaml.decrypted, which gets SOPS-encrypted further
-# down.
-# ${var:-} so set -u doesn't kill the script on a variables.sh from before this
-# variable existed.
-if [[ "${slack_alerts:-false}" == "true" ]]; then
-  uncomment_blocks slack
-  if ! git diff HEAD --quiet; then
-    git commit -nm "Enabling Alertmanager Slack notifications"
-    git push
-  fi
-fi
-
-flux-operator install -f "${SCRIPT_DIR}/flux/flux-system/flux-instance.yaml"
-
-flux-operator create secret githubapp flux-system \
-  --namespace=flux-system \
-  --app-id="$GITHUB_APP_ID" \
-  --app-installation-id="$GITHUB_APP_INSTALLATION_ID" \
-  --app-private-key-file="$GITHUB_APP_PRIVATE_KEY_FILE"
-
+# Start from the latest main so the pushes below don't get rejected mid-run...
 git pull
+# ...and publish anything a previous run committed but failed to push (push is
+# a no-op when the remote is current). Without this, a run that died on its
+# final push would strand that commit locally forever: the re-run may have
+# nothing new to commit, so no later push would happen, while the cluster
+# syncs from a remote that never got the commit.
+git push
 
-# Encrypt all the `*.decrypted` files with your new sops age key:
-while read -r f; do
-  sops --filename-override "${f//.decrypted}" -e "${f}" > "${f//.decrypted}"
-  git add "${f//.decrypted}"
-  git rm "${f}"
-done < <(find . -name '*.decrypted')
-if ! git diff HEAD --quiet; then
-  git commit -nm "Encrypting secrets"
-  git push
+# Bootstrapped detection. The final repo-rewiring commit below does two things
+# at once: it points spec.sync.url at this repo's own remote and stamps the
+# fluxcd-template/bootstrapped annotation. Require BOTH here. The URL alone
+# can misfire: the template's placeholder URL ends in project1-dev, which the
+# sed step below rewrites to ${cluster_name}, so a re-run after a
+# mid-bootstrap failure would see devopscoop/${cluster_name} -- which matches
+# ${git_owner}/${git_repo} whenever the owner really is devopscoop and the
+# repo is named after its cluster. The annotation only ever appears in the
+# final wiring commit, so fresh and half-bootstrapped clones can never match.
+# The URL check still earns its keep by tying the sentinel to THIS repo's
+# identity: an already-bootstrapped repo cloned to seed a different repo reads
+# as un-bootstrapped instead of silently skipping the re-wiring.
+bootstrapped=false
+if [[ "$(yq '.metadata.annotations."fluxcd-template/bootstrapped"' flux/flux-system/flux-instance.yaml)" == "true" \
+   && "$(yq '.spec.sync.url' flux/flux-system/flux-instance.yaml)" == "https://github.com/${git_owner}/${git_repo}" ]]; then
+  bootstrapped=true
+  echo "INFO: repo already bootstrapped; skipping one-time rewrites, converging marker blocks and re-asserting cluster state."
 fi
 
-# Create the flux-system/sops-age secret, so flux has the keys to decrypt secrets.
-# --age-key-file wants a *plaintext* age identity file. $SOPS_AGE_KEY already
-# holds the decrypted identity (variables.sh), so feed it via process
-# substitution rather than pointing at the encrypted keys.txt on disk.
-# printf '%s\n' (not echo) writes the key verbatim, regardless of shell/content.
-flux-operator create secret sops sops-age \
-  --namespace=flux-system \
-  --age-key-file <(printf '%s\n' "$SOPS_AGE_KEY")
-
-# Add sync section so flux knows where to find its code.
-yq -i "
-  .spec.sync.kind = \"GitRepository\" |
-  .spec.sync.url = \"https://github.com/${git_owner}/${git_repo}\" |
-  .spec.sync.ref = \"refs/heads/main\" |
-  .spec.sync.path = \"${flux_path}/flux\" |
-  .spec.sync.pullSecret = \"flux-system\" |
-  .spec.sync.provider = \"github\"
-  " "${SCRIPT_DIR}/flux/flux-system/flux-instance.yaml"
-
-# Add decryption block, so that the flux-system Kustomization can decrypt SOPS-encrypted files.
-yq -i '.spec.kustomize.patches[0].patch = "- op: add\n  path: /spec/decryption\n  value:\n    provider: sops\n    secretRef:\n      name: sops-age\n" | .spec.kustomize.patches[0].target.kind = "Kustomization"' "${SCRIPT_DIR}/flux/flux-system/flux-instance.yaml"
-
-# Prefix all Flux Kustomization spec.path values with ${flux_path}/ so they resolve from the repo root.
-while read -r f; do
-  yq -i 'select(.kind == "Kustomization").spec.path |= (split("'"${flux_path}"'/")[-1] | "'"${flux_path}"'/" + .)' "${f}"
-  git add "${f}"
-done < <(find flux/flux-system -name "*.yaml" -not -name "kustomization.yaml")
-yq -i '.spec.update.path |= (split("'"${flux_path}"'/")[-1] | "'"${flux_path}"'/" + .)' flux/flux-system/imageupdateautomation.yaml
-git add flux/flux-system/imageupdateautomation.yaml
-
-if ! git diff HEAD --quiet; then
-  git commit -nm "Adding sync and decryption."
-  git push
-  # flux reconcile source git flux-system
-  # flux reconcile kustomization flux-system
-fi
-
-flux-operator install -f "${SCRIPT_DIR}/flux/flux-system/flux-instance.yaml"
-
-# Open the Flux floodgates! Enable everything!
+# Validate everything the bootstrap will need BEFORE any step below mutates or
+# pushes: failing halfway through would strand the repo (some commits already
+# pushed, sync URL possibly already rewired) in a state that needs manual
+# recovery. The lists themselves are consumed by the app-enabling step at the
+# bottom of the script.
 # Observability is the VictoriaMetrics stack (victoria-metrics, victoria-logs,
 # tempo, otel-collector, goalert; cnpg is here because goalert's database
 # depends on it). The kube-prometheus-stack + alloy + loki alternative stays in
@@ -171,13 +87,183 @@ case "$k8s_platform" in
     exit 1
     ;;
 esac
-for app in $core_app_list $app_list; do
-  yq -i ".resources = (.resources + [\"${app}\"] | unique)" flux/flux-system/kustomization.yaml
-done
-git add flux/flux-system/kustomization.yaml
-if ! git diff HEAD --quiet; then
-  git commit -nm "Enabling Flux Kustomizations"
-  git push
+if [[ "$bootstrapped" == "false" ]]; then
+  for app in $core_app_list $app_list; do
+    # A resources entry pointing at a missing file breaks the whole
+    # flux-system kustomize build once pushed, so refuse to enable one. A
+    # .decrypted staging copy counts: the secrets sweep below encrypts it
+    # into place before the apps are enabled. (sops-age.secrets.yaml is
+    # created by hand pre-deploy, in either form -- see README.md.)
+    if [[ ! -f "flux/flux-system/${app}" && ! -f "flux/flux-system/${app}.decrypted" ]]; then
+      echo "ERROR: flux/flux-system/${app} does not exist; refusing to enable it." >&2
+      exit 1
+    fi
+  done
+fi
+
+# Commit and push whatever this script has staged. Gating on the stage (not
+# the working tree) is what keeps re-runs from committing nothing or aborting.
+commit_and_push() {
+  if ! git diff --cached --quiet; then
+    # Using -n so that SOME PEOPLE'S pre-commit hooks don't freak out and break things. Talking about myself here. I have a large collection of hooks.
+    git commit -nm "$1"
+    git push
+  fi
+}
+
+if [[ "$bootstrapped" == "false" ]]; then
+  # Replace project1-dev with cluster_name in all tracked files except this
+  # script and AGENTS.md (which mentions the placeholder in prose).
+  # Have to use -i.bak because Mac sed is garbage.
+  while read -r f; do
+    sed -i.bak "s/project1-dev/${cluster_name}/g" "${f}"
+    rm "${f}.bak"
+    git add "${f}"
+  done < <(git grep -Il project1-dev -- ':!deploy.sh' ':!AGENTS.md')
+
+  # Replace us-east-2 with region in all tracked files except this script and
+  # AGENTS.md. Have to use -i.bak because Mac sed is garbage.
+  while read -r f; do
+    sed -i.bak "s/us-east-2/${region}/g" "${f}"
+    rm "${f}.bak"
+    git add "${f}"
+  done < <(git grep -Il us-east-2 -- ':!deploy.sh' ':!AGENTS.md')
+
+  commit_and_push "Replacing project1-dev with ${cluster_name}"
+fi
+
+# Some manifests ship optional blocks that are commented out by default, each
+# delimited by `# >>> <marker>` / `# <<< <marker>` marker comments. This strips
+# the leading comment from the lines between the given marker's delimiters
+# (leaving the markers in place, so this stays idempotent and self-documenting).
+# WARNING: never write the literal opening marker anywhere except the real
+# markers (in prose, drop the leading hash) -- any tracked file containing it
+# gets fed through awk here.
+uncomment_blocks() {
+  local marker=$1
+  while read -r f; do
+    # awk (not sed) for identical behavior on GNU and BSD/Mac. The mandatory
+    # space in /^# / keeps re-runs from eating hashes one at a time, and lets
+    # genuine comments inside a block survive uncommenting: write those with a
+    # doubled hash (## like this) and they're left alone.
+    awk -v marker="$marker" '
+      index($0, "# >>> " marker) { print; inblk=1; next }
+      index($0, "# <<< " marker) { print; inblk=0; next }
+      inblk { sub(/^# /, ""); sub(/^#$/, ""); print; next }
+      { print }
+    ' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+    git add "$f"
+  done < <(git grep -Il "# >>> ${marker}" -- ':!deploy.sh')
+}
+
+# On EKS, uncomment the EKS-specific blocks in the app manifests (IRSA
+# serviceAccount annotations, AWS NLB annotations, ...). On non-EKS platforms
+# these AWS features don't exist, so the blocks stay commented.
+# Deliberately NOT gated on $bootstrapped: an app added after bootstrap ships
+# with its marker blocks still commented, so re-runs converge them. This is
+# safe to repeat -- uncommenting is a no-op for blocks already open, and
+# commit_and_push skips an empty stage.
+if [[ "$k8s_platform" == "eks" ]]; then
+  uncomment_blocks eks
+  commit_and_push "Enabling EKS-specific annotation blocks"
+fi
+
+# Uncomment the Alertmanager -> Slack config in apps/kube-prometheus-stack and
+# apps/victoria-metrics (the grep below finds every slack block repo-wide). The
+# channel is set in each app's values.yaml; the webhook URL (the secret half)
+# comes from its helm_secrets.yaml.decrypted, which gets SOPS-encrypted further
+# down during bootstrap. Like the eks step above, this runs on every
+# invocation so later-added apps get their blocks opened too.
+# ${var:-} so set -u doesn't kill the script on a variables.sh from before this
+# variable existed.
+if [[ "${slack_alerts:-false}" == "true" ]]; then
+  uncomment_blocks slack
+  commit_and_push "Enabling Alertmanager Slack notifications"
+fi
+
+flux-operator install -f "${SCRIPT_DIR}/flux/flux-system/flux-instance.yaml"
+
+flux-operator create secret githubapp flux-system \
+  --namespace=flux-system \
+  --app-id="$GITHUB_APP_ID" \
+  --app-installation-id="$GITHUB_APP_INSTALLATION_ID" \
+  --app-private-key-file="$GITHUB_APP_PRIVATE_KEY_FILE"
+
+if [[ "$bootstrapped" == "false" ]]; then
+  # Encrypt the `*.yaml.decrypted` files with the new sops age key.
+  # encrypt_secrets.sh owns the crypto: it skips apps/templates/ (scaffolding
+  # for deploy_new_app.sh, not a real secret), re-encrypts unconditionally so
+  # the *current* .sops.yaml recipients apply, and removes the plaintext from
+  # disk. Bootstrap only adds the git bookkeeping. `git add -A` is exact here:
+  # the script refused to start on a dirty tree and every step above commits
+  # what it stages, so the only changes at this point are the new ciphertexts
+  # and the plaintext deletions (the template *tracks* its .decrypted
+  # boilerplate, so those deletions must be staged too, not just rm'ed).
+  ./encrypt_secrets.sh
+  git add -A
+  commit_and_push "Encrypting secrets"
+elif find . -not -path '*/templates/*' -name '*.decrypted' | grep -q .; then
+  # Encryption only runs during bootstrap (a re-run must not surprise-commit),
+  # but don't silently leave plaintext secrets sitting on disk either.
+  echo "WARNING: *.decrypted files found; run ./encrypt_secrets.sh to encrypt them." >&2
+fi
+
+# Create the flux-system/sops-age secret, so flux has the keys to decrypt secrets.
+# --age-key-file wants a *plaintext* age identity file. $SOPS_AGE_KEY already
+# holds the decrypted identity (variables.sh), so feed it via process
+# substitution rather than pointing at the encrypted keys.txt on disk.
+# printf '%s\n' (not echo) writes the key verbatim, regardless of shell/content.
+flux-operator create secret sops sops-age \
+  --namespace=flux-system \
+  --age-key-file <(printf '%s\n' "$SOPS_AGE_KEY")
+
+if [[ "$bootstrapped" == "false" ]]; then
+  # Add decryption block, so that the flux-system Kustomization can decrypt
+  # SOPS-encrypted files. Match by content rather than position: patches[0]
+  # isn't necessarily the decryption patch once update_flux-instance.sh has
+  # added its image-pin and resource patches.
+  if ! yq '.spec.kustomize.patches[].patch' "${SCRIPT_DIR}/flux/flux-system/flux-instance.yaml" | grep -q '/spec/decryption'; then
+    yq -i '.spec.kustomize.patches += [{"patch": "- op: add\n  path: /spec/decryption\n  value:\n    provider: sops\n    secretRef:\n      name: sops-age\n", "target": {"kind": "Kustomization"}}]' "${SCRIPT_DIR}/flux/flux-system/flux-instance.yaml"
+  fi
+
+  # Prefix all Flux Kustomization spec.path values with ${flux_path}/ so they
+  # resolve from the repo root. Strip-then-prepend (rather than split) so
+  # re-runs converge and paths containing ${flux_path}/ twice don't get mangled.
+  while read -r f; do
+    yq -i 'select(.kind == "Kustomization").spec.path |= ("'"${flux_path}"'/" + sub("^'"${flux_path}"'/", ""))' "${f}"
+    git add "${f}"
+  done < <(find flux/flux-system -name "*.yaml" -not -name "kustomization.yaml")
+  yq -i '.spec.update.path |= ("'"${flux_path}"'/" + sub("^'"${flux_path}"'/", ""))' flux/flux-system/imageupdateautomation.yaml
+  git add flux/flux-system/imageupdateautomation.yaml
+
+  # Open the Flux floodgates! Enable everything! ($core_app_list, $app_list,
+  # and the files they name are validated near the top of the script.)
+  for app in $core_app_list $app_list; do
+    yq -i ".resources = (.resources + [\"${app}\"] | unique)" flux/flux-system/kustomization.yaml
+  done
+  git add flux/flux-system/kustomization.yaml
+
+  # Add sync section so flux knows where to find its code, and stamp the
+  # bootstrapped annotation (the sentinel checked at the top). This is the
+  # LAST edit, and everything from the decryption patch to here lands in ONE
+  # commit: the annotation flips the sentinel, so no repo rewrite may come
+  # after it. A run that dies before this commit re-runs as un-bootstrapped;
+  # one that dies after it is repo-side complete, and the unconditional
+  # flux-operator install/secret steps re-assert the cluster side.
+  yq -i "
+    .metadata.annotations.\"fluxcd-template/bootstrapped\" = \"true\" |
+    .spec.sync.kind = \"GitRepository\" |
+    .spec.sync.url = \"https://github.com/${git_owner}/${git_repo}\" |
+    .spec.sync.ref = \"refs/heads/main\" |
+    .spec.sync.path = \"${flux_path}/flux\" |
+    .spec.sync.pullSecret = \"flux-system\" |
+    .spec.sync.provider = \"github\"
+    " "${SCRIPT_DIR}/flux/flux-system/flux-instance.yaml"
+  git add "${SCRIPT_DIR}/flux/flux-system/flux-instance.yaml"
+
+  commit_and_push "Wiring Flux sync and decryption; enabling apps"
+
+  flux-operator install -f "${SCRIPT_DIR}/flux/flux-system/flux-instance.yaml"
   # flux reconcile source git flux-system
   # flux reconcile kustomization flux-system
 fi
