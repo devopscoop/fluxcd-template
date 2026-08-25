@@ -1,5 +1,11 @@
 # kube-prometheus-stack
 
+> **Ships disabled.** The default observability stack is the VictoriaMetrics
+> one (`apps/victoria-metrics` + victoria-logs + tempo + otel-collector +
+> goalert); this app is the either/or alternative — see
+> `apps/victoria-metrics/README.md` for the switch procedure. Never enable
+> both stacks.
+
 ## Slack alerts
 
 Alertmanager can send every alert to a Slack channel. To enable it before running deploy.sh:

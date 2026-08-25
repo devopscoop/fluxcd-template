@@ -1,0 +1,100 @@
+# dyff between <(yq . <(helm show values oci://registry.gitlab.com/devopscoop/charts/app --version 0.11.1)) <(yq eval '. * load("values.yaml")' <(helm show values oci://registry.gitlab.com/devopscoop/charts/app --version 0.11.1))
+# vim -O <(helm show values oci://registry.gitlab.com/devopscoop/charts/app --version 0.11.1) values.yaml
+
+# GoAlert on the generic devopscoop app chart. All state lives in Postgres
+# (db-cluster.yaml); this workload is a stateless Deployment (the chart
+# default). replicaCount stays at the default 1 — GoAlert supports multiple
+# replicas against the same database if the pager itself needs HA (they all
+# derive the same key from the envSecret in helm_secrets.yaml).
+
+# The chart's default fullname is <release>-<chart>, i.e. goalert-app. Pin
+# the name so the Service, Deployment, and ServiceAccount are all plain
+# "goalert" (the README's kubectl commands and the HTTPRoute backend the
+# chart renders both ride on it).
+fullnameOverride: goalert
+
+image:
+  repository: goalert/goalert
+  # Latest release (2025-10-06). The chart would otherwise default the tag to
+  # its own appVersion, which has nothing to do with GoAlert. Upstream is
+  # active (Target), but releases are infrequent — check the releases page
+  # when touching this, not just Docker Hub's `latest`.
+  tag: v0.34.1
+
+# Sets the Service port AND the containerPort (the chart wires both to this
+# one value). The image sets GOALERT_LISTEN=:8081 — all interfaces, and Go's
+# ":port" listener is dual-stack, so probes work on this cluster's IPv6-only
+# pod network.
+service:
+  port: 8081
+
+env:
+  # CNPG generates this Secret from db-cluster.yaml; `uri` is a ready-made
+  # libpq connection string for the goalert database. GoAlert applies its
+  # schema migrations against it at startup. (The at-rest encryption key
+  # rides in via the chart's envSecret — see helm_secrets.yaml.)
+  - name: GOALERT_DB_URL
+    valueFrom:
+      secretKeyRef:
+        name: goalert-db-app
+        key: uri
+  # Externally routable URL — GoAlert uses it to build links in
+  # notifications, validate auth callbacks, and render the webhook URLs shown
+  # next to integration keys.
+  - name: GOALERT_PUBLIC_URL
+    value: "https://goalert.devops.coop"
+
+# The HTTP listener only comes up after the startup DB migrations have
+# applied, so first boot (or an upgrade with big migrations) needs headroom:
+# ~150s before the liveness probe takes over. Liveness/readiness only
+# override the path — the port (http) merges in from the chart defaults.
+startupProbe:
+  httpGet:
+    path: /health
+    port: http
+  periodSeconds: 5
+  failureThreshold: 30
+livenessProbe:
+  httpGet:
+    path: /health
+readinessProbe:
+  httpGet:
+    path: /health
+
+# The public Gateway, deliberately — the same reasoning as uptime-kuma's
+# status page: a pager is only useful if on-call can reach it when they're
+# paged, which means from a phone, off VPN, possibly while the private
+# gateway's infrastructure is the thing that broke. GoAlert has its own
+# authentication. This is the exception to gateway-public.yaml's
+# "ops tooling stays on eg-private" guidance; if that tradeoff isn't right
+# for a cluster, point parentRefs back at eg-private.
+httpRoute:
+  enabled: true
+  parentRefs:
+    - name: eg-public
+      namespace: envoy-gateway-system
+  hostnames:
+    - goalert.devops.coop
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+
+# Initial guesses — resize with krr after some real usage; memory req=limit,
+# no CPU limit.
+resources:
+  requests:
+    cpu: 25m
+    memory: 256Mi
+  limits:
+    memory: 256Mi
+
+# The pager is the last workload that should ride spot capacity: if the node
+# running GoAlert is reclaimed, paging goes silent until the pod reschedules.
+# Pin it to on-demand, per the NodePool contract in
+# apps/karpenter-custom-resources/nodepool.yaml.
+# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
+# nodeSelector:
+#   karpenter.sh/capacity-type: on-demand
+# <<< eks

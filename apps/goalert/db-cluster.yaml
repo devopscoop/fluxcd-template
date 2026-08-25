@@ -1,0 +1,51 @@
+# GoAlert's PostgreSQL, run by the CloudNativePG operator (apps/cnpg — the
+# flux Kustomization for this app dependsOn it). GoAlert applies its own
+# schema migrations at startup, so CNPG only has to provide an empty database
+# and credentials.
+#
+# CNPG auto-creates a `goalert-db-app` Secret (`<cluster>-app`) for the owner
+# of the database below; its `uri` key is a ready-made libpq connection string
+# pointing at the read-write Service (goalert-db-rw). deployment.yaml feeds
+# that key straight into GOALERT_DB_URL.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: goalert-db
+spec:
+  # GoAlert's dataset is tiny — schedules, escalation policies, and alert
+  # metadata, not metrics. instances: 1 keeps parity with the repo's other
+  # singletons; bump to 2-3 for real HA (CNPG handles streaming replication
+  # and failover, and GoAlert always connects through the -rw Service).
+  instances: 1
+  # Pinned to PostgreSQL 17, deliberately: GoAlert v0.34 is tested against
+  # PostgreSQL 13-17, while this repo's CNPG operator (1.28) defaults new
+  # clusters to PostgreSQL 18, which GoAlert's test suite doesn't cover yet.
+  # Bump the major here deliberately, alongside GoAlert upgrades.
+  imageName: ghcr.io/cloudnative-pg/postgresql:17.11-system-trixie
+  bootstrap:
+    initdb:
+      database: goalert
+      owner: goalert
+      # No postInitSQL for the pgcrypto extension GoAlert needs: its
+      # migrations run CREATE EXTENSION IF NOT EXISTS pgcrypto themselves,
+      # and pgcrypto is a trusted extension since PostgreSQL 13, so the
+      # (non-superuser) database owner above is allowed to create it.
+  storage:
+    size: 5Gi
+  # Initial guesses — resize with krr after some real usage; memory
+  # req=limit, no CPU limit.
+  resources:
+    requests:
+      cpu: 25m
+      memory: 256Mi
+    limits:
+      memory: 256Mi
+  # Paging flows through this single-instance database: a spot reclaim takes
+  # GoAlert down with it until the pod reschedules and recovers. Pin it to
+  # on-demand capacity, per the NodePool contract in
+  # apps/karpenter-custom-resources/nodepool.yaml.
+# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
+#   affinity:
+#     nodeSelector:
+#       karpenter.sh/capacity-type: on-demand
+# <<< eks

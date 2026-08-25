@@ -74,9 +74,11 @@ if [[ "$k8s_platform" == "eks" ]]; then
   fi
 fi
 
-# Uncomment the Alertmanager -> Slack config in apps/kube-prometheus-stack. The
-# channel is set in its values.yaml; the webhook URL (the secret half) comes
-# from its helm_secrets.yaml.decrypted, which gets SOPS-encrypted further down.
+# Uncomment the Alertmanager -> Slack config in apps/kube-prometheus-stack and
+# apps/victoria-metrics (the grep below finds every slack block repo-wide). The
+# channel is set in each app's values.yaml; the webhook URL (the secret half)
+# comes from its helm_secrets.yaml.decrypted, which gets SOPS-encrypted further
+# down.
 # ${var:-} so set -u doesn't kill the script on a variables.sh from before this
 # variable existed.
 if [[ "${slack_alerts:-false}" == "true" ]]; then
@@ -148,7 +150,12 @@ fi
 flux-operator install -f "${SCRIPT_DIR}/flux/flux-system/flux-instance.yaml"
 
 # Open the Flux floodgates! Enable everything!
-core_app_list="cert-manager-custom-resources.yaml cert-manager.yaml external-dns.yaml imagepolicies.yaml imagerepositories.yaml imageupdateautomation.yaml sops-age.secrets.yaml kube-prometheus-stack.yaml alloy.yaml loki.yaml eg.yaml eg-custom-resources.yaml"
+# Observability is the VictoriaMetrics stack (victoria-metrics, victoria-logs,
+# tempo, otel-collector, goalert; cnpg is here because goalert's database
+# depends on it). The kube-prometheus-stack + alloy + loki alternative stays in
+# the repo but disabled -- the two stacks are either/or (see
+# apps/victoria-metrics/README.md), so to switch back, swap the two groups.
+core_app_list="cert-manager-custom-resources.yaml cert-manager.yaml external-dns.yaml imagepolicies.yaml imagerepositories.yaml imageupdateautomation.yaml sops-age.secrets.yaml cnpg.yaml victoria-metrics.yaml victoria-logs.yaml tempo.yaml otel-collector.yaml goalert.yaml eg.yaml eg-custom-resources.yaml"
 case "$k8s_platform" in
   eks)
     app_list="metrics-server.yaml aws-load-balancer-controller.yaml eks-storage-classes.yaml cluster-viewers.yaml karpenter-crd.yaml karpenter.yaml karpenter-custom-resources.yaml"

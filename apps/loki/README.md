@@ -1,5 +1,9 @@
 # Loki
 
+> **Ships disabled.** Part of the kube-prometheus-stack + alloy + loki
+> alternative stack; the default is VictoriaLogs (`apps/victoria-logs`) — see
+> `apps/victoria-metrics/README.md`. Never enable both stacks.
+
 Grafana Loki as a log store, deployed in **SingleBinary** mode backed by
 **S3-compatible object storage**. Logs are queried through the existing Grafana
 in `kube-prometheus-stack` (a Loki datasource is provisioned there via
