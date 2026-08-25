@@ -1,7 +1,7 @@
 ===
 title: "Use VictoriaMetrics instead of Prometheus?"
 subTitle: First-principles pro/con map for the metrics backend — the victoria-metrics-k8s-stack (vmsingle, vmagent, vmalert, Alertmanager) versus kube-prometheus-stack
-author: dev-infra
+author: Claude and 3uzbcqje
 date: 2026-08-24
 color:
   tagColors:

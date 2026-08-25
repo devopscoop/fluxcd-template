@@ -1,7 +1,7 @@
 ===
 title: "Use OpenTelemetry Collector instead of Alloy?"
 subTitle: First-principles pro/con map for the telemetry collection layer — the upstream OpenTelemetry Collector versus Grafana Alloy, which this template ships today for logs
-author: dev-infra
+author: Claude and 3uzbcqje
 date: 2026-08-24
 color:
   tagColors:

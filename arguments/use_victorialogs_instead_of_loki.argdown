@@ -1,7 +1,7 @@
 ===
 title: "Use VictoriaLogs instead of Loki?"
 subTitle: First-principles pro/con map for the log store — single-node VictoriaLogs versus the Loki single-binary deployment this template ships today
-author: dev-infra
+author: Claude and 3uzbcqje
 date: 2026-08-24
 color:
   tagColors:
