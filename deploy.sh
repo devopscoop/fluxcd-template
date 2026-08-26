@@ -12,7 +12,7 @@
 # state (flux-operator install + secrets).
 
 # https://vaneyckt.io/posts/safer_bash_scripts_with_set_euxo_pipefail/
-set -Eeuo pipefail
+set -Eexuo pipefail
 
 # https://stackoverflow.com/questions/59895/how-do-i-get-the-directory-where-a-bash-script-is-located-from-within-the-script
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
@@ -183,11 +183,15 @@ fi
 
 flux-operator install -f "${SCRIPT_DIR}/flux/flux-system/flux-instance.yaml"
 
+# --app-private-key-file wants a *plaintext* PEM path. $GITHUB_APP_PRIVATE_KEY
+# holds the decrypted key (variables.sh), so feed it via process substitution
+# rather than writing it to disk -- same pattern as --age-key-file below.
+# printf '%s\n' restores the trailing newline command substitution stripped.
 flux-operator create secret githubapp flux-system \
   --namespace=flux-system \
   --app-id="$GITHUB_APP_ID" \
   --app-installation-id="$GITHUB_APP_INSTALLATION_ID" \
-  --app-private-key-file="$GITHUB_APP_PRIVATE_KEY_FILE"
+  --app-private-key-file=<(printf '%s\n' "$GITHUB_APP_PRIVATE_KEY")
 
 if [[ "$bootstrapped" == "false" ]]; then
   # Encrypt the `*.yaml.decrypted` files with the new sops age key.

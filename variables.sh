@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 
+export AWS_PROFILE=project1-dev:AdministratorAccess
 export KUBECONFIG="${HOME}/.kube/project1-dev"
 export cluster_name=project1-dev
 export flux_path=flux
@@ -36,12 +37,14 @@ export SOPS_AGE_KEY=$(age -d "${sops_dir}/keys.txt")
 # recipient as our sops secrets, so it can live in the repo safely. Encrypt
 # yours with (your public key is the one in .sops.yaml):
 #   age -r <your-age-recipient> -o github-app.private-key.pem.age /path/to/app.private-key.pem
-# `flux-operator create secret githubapp` needs a plaintext file path, so we
-# decrypt it non-interactively with the identity in $SOPS_AGE_KEY and hand it
-# over via process substitution -- the key lives only in a kernel pipe buffer
-# and never touches the filesystem (same pattern as --age-key-file in deploy.sh).
-# Not exported: /dev/fd/<n> works because flux-operator inherits the open FD as
-# a direct child of this shell, not because the path is in the environment.
+# Decrypted non-interactively with the identity in $SOPS_AGE_KEY into a shell
+# variable; deploy.sh hands it to `flux-operator create secret githubapp` via
+# process substitution at the call site (same pattern as --age-key-file), so
+# the key never touches the filesystem. Don't assign a process substitution
+# here instead -- bash closes its /dev/fd/<n> as soon as the assignment
+# completes, so the path would be dead before deploy.sh could use it.
+# Not exported: deploy.sh sources this file, and keeping it out of the
+# environment means child processes can't read it from their env.
 # SCRIPT_DIR is set by deploy.sh before it sources this file.
 # shellcheck disable=SC2034 # consumed by deploy.sh, which sources this file
-GITHUB_APP_PRIVATE_KEY_FILE=<(age -d -i <(printf '%s\n' "$SOPS_AGE_KEY") "${SCRIPT_DIR}/github-app.private-key.pem.age")
+GITHUB_APP_PRIVATE_KEY=$(age -d -i <(printf '%s\n' "$SOPS_AGE_KEY") "${SCRIPT_DIR}/furlai-dev-infra-flux.2026-05-05.private-key.pem.age")
