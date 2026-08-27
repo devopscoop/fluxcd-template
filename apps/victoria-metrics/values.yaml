@@ -189,6 +189,37 @@ defaultDatasources:
       uid: victorialogs
       access: proxy
       url: http://victoria-logs-server.victoria-logs.svc.cluster.local:9428
+      # Color log lines in Explore by level. severity_text is filled and
+      # lowercased by otel-collector's transform/severity processor (see
+      # apps/otel-collector/values.yaml); without these rules the plugin
+      # shows every line as "unknown". First matching rule wins. The numeric
+      # alternatives are pino's levels (60 fatal ... 10 trace).
+      jsonData:
+        logLevelRules:
+          - field: severity_text
+            operator: regex
+            value: "^(fatal|panic|critical|crit|emerg|alert|60)$"
+            level: critical
+          - field: severity_text
+            operator: regex
+            value: "^(error|err|50)$"
+            level: error
+          - field: severity_text
+            operator: regex
+            value: "^(warn|warning|40)$"
+            level: warning
+          - field: severity_text
+            operator: regex
+            value: "^(info|information|notice|30)$"
+            level: info
+          - field: severity_text
+            operator: regex
+            value: "^(debug|dbg|20)$"
+            level: debug
+          - field: severity_text
+            operator: regex
+            value: "^(trace|10)$"
+            level: trace
     - name: Tempo
       type: tempo
       uid: tempo
