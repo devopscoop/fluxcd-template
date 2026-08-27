@@ -320,10 +320,10 @@ kubelet:
 
 # On EKS the scheduler, controller-manager, and etcd run inside the AWS-managed
 # control plane and expose no metrics endpoints, so none of these targets can
-# ever be scraped. Disable them so their scrape objects and permanently-firing
-# absence alerts go away. (Unlike kube-prometheus-stack, kube-proxy scraping is
-# already off by default in this chart.) On k0s/talos these components run on
-# your own nodes, so leave them enabled.
+# ever be scraped. Disable them so their scrape objects go away. (Unlike
+# kube-prometheus-stack, kube-proxy scraping is already off by default in this
+# chart.) On k0s/talos these components run on your own nodes, so leave them
+# enabled.
 # >>> eks: deploy.sh uncomments this block when k8s_platform=eks
 # kubeScheduler:
 #   enabled: false
@@ -332,3 +332,32 @@ kubelet:
 # kubeEtcd:
 #   enabled: false
 # <<< eks
+
+defaultRules:
+  groups:
+# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
+#     # Unlike kube-prometheus-stack, this chart does NOT gate the matching rule
+#     # groups on the kubeScheduler/kubeControllerManager flags above (it does
+#     # for etcd, but not for the scheduler or controller-manager), so their
+#     # absent(up{job=...}) alerts -- KubeSchedulerDown, KubeControllerManagerDown
+#     # -- fire forever even with the scrapes disabled. Disable those groups
+#     # explicitly too: the two alerting groups, plus the scheduler recording
+#     # rules that can never have data (they'd otherwise trip vmalert's
+#     # RecordingRulesNoData).
+#     kube-scheduler.rules:
+#       enabled: false
+#     kubernetes-system-scheduler:
+#       enabled: false
+#     kubernetes-system-controller-manager:
+#       enabled: false
+# <<< eks
+    # count:up0 records how many scrape targets are down (up == 0), so on a
+    # healthy cluster it matches nothing and produces 0 samples, which trips
+    # vmalert's RecordingRulesNoData alert after 30min. Nothing bundled reads
+    # it (up == 0 answers the same question, and its always-populated twin
+    # count:up1 stays enabled), so disable the rule rather than the alert --
+    # RecordingRulesNoData stays useful for rules that should always have data.
+    kube-prometheus-general.rules:
+      rules:
+        "count:up0":
+          enabled: false
