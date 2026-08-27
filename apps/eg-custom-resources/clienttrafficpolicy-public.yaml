@@ -1,0 +1,22 @@
+# The coraza WAF (apps/coraza) buffers each request body for inspection,
+# bounded by this per-connection buffer (Envoy default 32KiB). Keep it ≥ the
+# CRS body limit (SecRequestBodyLimit, 131072) so a full permitted body fits
+# the buffer and oversized bodies get a clean 413 instead of a mid-body stream
+# reset (ENG-1613; same mechanism as the response-body note in
+# apps/coraza/README.md). Necessary but not sufficient: coraza-proxy-wasm
+# 0.6.0 still truncates request bodies spanning multiple read chunks (>~16KiB)
+# regardless of this buffer — see the request-body note in
+# apps/coraza/README.md.
+# A Gateway can only carry one ClientTrafficPolicy, so if eg-public ever needs
+# more client-facing settings they go in this policy.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: ClientTrafficPolicy
+metadata:
+  name: eg-public-buffer-limit
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: eg-public
+  connection:
+    bufferLimit: 256Ki

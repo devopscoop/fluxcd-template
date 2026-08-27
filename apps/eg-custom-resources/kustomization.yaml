@@ -11,3 +11,5 @@ resources:
   - gateway-private.yaml
   - httproute-healthz-public.yaml
   - httproute-healthz-private.yaml
+  - clienttrafficpolicy-public.yaml
+  - clienttrafficpolicy-private.yaml
