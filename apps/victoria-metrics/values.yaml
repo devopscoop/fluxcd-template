@@ -37,7 +37,11 @@ vmsingle:
     # otherwise) -- without it the pod can't accept service traffic or pass
     # probes, because the pod has no IPv4 address. Same flag on vmagent and
     # vmalert below. Alertmanager, Grafana, and the exporters are ordinary
-    # dual-stack Go listeners and need nothing.
+    # dual-stack Go listeners and need nothing -- but the config-reloader
+    # sidecar the operator injects into the vmagent, vmalert, and alertmanager
+    # pods is a VictoriaMetrics binary too, so those three also pass the flag
+    # via configReloaderExtraArgs; without it the sidecar's :8435 health
+    # probes get connection refused and kubelet restarts it forever.
     extraArgs:
       enableTCP6: "true"
     # 20Gi holds 30d comfortably: VictoriaMetrics compresses to well under a
@@ -76,6 +80,11 @@ alertmanager:
     # in Slack notifications); without it they point at the internal service
     # URL http://vmalertmanager-victoria-metrics.victoria-metrics:9093.
     externalURL: https://alertmanager.devops.coop
+
+    # See the IPv6-only note on vmsingle: the config-reloader sidecar needs
+    # the flag even though Alertmanager itself doesn't.
+    configReloaderExtraArgs:
+      enableTCP6: "true"
 
     # Initial guesses (resize with krr after 14d of usage); memory req=limit,
     # no CPU limit.
@@ -151,8 +160,10 @@ external:
 
 vmalert:
   spec:
-    # See the IPv6-only note on vmsingle.
+    # See the IPv6-only note on vmsingle, for both args.
     extraArgs:
+      enableTCP6: "true"
+    configReloaderExtraArgs:
       enableTCP6: "true"
     # Initial guesses (resize with krr after 14d of usage); memory req=limit,
     # no CPU limit.
@@ -166,8 +177,11 @@ vmalert:
 vmagent:
   spec:
     # See the IPv6-only note on vmsingle. enableTCP6 also covers dialing, which
-    # vmagent needs to scrape targets that only have IPv6 addresses.
+    # vmagent needs to scrape targets that only have IPv6 addresses. The
+    # config-reloader flag is per the IPv6-only note on vmsingle.
     extraArgs:
+      enableTCP6: "true"
+    configReloaderExtraArgs:
       enableTCP6: "true"
     # Initial guesses (resize with krr after 14d of usage); memory req=limit,
     # no CPU limit. vmagent memory grows with the number of scraped series, so
