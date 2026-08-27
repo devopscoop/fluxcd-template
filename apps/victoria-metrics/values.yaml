@@ -53,14 +53,15 @@ vmsingle:
       resources:
         requests:
           storage: 20Gi
-    # Initial guesses (resize with krr after 14d of usage); memory req=limit,
-    # no CPU limit.
+    # Memory req=limit, no CPU limit. OOMKilled at 512Mi on 2026-08-26, right
+    # after the kubelet relabelConfigs fix below un-dropped the label-heavy
+    # cadvisor series — active series jumped for good, so doubled to 1Gi.
     resources:
       requests:
         cpu: 50m
-        memory: 512Mi
+        memory: 1Gi
       limits:
-        memory: 512Mi
+        memory: 1Gi
     # vmsingle is a singleton: if a spot reclaim takes it down, ingestion and
     # rule evaluation stop with it. Pin it to on-demand capacity, per the
     # NodePool contract in apps/karpenter-custom-resources/nodepool.yaml.
@@ -247,14 +248,16 @@ grafana:
   plugins:
     - victoriametrics-logs-datasource
     - victoriametrics-metrics-datasource
-  # Initial guesses (resize with krr after 14d of usage); memory req=limit,
-  # no CPU limit.
+  # Memory req=limit, no CPU limit. Doubled to 384Mi after OOMKills
+  # (2026-08-25), then OOMKilled again on 2026-08-26 once the kubelet
+  # relabelConfigs fix below un-dropped the label-heavy cadvisor series
+  # (dashboards now pull far more series per query) — doubled to 768Mi.
   resources:
     requests:
       cpu: 10m
-      memory: 192Mi
+      memory: 768Mi
     limits:
-      memory: 192Mi
+      memory: 768Mi
   # Dashboard/datasource provisioning sidecars share this block.
   sidecar:
     resources:
@@ -281,6 +284,25 @@ kube-state-metrics:
       memory: 128Mi
     limits:
       memory: 128Mi
+
+# The chart's default kubelet scrape labelmaps every Kubernetes node label
+# onto every kubelet/cadvisor series. On nodes with label-heavy provisioners
+# (Karpenter alone stamps ~20) that pushed series past vmsingle's
+# -maxLabelsPerTimeseries default of 40, so vmsingle dropped them on ingestion
+# (RowsRejectedOnIngestion + TooManyLogs alerts, and holes in dashboards for
+# pods on those nodes) -- and even under the cap it bloats every container
+# series with node metadata. Replace the default relabelConfigs with the same
+# list minus the labelmap (lists don't merge). The operator still attaches the
+# node name as the "node" and "instance" labels on its own; that's all the
+# bundled dashboards use.
+kubelet:
+  vmScrape:
+    spec:
+      relabelConfigs:
+        - sourceLabels: [__metrics_path__]
+          targetLabel: metrics_path
+        - targetLabel: job
+          replacement: kubelet
 
 # On EKS the scheduler, controller-manager, and etcd run inside the AWS-managed
 # control plane and expose no metrics endpoints, so none of these targets can
