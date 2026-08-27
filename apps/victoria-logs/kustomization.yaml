@@ -11,6 +11,7 @@ resources:
   - namespace.yaml
   - helmrepo.yaml
   - release.yaml
+  - vmui-httproute.yaml
 configMapGenerator:
   - name: victoria-logs-values
     files:
