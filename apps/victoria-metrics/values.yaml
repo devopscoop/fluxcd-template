@@ -109,30 +109,35 @@ alertmanager:
 #       karpenter.sh/capacity-type: on-demand
 # <<< eks
 
-# Send every alert to Slack. The channel below is not secret, but the webhook
-# URL is, so it lives in helm_secrets.yaml (alertmanager.config.global.slack_api_url),
-# which Flux merges over this file -- see valuesFrom in release.yaml.
+# Alert routing. Only the default route receiver lives here: the route.routes
+# and receivers lists (Slack channel and message templates, Watchdog blackhole,
+# and the GoAlert webhook receiver) are in this app's helm_secrets.yaml -- edit
+# with `sops helm_secrets.yaml`. They are there because the GoAlert webhook URL
+# embeds an integration key (see apps/goalert/README.md), and Flux merges
+# valuesFrom like `helm -f`: maps deep-merge but lists are replaced wholesale,
+# so each list must live entirely in one file. Current routing: Watchdog is
+# blackholed; every other alert goes to BOTH GoAlert (paging) and Slack. The
+# receiver below is the mandatory root default and only fires if no sub-route
+# matches -- unreachable today, since helm_secrets.yaml's last sub-route
+# matches everything.
+#
+# group_by lives here, not on the sub-routes: children inherit it, and
+# grouping is not a secret, so it stays reviewable in this file rather than
+# behind sops. Without it, Alertmanager's default collapses every firing
+# alert into ONE group with no common labels, and GoAlert's Alertmanager
+# integration opens one alert per group -- so six unrelated alerts arrived
+# as a single GoAlert alert with nothing naming them, and a TargetDown page
+# never appeared under its own name (ENG-1613). alertname+namespace gives
+# one group per distinct problem, while still collapsing one alert that
+# fires across many pods into a single page. NOTE this also changes Slack:
+# it now gets a message per alertname+namespace instead of one digest
+# listing everything. To scope the change to paging only, drop this line
+# and set group_by on the goalert sub-route in helm_secrets.yaml instead.
 # >>> slack: deploy.sh uncomments this block when slack_alerts=true (variables.sh)
 #   config:
 #     route:
+#       group_by: ["alertname", "namespace"]
 #       receiver: slack
-#     receivers:
-#       # The chart's default route sends unmatched alerts to the 'blackhole'
-#       # receiver, and setting receivers here replaces the chart's whole list,
-#       # so keep it.
-#       - name: blackhole
-#       - name: slack
-#         slack_configs:
-#           - channel: '#alerts' # TODO: replace with your Slack channel
-#             send_resolved: true
-#             # Alertmanager's default Slack message is only a terse title like
-#             # "[FIRING:2] (ns/pod critical)". Keep that as the headline, but
-#             # render each alert's summary, description, and runbook in the body.
-#             title: '{{ template "slack.default.title" . }}'
-#             text: |-
-#               {{ range .Alerts }}*{{ .Labels.alertname }}* `{{ .Labels.severity }}`{{ if .Annotations.summary }} — {{ .Annotations.summary }}{{ end }}
-#               {{ .Annotations.description }}{{ if .Annotations.runbook_url }} <{{ .Annotations.runbook_url }}|:book: runbook>{{ end }}
-#               {{ end }}
 # <<< slack
 
 # Grafana sits behind a repo-managed HTTPRoute (grafana-httproute.yaml), not
