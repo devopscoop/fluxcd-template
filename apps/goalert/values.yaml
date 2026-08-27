@@ -73,6 +73,11 @@ httpRoute:
   parentRefs:
     - name: eg-public
       namespace: envoy-gateway-system
+      # When the cluster grows an HTTPS listener for this hostname (per-cluster,
+      # see apps/eg-custom-resources/gateway-public.yaml), add
+      # `sectionName: <listener-name>` here to bind to it alone — without it
+      # this route also attaches to the port-80 listener and serves the app in
+      # cleartext.
   hostnames:
     - goalert.devops.coop
   rules:

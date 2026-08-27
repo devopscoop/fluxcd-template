@@ -20,7 +20,7 @@ export slack_alerts=false
 export GITHUB_APP_ID=000000
 export GITHUB_APP_INSTALLATION_ID=00000000
 # The GitHub App private key (the actual secret) is decrypted further down,
-# once the age identity ($SOPS_AGE_KEY) is loaded -- see GITHUB_APP_PRIVATE_KEY_FILE.
+# once the age identity ($SOPS_AGE_KEY) is loaded -- see GITHUB_APP_PRIVATE_KEY.
 
 # Have to decrypt our encrypted keys.txt like this because of this bug:
 # https://github.com/getsops/sops/issues/933
