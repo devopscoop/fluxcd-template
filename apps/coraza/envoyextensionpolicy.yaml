@@ -53,6 +53,13 @@ spec:
             - SecResponseBodyAccess Off
             - SecRuleEngine On
             - Include @crs-setup-conf
+            # The CRS default method allowlist is GET HEAD POST OPTIONS, so
+            # rule 911100 403s every PUT/PATCH/DELETE — which our REST APIs
+            # (backstage, core) use for updates and deletes. Extend the
+            # allowlist to the methods the APIs actually serve. This MUST
+            # precede the CRS include: initialization rule 901160 only
+            # applies the default when tx.allowed_methods is still unset.
+            - SecAction "id:900200,phase:1,pass,t:none,nolog,setvar:'tx.allowed_methods=GET HEAD POST OPTIONS PUT PATCH DELETE'"
             # The load balancer health-checks each Envoy fleet by IP on
             # /healthz, so the probe's Host header is a numeric IP — which trips
             # CRS 920350 ("Host header is a numeric IP address") on every check.
@@ -61,6 +68,18 @@ spec:
             # include: 920350 is phase 1, and ctl:ruleRemoveById only skips
             # rules that run later in the phase (i.e. defined after this one).
             - 'SecRule REQUEST_URI "@beginsWith /healthz" "id:10001,phase:1,pass,nolog,ctl:ruleRemoveById=920350"'
+            # socket.io long-polling POSTs carry `Content-Type:
+            # text/plain;charset=UTF-8`, which is not in the CRS default
+            # content-type allowlist, so 920420 (critical, score 5 = the PL1
+            # anomaly threshold on its own) 403s the socket.io connect of every
+            # app served through the gateways — uptime-kuma's dashboard shows
+            # "Lost connection to the socket server" (ENG-1345). The client
+            # always connects over polling before upgrading to websocket, so
+            # this breaks it even though websocket itself passes fine. Drop
+            # 920420 for socket.io endpoints only; body inspection (SQLi/XSS
+            # rules etc.) still applies there. Phase 1 like 10001 above:
+            # exclusions must be defined before the CRS include to take effect.
+            - 'SecRule REQUEST_URI "@beginsWith /socket.io/" "id:10003,phase:1,pass,nolog,ctl:ruleRemoveById=920420"'
             # GoAlert's UI sends the full GraphQL query text in the POST body
             # (ARGS_POST:json.query), and GraphQL reads as code to the CRS
             # regexes for SQL, JavaScript, and shell commands alike. Three
@@ -112,10 +131,10 @@ spec:
             # no-request-body below, because per_authority_directives picks one
             # list and Grafana reads that one, not this. See README.md.
             - 'SecRule REQUEST_URI "@rx ^/api/(ds/query|datasources/proxy/[^?]*/(api/v1/query(_range)?|select/logsql/[a-z_]+))(\?|$)" "id:10006,phase:1,pass,nolog,ctl:ruleRemoveById=942100,ctl:ruleRemoveById=933120,ctl:ruleRemoveById=932125,ctl:ruleRemoveById=932235,ctl:ruleRemoveById=932260,ctl:ruleRemoveById=932370"'
-            # The VictoriaLogs vmui (apps/victoria-logs) sends LogsQL in the
-            # query/extra_filters/extra_stream_filters params of
-            # /select/logsql/* requests, and LogsQL reads as SQL to the CRS
-            # SQLi regexes: grouping by a stream field sends
+            # The VictoriaLogs vmui (vlogs.project1-dev.devops.coop, apps/victoria-logs)
+            # sends LogsQL in the query/extra_filters/extra_stream_filters
+            # params of /select/logsql/* requests, and LogsQL reads as SQL to
+            # the CRS SQLi regexes: grouping by a stream field sends
             # extra_stream_filters={... not_in ("")}, whose "not_in (" matches
             # 942151 "SQL function name detected" (critical, score 5 = the PL1
             # anomaly threshold on its own), so the WAF 403s it and vmui shows
@@ -152,10 +171,11 @@ spec:
             - SecResponseBodyAccess Off
             - SecRuleEngine On
             - Include @crs-setup-conf
+            - SecAction "id:900200,phase:1,pass,t:none,nolog,setvar:'tx.allowed_methods=GET HEAD POST OPTIONS PUT PATCH DELETE'"
             # Same exclusion as 10006 in default. Grafana reads this list, so
             # without it the panel queries still 403 on the query string.
             - 'SecRule REQUEST_URI "@rx ^/api/(ds/query|datasources/proxy/[^?]*/(api/v1/query(_range)?|select/logsql/[a-z_]+))(\?|$)" "id:10006,phase:1,pass,nolog,ctl:ruleRemoveById=942100,ctl:ruleRemoveById=933120,ctl:ruleRemoveById=932125,ctl:ruleRemoveById=932235,ctl:ruleRemoveById=932260,ctl:ruleRemoveById=932370"'
             - Include @owasp_crs/*.conf
         default_directives: default
         per_authority_directives:
-          grafana.devops.coop: no-request-body
+          grafana.project1-dev.devops.coop: no-request-body

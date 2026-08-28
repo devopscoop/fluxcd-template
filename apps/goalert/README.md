@@ -37,9 +37,14 @@ Alerts enter GoAlert through a per-service integration key:
    https://goalert.devops.coop/api/v2/prometheusalertmanager/incoming?token=<integration-key>
    ```
 
-2. In `apps/victoria-metrics`, paste the URL into the `goalert` receiver in that app's `helm_secrets.yaml` (`sops helm_secrets.yaml`; before bootstrap, `helm_secrets.yaml.decrypted`). The routing boilerplate there already sends every alert except Watchdog to both GoAlert and Slack — see that app's README → "Alert routing (Slack + GoAlert)":
+2. In `apps/victoria-metrics`, add a webhook receiver and a route to the Alertmanager config. The URL embeds the integration key — anyone holding it can open (and close) alerts — so the receiver belongs in that app's `helm_secrets.yaml`, not `values.yaml`:
 
    ```yaml
+   route:
+     routes:
+       - receiver: goalert
+         matchers:
+           - severity = critical
    receivers:
      - name: goalert
        webhook_configs:
@@ -47,7 +52,7 @@ Alerts enter GoAlert through a per-service integration key:
            send_resolved: true
    ```
 
-   The URL embeds the integration key — anyone holding it can open (and close) alerts — which is why the receiver lives in `helm_secrets.yaml`, not `values.yaml`. `send_resolved: true` lets GoAlert auto-close the alert when Alertmanager resolves it.
+   `send_resolved: true` lets GoAlert auto-close the alert when Alertmanager resolves it.
 
 ## Notification channels
 

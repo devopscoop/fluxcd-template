@@ -8,7 +8,6 @@ kind: Kustomization
 namespace: nxrm-ha
 
 resources:
-  - secrets.yaml
   - release.yaml
 configMapGenerator:
   - name: nxrm-ha-values

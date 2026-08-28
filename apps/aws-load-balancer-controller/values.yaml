@@ -4,18 +4,17 @@
 clusterName: project1-dev
 
 # region and vpcId are auto-discovered from the instance metadata service.
-# Set them explicitly to skip the IMDS lookup (e.g. with a strict IMDSv2 hop
-# limit):
-# region: us-east-2
-# vpcId: vpc-xxxxxxxxxxxxxxxxx
+# They are set explicitly here to skip the IMDS lookup, which times out under a
+# strict IMDSv2 hop limit ("failed to get VPC ID ... ec2imds: GetMetadata ...
+# context deadline exceeded"):
+region: us-east-2
+vpcId: vpc-xxxxxxxxxxxxxxxxx
 
 # IRSA: on EKS the controller authenticates with the IAM role created in
 # aws-eks-template (output: aws_load_balancer_controller_role_arn).
-# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
-# serviceAccount:
-#   annotations:
-#     eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT_ID:role/aws-load-balancer-controller"
-# <<< eks
+serviceAccount:
+  annotations:
+    eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT_ID:role/aws-load-balancer-controller"
 
 podDisruptionBudget:
   maxUnavailable: 1
