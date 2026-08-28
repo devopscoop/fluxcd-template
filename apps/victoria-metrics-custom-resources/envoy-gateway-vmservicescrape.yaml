@@ -8,7 +8,7 @@
 # reachable comes up with no listeners, fail-closed — see the HA rationale in
 # apps/eg/values.yaml — so its xDS health is worth watching alongside the
 # data plane (envoy-vmpodscrape.yaml, which also explains why these scrape
-# objects live in this app rather than in apps/eg).
+# objects live with the VictoriaMetrics stack rather than in apps/eg).
 #
 # The selector is the "control-plane: envoy-gateway" label, which the chart
 # sets on the Service (and its Deployment) regardless of release name.

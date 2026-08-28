@@ -1,0 +1,23 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# The operator.victoriametrics.com CRs that belong to the sibling
+# apps/victoria-metrics stack but can't ship inside it: that app's
+# HelmRelease is what installs the VictoriaMetrics operator and its CRDs, and
+# flux dry-runs every object in a Kustomization before applying any of them,
+# so a VMRule/VMPodScrape/VMServiceScrape sitting next to the HelmRelease
+# fails the dry-run on a cluster where the CRDs don't exist yet -- taking the
+# HelmRelease that would have installed them down with it. Splitting them out
+# lets the flux Kustomization dependsOn victoria-metrics (which has
+# wait: true, so the operator is installed and the CRDs registered before
+# this app applies). Same pattern as cert-manager-custom-resources and
+# eg-custom-resources.
+#
+# Dashboards stay in apps/victoria-metrics: they're plain ConfigMaps picked
+# up by Grafana's sidecar, no CRD involved.
+namespace: victoria-metrics
+
+resources:
+  - envoy-vmpodscrape.yaml
+  - envoy-gateway-vmservicescrape.yaml
+  - envoy-vmrule.yaml

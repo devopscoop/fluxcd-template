@@ -1,7 +1,8 @@
 # Alerting rules for the Envoy gateways, evaluated by this stack's vmalert
 # (selectAllByDefault picks up any VMRule in the cluster) over the series
 # collected by envoy-vmpodscrape.yaml / envoy-gateway-vmservicescrape.yaml.
-# Remember the routing model (README.md → "Alert routing"): every alert goes
+# Remember the routing model
+# (apps/victoria-metrics/README.md → "Alert routing"): every alert goes
 # to both Slack and GoAlert paging, so severity is a label on the page, not a
 # filter — which is why there are no info-level rules here.
 #

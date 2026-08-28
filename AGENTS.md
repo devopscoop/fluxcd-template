@@ -13,7 +13,7 @@ Two layers, and both must be edited to ship an app:
 
 `flux/flux-system/kustomization.yaml`'s `resources` list is the on/off switch: an app in `apps/` with a Kustomization in `flux/flux-system/` still does not deploy until its filename is in that list. `deploy.sh` (per-platform app lists) and `deploy_new_app.sh --deploy` both append to it with `yq ... | unique`.
 
-Ordering between apps is expressed with `spec.dependsOn` in `flux/flux-system/*.yaml`, referencing another Kustomization by `metadata.name`. The `*-custom-resources` apps exist precisely for this: CRs that need their operator's CRDs installed first (`cert-manager-custom-resources` → `cert-manager`, `eg-custom-resources` → `eg`, `metallb-custom-resources` → `metallb`, `rook-ceph-cluster` → `rook-ceph`) live in a separate app so they can depend on it.
+Ordering between apps is expressed with `spec.dependsOn` in `flux/flux-system/*.yaml`, referencing another Kustomization by `metadata.name`. The `*-custom-resources` apps exist precisely for this: CRs that need their operator's CRDs installed first (`cert-manager-custom-resources` → `cert-manager`, `eg-custom-resources` → `eg`, `metallb-custom-resources` → `metallb`, `victoria-metrics-custom-resources` → `victoria-metrics`, `rook-ceph-cluster` → `rook-ceph`) live in a separate app so they can depend on it.
 
 ## The Helm app pattern
 

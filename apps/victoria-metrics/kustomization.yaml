@@ -14,12 +14,9 @@ resources:
   - grafana-httproute.yaml
   - vmui-httproute.yaml
   - alertmanager-httproute.yaml
-  - envoy-vmpodscrape.yaml
-  - envoy-gateway-vmservicescrape.yaml
   - envoy-proxy-global-dashboard.yaml
   - envoy-clusters-dashboard.yaml
   - envoy-gateway-global-dashboard.yaml
-  - envoy-vmrule.yaml
 configMapGenerator:
   - name: victoria-metrics-values
     files:
