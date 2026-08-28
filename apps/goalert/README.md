@@ -37,16 +37,15 @@ Alerts enter GoAlert through a per-service integration key:
    https://goalert.devops.coop/api/v2/prometheusalertmanager/incoming?token=<integration-key>
    ```
 
-2. In `apps/victoria-metrics`, add a webhook receiver and a route to the Alertmanager config. The URL embeds the integration key — anyone holding it can open (and close) alerts — so the receiver belongs in that app's `helm_secrets.yaml`, not `values.yaml`:
+2. In `apps/victoria-metrics`, paste the URL into the `webhook_configs` entry of the `slack-goalert` receiver in that app's Alertmanager config. The URL embeds the integration key — anyone holding it can open (and close) alerts — so it belongs in that app's `helm_secrets.yaml`, not `values.yaml`:
 
    ```yaml
-   route:
-     routes:
-       - receiver: goalert
-         matchers:
-           - severity = critical
    receivers:
-     - name: goalert
+     - name: slack-goalert
+       slack_configs:
+         # ... GoAlert shares this receiver with Slack: the Alertmanager UI
+         # lists each alert group once per receiver, so a separate goalert
+         # receiver would display every alert twice.
        webhook_configs:
          - url: https://goalert.devops.coop/api/v2/prometheusalertmanager/incoming?token=<integration-key>
            send_resolved: true
