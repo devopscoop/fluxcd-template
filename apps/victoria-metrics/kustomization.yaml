@@ -16,6 +16,9 @@ resources:
   - alertmanager-httproute.yaml
   - envoy-vmpodscrape.yaml
   - envoy-gateway-vmservicescrape.yaml
+  - envoy-proxy-global-dashboard.yaml
+  - envoy-clusters-dashboard.yaml
+  - envoy-gateway-global-dashboard.yaml
 configMapGenerator:
   - name: victoria-metrics-values
     files:
