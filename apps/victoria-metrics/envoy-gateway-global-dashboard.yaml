@@ -2,7 +2,7 @@
 # dashboard: xDS snapshot/update rates, watchable queue depths, wasm cache
 # health (the coraza fetch path described in apps/eg/values.yaml), and
 # controller-runtime internals, fed by the VMServiceScrape in
-# envoy-gateway-vmservicescrape.yaml.
+# apps/victoria-metrics-custom-resources/envoy-gateway-vmservicescrape.yaml.
 # Provisioned by this stack's Grafana dashboard sidecar, which loads any
 # ConfigMap in this namespace labeled grafana_dashboard=1.
 #

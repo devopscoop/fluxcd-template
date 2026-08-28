@@ -1,7 +1,8 @@
 # "Envoy Clusters" — Envoy Gateway's official per-upstream-cluster
 # dashboard: membership/health, request and error rates, connection pools,
 # circuit-breaker state for every backend cluster the proxies route to, fed
-# by the VMPodScrape in envoy-vmpodscrape.yaml.
+# by the VMPodScrape in
+# apps/victoria-metrics-custom-resources/envoy-vmpodscrape.yaml.
 # Provisioned by this stack's Grafana dashboard sidecar, which loads any
 # ConfigMap in this namespace labeled grafana_dashboard=1.
 #

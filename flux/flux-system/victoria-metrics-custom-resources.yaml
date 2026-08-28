@@ -1,0 +1,27 @@
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: victoria-metrics-custom-resources
+  namespace: flux-system
+spec:
+  # The envoy VMRule/VMPodScrape/VMServiceScrape need the
+  # operator.victoriametrics.com CRDs, which the victoria-metrics HelmRelease
+  # installs. victoria-metrics has wait: true, so this waits for it. They
+  # can't live in that app: flux dry-runs a whole Kustomization before
+  # applying any of it, so on a cluster without the CRDs the CRs' dry-run
+  # failure would block the HelmRelease that installs them.
+  dependsOn:
+    - name: victoria-metrics
+  interval: 10m0s
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  path: apps/victoria-metrics-custom-resources
+  prune: true
+  wait: true
+  timeout: 5m0s
+  decryption:
+    provider: sops
+    secretRef:
+      name: sops-age
+  suspend: false

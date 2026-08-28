@@ -16,12 +16,14 @@
 # every proxy Deployment regardless of Gateway name — the same pair
 # apps/eg-custom-resources uses for topology spread.
 #
-# This lives here rather than in apps/eg for the reason apps/tempo's scrape
-# can't be a ServiceMonitor, seen from the other side: VMPodScrape is an
-# operator.victoriametrics.com CRD, and apps/eg also deploys on clusters
-# running the kube-prometheus-stack alternative, where those CRDs don't
-# exist and the apply would fail. (tempo keeps its scrape in-app because
-# tempo only ships as part of this stack; the gateway ships with both.)
+# This lives with the VictoriaMetrics stack rather than in apps/eg for the
+# reason apps/tempo's scrape can't be a ServiceMonitor, seen from the other
+# side: VMPodScrape is an operator.victoriametrics.com CRD, and apps/eg also
+# deploys on clusters running the kube-prometheus-stack alternative, where
+# those CRDs don't exist and the apply would fail. (tempo keeps its scrape
+# in-app because tempo only ships as part of this stack; the gateway ships
+# with both.) Why a sibling app instead of apps/victoria-metrics itself:
+# see kustomization.yaml.
 apiVersion: operator.victoriametrics.com/v1beta1
 kind: VMPodScrape
 metadata:
