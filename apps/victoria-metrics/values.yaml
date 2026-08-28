@@ -127,9 +127,10 @@ alertmanager:
 # valuesFrom like `helm -f`: maps deep-merge but lists are replaced wholesale,
 # so each list must live entirely in one file. Current routing: Watchdog is
 # blackholed; every other alert goes to BOTH GoAlert (paging) and Slack via
-# the single slack-goalert receiver, which carries both integrations -- one
-# receiver, not one route per system, because the Alertmanager UI lists each
-# alert group once per receiver, so split receivers showed every alert twice.
+# a single combined receiver (named "default") carrying both integrations --
+# one receiver, not one route per system, because the Alertmanager UI lists
+# each alert group once per receiver, so split receivers showed every alert
+# twice.
 # The receiver below is the mandatory root default and only fires if no
 # sub-route matches -- unreachable today, since helm_secrets.yaml's last
 # sub-route matches everything.
@@ -145,14 +146,14 @@ alertmanager:
 # fires across many pods into a single page. NOTE this also changes Slack:
 # it now gets a message per alertname+namespace instead of one digest
 # listing everything. Scoping group_by to paging only would mean splitting
-# slack-goalert back into separate goalert and slack routes/receivers in
-# helm_secrets.yaml -- at the cost of the UI showing every alert twice
-# again (once per receiver).
+# the combined "default" receiver back into separate goalert and slack
+# routes/receivers in helm_secrets.yaml -- at the cost of the UI showing
+# every alert twice again (once per receiver).
 # >>> slack: deploy.sh uncomments this block when slack_alerts=true (variables.sh)
 #   config:
 #     route:
 #       group_by: ["alertname", "namespace"]
-#       receiver: slack-goalert
+#       receiver: default
 # <<< slack
 
 # Grafana sits behind a repo-managed HTTPRoute (grafana-httproute.yaml), not
