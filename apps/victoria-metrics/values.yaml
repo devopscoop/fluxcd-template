@@ -126,10 +126,14 @@ alertmanager:
 # embeds an integration key (see apps/goalert/README.md), and Flux merges
 # valuesFrom like `helm -f`: maps deep-merge but lists are replaced wholesale,
 # so each list must live entirely in one file. Current routing: Watchdog is
-# blackholed; every other alert goes to BOTH GoAlert (paging) and Slack. The
-# receiver below is the mandatory root default and only fires if no sub-route
-# matches -- unreachable today, since helm_secrets.yaml's last sub-route
-# matches everything.
+# blackholed; every other alert goes to BOTH GoAlert (paging) and Slack via
+# a single combined receiver (named "default") carrying both integrations --
+# one receiver, not one route per system, because the Alertmanager UI lists
+# each alert group once per receiver, so split receivers showed every alert
+# twice.
+# The receiver below is the mandatory root default and only fires if no
+# sub-route matches -- unreachable today, since helm_secrets.yaml's last
+# sub-route matches everything.
 #
 # group_by lives here, not on the sub-routes: children inherit it, and
 # grouping is not a secret, so it stays reviewable in this file rather than
@@ -141,13 +145,15 @@ alertmanager:
 # one group per distinct problem, while still collapsing one alert that
 # fires across many pods into a single page. NOTE this also changes Slack:
 # it now gets a message per alertname+namespace instead of one digest
-# listing everything. To scope the change to paging only, drop this line
-# and set group_by on the goalert sub-route in helm_secrets.yaml instead.
+# listing everything. Scoping group_by to paging only would mean splitting
+# the combined "default" receiver back into separate goalert and slack
+# routes/receivers in helm_secrets.yaml -- at the cost of the UI showing
+# every alert twice again (once per receiver).
 # >>> slack: deploy.sh uncomments this block when slack_alerts=true (variables.sh)
 #   config:
 #     route:
 #       group_by: ["alertname", "namespace"]
-#       receiver: slack
+#       receiver: default
 # <<< slack
 
 # Grafana sits behind a repo-managed HTTPRoute (grafana-httproute.yaml), not
