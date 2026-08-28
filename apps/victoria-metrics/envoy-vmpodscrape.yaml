@@ -1,0 +1,48 @@
+# Scrape the Envoy proxy fleets' own metrics — request/error rates by
+# response-code class, request-duration histograms (milliseconds, not the
+# Prometheus-conventional seconds), upstream cluster health, connections —
+# from the data-plane pods Envoy Gateway runs in envoy-gateway-system, one
+# Deployment per Gateway. Envoy Gateway enables the Prometheus endpoint on
+# every proxy unless EnvoyProxy.spec.telemetry.metrics.prometheus.disable is
+# set (it isn't, see apps/eg-custom-resources/envoyproxy-*.yaml): a dedicated
+# stats listener on :19001 — the container port named "metrics" — serving GET
+# /stats/prometheus (verified in gateway v1.7.2, matching apps/eg's pin:
+# internal/infrastructure/kubernetes/proxy/resource.go and
+# internal/xds/bootstrap/bootstrap.yaml.tpl).
+#
+# A pod scrape, not a service scrape: the proxies' Services carry gateway
+# traffic (and don't expose the metrics port), and per-replica series are
+# wanted anyway. The selector uses the two labels the infra manager stamps on
+# every proxy Deployment regardless of Gateway name — the same pair
+# apps/eg-custom-resources uses for topology spread.
+#
+# This lives here rather than in apps/eg for the reason apps/tempo's scrape
+# can't be a ServiceMonitor, seen from the other side: VMPodScrape is an
+# operator.victoriametrics.com CRD, and apps/eg also deploys on clusters
+# running the kube-prometheus-stack alternative, where those CRDs don't
+# exist and the apply would fail. (tempo keeps its scrape in-app because
+# tempo only ships as part of this stack; the gateway ships with both.)
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMPodScrape
+metadata:
+  name: envoy-proxies
+spec:
+  namespaceSelector:
+    matchNames:
+      - envoy-gateway-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: envoy
+      app.kubernetes.io/managed-by: envoy-gateway
+  podMetricsEndpoints:
+    - port: metrics
+      path: /stats/prometheus
+      relabelConfigs:
+        # envoy_* series carry no label naming the Gateway they serve — with
+        # two fleets (eg-private, and eg-public once its Gateway attaches)
+        # only the pod name would tell them apart. Lift the infra manager's
+        # owning-gateway pod label onto every series as "gateway" so
+        # dashboards and alert rules can group per fleet.
+        - sourceLabels:
+            - __meta_kubernetes_pod_label_gateway_envoyproxy_io_owning_gateway_name
+          targetLabel: gateway

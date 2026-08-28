@@ -1,0 +1,27 @@
+# Scrape the Envoy Gateway controller's (control-plane) metrics — xDS
+# snapshot/update counters, watchable queue depths, controller-runtime and
+# client-go internals — from the chart's "envoy-gateway" Service, port
+# "metrics" (:19001), standard /metrics path (verified in gateway v1.7.2,
+# matching apps/eg's pin: charts/gateway-helm values "deployment.ports" and
+# internal/metrics/register.go). The controller matters to page loads
+# indirectly but severely: a proxy replica that boots while no controller is
+# reachable comes up with no listeners, fail-closed — see the HA rationale in
+# apps/eg/values.yaml — so its xDS health is worth watching alongside the
+# data plane (envoy-vmpodscrape.yaml, which also explains why these scrape
+# objects live in this app rather than in apps/eg).
+#
+# The selector is the "control-plane: envoy-gateway" label, which the chart
+# sets on the Service (and its Deployment) regardless of release name.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMServiceScrape
+metadata:
+  name: envoy-gateway
+spec:
+  namespaceSelector:
+    matchNames:
+      - envoy-gateway-system
+  selector:
+    matchLabels:
+      control-plane: envoy-gateway
+  endpoints:
+    - port: metrics
