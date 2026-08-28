@@ -9,5 +9,8 @@ resources:
   - envoyproxy-private.yaml
   - gateway-public.yaml
   - gateway-private.yaml
+  - httproute-redirect-public.yaml
   - httproute-healthz-public.yaml
   - httproute-healthz-private.yaml
+  - clienttrafficpolicy-public.yaml
+  - clienttrafficpolicy-private.yaml

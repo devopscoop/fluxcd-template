@@ -53,6 +53,13 @@ spec:
             - SecResponseBodyAccess Off
             - SecRuleEngine On
             - Include @crs-setup-conf
+            # The CRS default method allowlist is GET HEAD POST OPTIONS, so
+            # rule 911100 403s every PUT/PATCH/DELETE — which our REST APIs
+            # (backstage, core) use for updates and deletes. Extend the
+            # allowlist to the methods the APIs actually serve. This MUST
+            # precede the CRS include: initialization rule 901160 only
+            # applies the default when tx.allowed_methods is still unset.
+            - SecAction "id:900200,phase:1,pass,t:none,nolog,setvar:'tx.allowed_methods=GET HEAD POST OPTIONS PUT PATCH DELETE'"
             # The load balancer health-checks each Envoy fleet by IP on
             # /healthz, so the probe's Host header is a numeric IP — which trips
             # CRS 920350 ("Host header is a numeric IP address") on every check.
@@ -61,5 +68,114 @@ spec:
             # include: 920350 is phase 1, and ctl:ruleRemoveById only skips
             # rules that run later in the phase (i.e. defined after this one).
             - 'SecRule REQUEST_URI "@beginsWith /healthz" "id:10001,phase:1,pass,nolog,ctl:ruleRemoveById=920350"'
+            # socket.io long-polling POSTs carry `Content-Type:
+            # text/plain;charset=UTF-8`, which is not in the CRS default
+            # content-type allowlist, so 920420 (critical, score 5 = the PL1
+            # anomaly threshold on its own) 403s the socket.io connect of every
+            # app served through the gateways — uptime-kuma's dashboard shows
+            # "Lost connection to the socket server" (ENG-1345). The client
+            # always connects over polling before upgrading to websocket, so
+            # this breaks it even though websocket itself passes fine. Drop
+            # 920420 for socket.io endpoints only; body inspection (SQLi/XSS
+            # rules etc.) still applies there. Phase 1 like 10001 above:
+            # exclusions must be defined before the CRS include to take effect.
+            - 'SecRule REQUEST_URI "@beginsWith /socket.io/" "id:10003,phase:1,pass,nolog,ctl:ruleRemoveById=920420"'
+            # GoAlert's UI sends the full GraphQL query text in the POST body
+            # (ARGS_POST:json.query), and GraphQL reads as code to the CRS
+            # regexes for SQL, JavaScript, and shell commands alike. Three
+            # rules measured firing on ordinary page queries, each critical
+            # (score 5 = the PL1 anomaly threshold on its own): 942190
+            # (attack-sqli) matches "user(" in the user-detail-page queries;
+            # 941390 (attack-xss, "Javascript method detected") matches
+            # "alert(" in AlertDetailsPageQuery's alert(id: $id) — the query
+            # behind every /alerts/<n> view, so alert details were
+            # unviewable; 932235 (attack-rce, Unix command injection) matches
+            # a pretty-printed line starting with the field name "service"
+            # (those two: 475 blocks in one dev day). The WAF 403s with an
+            # empty body — the UI surfaces that as "[Network] JSON.parse:
+            # unexpected end of data" (ENG-1613). Strip all three families
+            # from the query text on the GraphQL endpoint only: the query
+            # text is parsed by GoAlert's GraphQL engine and nothing else,
+            # and field names that read as JS calls or coreutils are its
+            # ordinary vocabulary, so removing rule IDs one at a time is
+            # whack-a-mole (932260 below already went one round of it).
+            # json.variables.* (where user-typed input actually lands), every
+            # other rule family, and every other route still apply. GoAlert
+            # is the only /api/graphql behind the gateways today. Phase 1
+            # like the exclusions above: must precede the CRS include.
+            #
+            # 932260 ("Direct Unix Command Execution") is also dropped by ID
+            # on the same endpoint, and must stay even with attack-rce gone
+            # from json.query: it fires on destination-type values in
+            # json.variables. Every GoAlert destination type is named
+            # builtin-* (builtin-twilio-sms, builtin-smtp-email,
+            # builtin-slack-dm, builtin-webhook, ...), and "builtin" is a Unix
+            # shell builtin, so the rule matches the enum value itself —
+            # critical, score 5 = the PL1 anomaly threshold on its own. That
+            # 403s every mutation naming a destination: contact methods,
+            # notification rules, escalation-policy steps, schedule on-call
+            # notifications, so the admin page reports "[Network] JSON.parse:
+            # unexpected end of data" the same way (ENG-1613). Removed by ID
+            # rather than by target because the value lands under many paths
+            # that shift between releases (json.variables.input.destType,
+            # ...input.dest.type, ...input.actions.0.dest.type — the schema
+            # carries both a `dest: DestinationInput` and a legacy `destType:`
+            # shape across ~15 mutations).
+            - 'SecRule REQUEST_URI "@beginsWith /api/graphql" "id:10005,phase:1,pass,nolog,ctl:ruleRemoveTargetByTag=attack-sqli;ARGS_POST:json.query,ctl:ruleRemoveTargetByTag=attack-xss;ARGS_POST:json.query,ctl:ruleRemoveTargetByTag=attack-rce;ARGS_POST:json.query,ctl:ruleRemoveById=932260"'
+            # Grafana query content is PromQL and LogsQL, which the datasource
+            # never interprets as SQL, PHP or a shell command. CRS reads six
+            # ordinary parts of it as attacks, each critical enough alone to
+            # meet the PL1 threshold: metric names embed PHP directive names,
+            # PromQL label selectors and LogsQL pipes look like piped shell
+            # commands, and both read as SQL to libinjection. Repeated in
+            # no-request-body below, because per_authority_directives picks one
+            # list and Grafana reads that one, not this. See README.md.
+            - 'SecRule REQUEST_URI "@rx ^/api/(ds/query|datasources/proxy/[^?]*/(api/v1/query(_range)?|select/logsql/[a-z_]+))(\?|$)" "id:10006,phase:1,pass,nolog,ctl:ruleRemoveById=942100,ctl:ruleRemoveById=933120,ctl:ruleRemoveById=932125,ctl:ruleRemoveById=932235,ctl:ruleRemoveById=932260,ctl:ruleRemoveById=932370"'
+            # The VictoriaLogs vmui (vlogs.project1-dev.devops.coop, apps/victoria-logs)
+            # sends LogsQL in the query/extra_filters/extra_stream_filters
+            # params of /select/logsql/* requests, and LogsQL reads as SQL to
+            # the CRS SQLi regexes: grouping by a stream field sends
+            # extra_stream_filters={... not_in ("")}, whose "not_in (" matches
+            # 942151 "SQL function name detected" (critical, score 5 = the PL1
+            # anomaly threshold on its own), so the WAF 403s it and vmui shows
+            # "failed to load stream fields". Strip the SQLi rule family from
+            # those three params on the LogsQL endpoints only — every other
+            # param, route, and rule family still applies. Phase 1 like the
+            # exclusions above: must precede the CRS include.
+            #
+            # attack-rce goes too, as the README predicted: LogsQL pipes are
+            # named after coreutils, so "| sort", "| uniq", "| head", "| join"
+            # and "| replace" all read as piped shell commands and 403 the
+            # query. Measured in dev, those five pipes tripped three different
+            # RCE rules (932235 five times, plus 932260 and 932370), so
+            # removing rule IDs one at a time is whack-a-mole -- every new
+            # coreutils-named pipe would need another exclusion. The family
+            # goes instead, scoped to the same three params, which carry only
+            # LogsQL: VictoriaLogs never hands that text to a shell, so the
+            # RCE rules have nothing to protect there. Every other param,
+            # route, and rule family is still inspected.
+            - 'SecRule REQUEST_URI "@beginsWith /select/logsql/" "id:10007,phase:1,pass,nolog,ctl:ruleRemoveTargetByTag=attack-sqli;ARGS:query,ctl:ruleRemoveTargetByTag=attack-sqli;ARGS:extra_filters,ctl:ruleRemoveTargetByTag=attack-sqli;ARGS:extra_stream_filters,ctl:ruleRemoveTargetByTag=attack-rce;ARGS:query,ctl:ruleRemoveTargetByTag=attack-rce;ARGS:extra_filters,ctl:ruleRemoveTargetByTag=attack-rce;ARGS:extra_stream_filters"'
+            - Include @owasp_crs/*.conf
+          # Same as default, minus request-body inspection. coraza-proxy-wasm
+          # 0.6.0 mangles any request body it buffers across more than one
+          # Envoy read chunk (~16KiB): the upstream forwards it truncated, so
+          # the backend sees the JSON cut off mid-stream and 400s (ENG-1613;
+          # raising the connection bufferLimit moves the failure thresholds
+          # but does not stop the truncation). Grafana's dashboard queries
+          # batch every panel into one >16KiB POST to /api/ds/query, so with
+          # body inspection on, every dashboard rendered as empty panels.
+          # URI, query-string, header, and method rules all still apply.
+          no-request-body:
+            - Include @recommended-conf
+            - SecRequestBodyAccess Off
+            - SecResponseBodyAccess Off
+            - SecRuleEngine On
+            - Include @crs-setup-conf
+            - SecAction "id:900200,phase:1,pass,t:none,nolog,setvar:'tx.allowed_methods=GET HEAD POST OPTIONS PUT PATCH DELETE'"
+            # Same exclusion as 10006 in default. Grafana reads this list, so
+            # without it the panel queries still 403 on the query string.
+            - 'SecRule REQUEST_URI "@rx ^/api/(ds/query|datasources/proxy/[^?]*/(api/v1/query(_range)?|select/logsql/[a-z_]+))(\?|$)" "id:10006,phase:1,pass,nolog,ctl:ruleRemoveById=942100,ctl:ruleRemoveById=933120,ctl:ruleRemoveById=932125,ctl:ruleRemoveById=932235,ctl:ruleRemoveById=932260,ctl:ruleRemoveById=932370"'
             - Include @owasp_crs/*.conf
         default_directives: default
+        per_authority_directives:
+          grafana.project1-dev.devops.coop: no-request-body

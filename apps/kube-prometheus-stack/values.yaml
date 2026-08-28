@@ -83,6 +83,7 @@ prometheus:
     # Public URL for the "Source" links on alerts (generatorURL); without it
     # they point at the internal service URL on port 9090.
     externalUrl: https://prometheus.devops.coop
+
     # Sized from krr (2026-08-22, 14d dev usage): peak ~1.1Gi. Extra headroom
     # because TSDB memory grows with series cardinality and query load; no CPU
     # limit.
@@ -127,6 +128,7 @@ grafana:
       # Public URL Grafana uses when generating absolute links (e.g. Explore
       # short links); without it they point at the default localhost:3000.
       root_url: https://grafana.devops.coop/
+
   # Provision the Loki store (apps/loki) as a datasource on this Grafana so logs
   # are queryable in Explore. Loki runs single-tenant, so no auth header needed.
   additionalDataSources:

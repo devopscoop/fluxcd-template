@@ -17,9 +17,16 @@
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
   name: eg-public
 spec:
   gatewayClassName: eg
+  infrastructure:
+    parametersRef:
+      group: gateway.envoyproxy.io
+      kind: EnvoyProxy
+      name: eg-public
   listeners:
     - name: http
       protocol: HTTP
@@ -27,17 +34,36 @@ spec:
       allowedRoutes:
         namespaces:
           from: All
-
-    # A TCP listener is bound to one app in a way an HTTP listener is not: a TCP
-    # stream carries no hostname, so TCPRoute has no `hostnames` field and
-    # routing is by port alone. Whichever TCPRoute attaches here gets the whole
-    # port. Hence the app-specific name — remove this listener along with the
-    # app, and give the next TCP service its own port and listener.
-    #
-    # Envoy passes this through at L4: Radicle speaks its own encrypted,
-    # peer-authenticated protocol (apps/radicle/tcproute.yaml), so there is
-    # nothing here to terminate or inspect.
-    #
+    # app/api/backstage.project1-dev.devops.coop deliberately live on eg-private for now —
+    # the status page and GoAlert are the only services exposed to the
+    # internet in dev.
+    - name: status-project1-dev-devops-coop
+      hostname: "status.project1-dev.devops.coop"
+      protocol: HTTPS
+      port: 443
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: status-project1-dev-devops-coop-tls
+      allowedRoutes:
+        namespaces:
+          from: All
+    # GoAlert is deliberately internet-facing: a pager is only useful if
+    # on-call can reach it from a phone, off VPN — see the httpRoute comment
+    # in apps/goalert/values.yaml.
+    - name: goalert-project1-dev-devops-coop
+      hostname: "goalert.project1-dev.devops.coop"
+      protocol: HTTPS
+      port: 443
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: goalert-project1-dev-devops-coop-tls
+      allowedRoutes:
+        namespaces:
+          from: All
     # On EKS this adds a target group on 8776. The health check is unaffected —
     # the annotations in envoyproxy-public.yaml point every target group at the
     # dedicated :10080 /healthz listener, which Envoy serves regardless of which

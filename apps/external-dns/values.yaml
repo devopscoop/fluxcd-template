@@ -20,14 +20,14 @@ txtOwnerId: project1-dev
 # external-dns ServiceAccount with the IAM role ARN output by aws-eks-template
 # (external_dns_role_arn):
 # >>> eks: deploy.sh uncomments this block when k8s_platform=eks
+# provider:
+#   name: aws
 # serviceAccount:
 #   annotations:
 #     eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT_ID:role/external-dns"
 # <<< eks
-# provider:
-#   name: aws
-# domainFilters:
-#   - example.com   # restrict to the hosted zone(s) this cluster manages
+domainFilters:
+  - project1-dev.devops.coop
 
 # Cloudflare:
 # https://github.com/kubernetes-sigs/external-dns/blob/master/docs/tutorials/cloudflare.md

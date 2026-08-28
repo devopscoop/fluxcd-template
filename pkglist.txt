@@ -11,6 +11,10 @@
 # age (includes age-keygen) — encrypting/decrypting the SOPS age key
 age
 
+# autokuma-cli — AUR; kuma-cli, inspecting/exporting Uptime Kuma entities for
+# apps/autokuma
+autokuma-cli
+
 # bash — all repo scripts use `#!/usr/bin/env bash`
 bash
 

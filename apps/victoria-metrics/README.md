@@ -17,15 +17,23 @@ victoria-metrics + victoria-logs + tempo + otel-collector + goalert form the **d
 - **One Grafana** — each stack ships its own Grafana provisioned with its own datasources; running two means two dashboards UIs on the same URL.
 - **CRD ownership** — the prometheus-operator CRDs (`monitoring.coreos.com`) are installed and owned by kube-prometheus-stack. This chart installs only the VictoriaMetrics CRDs (`operator.victoriametrics.com`); its operator *converts* prometheus-operator objects but does not install their CRDs. If you run this stack without kube-prometheus-stack and need charts that create `ServiceMonitor`s (most set `serviceMonitor.enabled`), install the [prometheus-operator-crds](https://artifacthub.io/packages/helm/prometheus-community/prometheus-operator-crds) chart as its own app — from this chart's perspective they are read-only inputs, so there is no conflict risk with whoever installs them, which is exactly why this app doesn't: on a cluster that already runs kube-prometheus-stack, a second owner would fight over CRD upgrades.
 
-## Slack alerts
+## Alert routing (Slack + GoAlert)
 
-Alertmanager can send every alert to a Slack channel. To enable it before running deploy.sh:
+Alertmanager sends every alert to both GoAlert for paging (see apps/goalert/README.md → "Wiring Alertmanager to GoAlert") and Slack — a match-everything `goalert` sub-route with `continue: true` falls through to a match-everything `slack` sub-route. The one exception is the Watchdog alert, blackholed until a GoAlert heartbeat monitor watches for its *absence* instead.
 
-1. Create a [Slack incoming webhook](https://api.slack.com/messaging/webhooks) and put its URL in helm_secrets.yaml.decrypted: uncomment the `alertmanager` block (deleting the trailing `{}`) and replace the placeholder `slack_api_url`.
-1. Set your channel in the `>>> slack` block in values.yaml.
-1. Set `slack_alerts=true` in variables.sh. deploy.sh uncomments the `>>> slack` block and encrypts the webhook.
+The routing config is split across two files, and the split follows Flux's merge semantics — valuesFrom merges like `helm -f`: maps deep-merge, but lists are replaced wholesale, so each list must live entirely in one file:
 
-To enable it on an already-deployed cluster instead, uncomment the `>>> slack` block in values.yaml by hand (strip the leading `#` and space between the markers, leaving the markers in place), and edit your webhook URL into the encrypted secrets with `sops helm_secrets.yaml`.
+- **helm_secrets.yaml** (edit with `sops helm_secrets.yaml`; before bootstrap, helm_secrets.yaml.decrypted) holds the `route.routes` and `receivers` lists — including the non-secret Slack channel and message templates — because the GoAlert webhook receiver's URL embeds an integration key, and the Slack webhook URL (`alertmanager.config.global.slack_api_url`) is secret too.
+- **values.yaml** keeps only the default route receiver (`route.receiver: slack`) and `route.group_by` in its `>>> slack` marker block (uncommented by deploy.sh when `slack_alerts=true` in variables.sh).
+
+To enable it before running deploy.sh:
+
+1. In helm_secrets.yaml.decrypted, uncomment the `alertmanager` block (deleting the trailing `{}`), replace the placeholder `slack_api_url` with a [Slack incoming webhook](https://api.slack.com/messaging/webhooks) URL, and set your channel. The GoAlert integration-key URL can only be created once GoAlert is running, so leave its placeholder on a first bootstrap and fill it in afterwards with `sops helm_secrets.yaml` (apps/goalert/README.md walks through it).
+1. Set `slack_alerts=true` in variables.sh. deploy.sh uncomments the `>>> slack` block in values.yaml and encrypts the secrets.
+
+To enable it on an already-deployed cluster instead, uncomment the `>>> slack` block in values.yaml by hand (strip the leading `#` and space between the markers, leaving the markers in place), and edit the webhook URLs into the encrypted secrets with `sops helm_secrets.yaml`.
+
+`group_by` is `["alertname", "namespace"]`, and getting it right matters more than it looks. Alertmanager's default is to put **every** firing alert into a single group with no common labels, and GoAlert's Alertmanager integration opens **one alert per group** — not one per Prometheus alert. With the default, six unrelated alerts (TargetDown, KubePodNotReady, TooManyLogs, …) arrived in GoAlert as one alert with nothing in it naming them, so a `TargetDown` page never appeared under its own name (ENG-1613). Grouping on alertname+namespace gives one group per distinct problem while still collapsing a single alert that fires across many pods into one page. It sits on the root route because child routes inherit it and grouping is not secret, so it stays reviewable outside sops — the trade-off being that Slack gets a message per alertname+namespace instead of one digest. To change paging alone, set `group_by` on the `goalert` sub-route in `helm_secrets.yaml` instead. If you ever want strictly one GoAlert alert per firing alert, `group_by: ["..."]` (a literal ellipsis) disables aggregation entirely, at the cost of a page per affected pod.
 
 ## Enabling this app
 

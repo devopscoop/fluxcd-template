@@ -1,0 +1,21 @@
+# Same request-body buffer headroom as eg-public (see the rationale in
+# clienttrafficpolicy-public.yaml — and its caveat: this is a prerequisite for
+# WAF body inspection, not the whole fix; coraza-proxy-wasm 0.6.0 still
+# truncates >~16KiB bodies, see the request-body note in
+# apps/coraza/README.md). The coraza WAF attaches to eg-private too, which is
+# how it broke every Grafana dashboard panel: the browser's /api/ds/query
+# bodies exceed the threshold, arrived truncated, and Grafana answered 400
+# "unexpected EOF", which reads as "no data" in the UI (ENG-1613).
+# A gateway can only carry one ClientTrafficPolicy, so if eg-private ever needs
+# more client-facing settings they go in this policy.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: ClientTrafficPolicy
+metadata:
+  name: eg-private-buffer-limit
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: eg-private
+  connection:
+    bufferLimit: 256Ki

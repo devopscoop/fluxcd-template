@@ -32,14 +32,15 @@ spec:
       # (non-superuser) database owner above is allowed to create it.
   storage:
     size: 5Gi
-  # Initial guesses — resize with krr after some real usage; memory
-  # req=limit, no CPU limit.
+  # Memory req=limit, no CPU limit. Doubled from the initial 256Mi guess
+  # after the postgres container was OOMKilled 9 times in its first half hour
+  # (KubePodCrashLooping); resize with krr after some real usage.
   resources:
     requests:
       cpu: 25m
-      memory: 256Mi
+      memory: 512Mi
     limits:
-      memory: 256Mi
+      memory: 512Mi
   # Paging flows through this single-instance database: a spot reclaim takes
   # GoAlert down with it until the pod reschedules and recovers. Pin it to
   # on-demand capacity, per the NodePool contract in
