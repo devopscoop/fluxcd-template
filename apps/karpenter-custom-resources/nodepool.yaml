@@ -52,6 +52,25 @@ spec:
         - key: karpenter.k8s.aws/instance-hypervisor
           operator: In
           values: ["nitro"]
+        # Minimum size "large": the VPC CNI derives a node's max-pods from
+        # the instance's ENI and per-ENI IP limits, and the smallest sizes
+        # land below what a cluster's baseline DaemonSets already need.
+        # Measured on an EKS 1.35 cluster: c7a.medium -> 8 max-pods,
+        # c6a.large -> 29, m6a.xlarge -> 110. Six kube-system DaemonSets
+        # (aws-node, kube-proxy, ebs-csi-node, efs-csi-node,
+        # eks-pod-identity-agent, eks-node-monitoring-agent) ship by default,
+        # so a max-pods-8 node has room for just two workload pods — and once
+        # it is full, every DaemonSet added later is stuck Pending on "Too
+        # many pods" forever, since a DaemonSet pod has no other node it is
+        # allowed to run on.
+        #
+        # The damage is not contained to that node. A DaemonSet that can never
+        # reach full readiness fails the wait on its Helm release, which fails
+        # that app's Flux Kustomization health check, which blocks every app
+        # downstream of it via dependsOn.
+        - key: karpenter.k8s.aws/instance-size
+          operator: NotIn
+          values: ["nano", "micro", "small", "medium"]
 
       # Replace nodes after 30 days so they pick up fresh AMIs and don't
       # accumulate drift (getting-started default).
