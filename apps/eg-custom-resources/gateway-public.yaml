@@ -1,7 +1,5 @@
-# Minimal starting Gateway: a single HTTP listener open to HTTPRoutes in any
-# namespace. This is intentionally generic — add HTTPS listeners per cluster
-# (hostname + TLS, typically issued by cert-manager) and restrict allowedRoutes
-# to suit. See https://gateway.envoyproxy.io/docs/tasks/security/tls-cert-manager/
+# The user-facing Gateway: a port-80 listener (catch-all HTTPS redirect via
+# httproute-redirect-public.yaml) and one wildcard HTTPS listener.
 #
 # Despite the name, this Gateway starts PRIVATE: it sits on the GatewayClass
 # default EnvoyProxy (eg-private) until you attach the eg-public EnvoyProxy
@@ -14,6 +12,27 @@
 # always-private eg-private Gateway (gateway-private.yaml) instead, so they
 # never ride an internet-facing LB. Route customer-facing apps here, ops
 # tooling there.
+#
+# TLS is ONE wildcard listener — the same arrangement as eg-private, and the
+# same two constraints (a wildcard matches exactly one label; the letsencrypt
+# ClusterIssuer must solve DNS-01, since ACME will not issue a wildcard over
+# HTTP-01). Full rationale, including why the cert secret is not shared with
+# eg-private, is in gateway-private.yaml.
+#
+# SECURITY TRADEOFF, and it is sharper here than on eg-private: the old
+# per-hostname listeners were an implicit allowlist — publishing a new host on
+# the internet meant editing this file, which is a reviewed change. With a
+# wildcard listener plus allowedRoutes.from: All, any namespace can put any
+# *.project1-dev.devops.coop host on the internet-facing LB with an HTTPRoute
+# alone. If that is too loose for a cluster, restrict this listener to
+# namespaces that opt in:
+#     allowedRoutes:
+#       namespaces:
+#         from: Selector
+#         selector:
+#           matchLabels:
+#             eg-public: "true"
+# and label the namespaces that belong here (today: uptime-kuma, goalert).
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
@@ -34,33 +53,22 @@ spec:
       allowedRoutes:
         namespaces:
           from: All
-    # app/api/backstage.project1-dev.devops.coop deliberately live on eg-private for now —
-    # the status page and GoAlert are the only services exposed to the
-    # internet in dev.
-    - name: status-project1-dev-devops-coop
-      hostname: "status.project1-dev.devops.coop"
+    # app/api/backstage.project1-dev.devops.coop deliberately live on eg-private for
+    # now — the status page and GoAlert are the only services exposed to the
+    # internet in dev. That is now enforced by which HTTPRoutes name this
+    # Gateway as their parent, not by which listeners exist (see the security
+    # tradeoff above). GoAlert is deliberately internet-facing: a pager is only
+    # useful if on-call can reach it from a phone, off VPN — see the httpRoute
+    # comment in apps/goalert/values.yaml.
+    - name: https
+      hostname: "*.project1-dev.devops.coop"
       protocol: HTTPS
       port: 443
       tls:
         mode: Terminate
         certificateRefs:
           - kind: Secret
-            name: status-project1-dev-devops-coop-tls
-      allowedRoutes:
-        namespaces:
-          from: All
-    # GoAlert is deliberately internet-facing: a pager is only useful if
-    # on-call can reach it from a phone, off VPN — see the httpRoute comment
-    # in apps/goalert/values.yaml.
-    - name: goalert-project1-dev-devops-coop
-      hostname: "goalert.project1-dev.devops.coop"
-      protocol: HTTPS
-      port: 443
-      tls:
-        mode: Terminate
-        certificateRefs:
-          - kind: Secret
-            name: goalert-project1-dev-devops-coop-tls
+            name: eg-public-wildcard-tls
       allowedRoutes:
         namespaces:
           from: All

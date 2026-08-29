@@ -1,0 +1,29 @@
+# Companion to httproute-redirect-public.yaml: the same catch-all 301 from
+# plain HTTP to HTTPS, bound to the eg-private Gateway's port-80 listener.
+# Ops UIs are private, not unencrypted — without this they stayed reachable
+# over cleartext on :80 alongside their HTTPS route.
+#
+# Every eg-private app route pins `sectionName: https` (see e.g.
+# apps/victoria-metrics/grafana-httproute.yaml). A route that omits it also
+# attaches to the http listener and beats this catch-all on hostname
+# specificity, which serves that app in cleartext.
+#
+# This coexists with httproute-healthz-private.yaml on the same listener, the
+# way the public pair already does. Both routes are hostname-less, so
+# precedence falls to path match specificity: the healthz route's Exact
+# /healthz outranks this route's implicit PathPrefix /, and the LB health
+# check still gets its 200 while everything else is redirected.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: eg-private-redirect-http-to-https
+spec:
+  parentRefs:
+    - name: eg-private
+      sectionName: http
+  rules:
+    - filters:
+        - type: RequestRedirect
+          requestRedirect:
+            scheme: https
+            statusCode: 301

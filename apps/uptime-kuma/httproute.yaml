@@ -8,8 +8,13 @@ spec:
   parentRefs:
     - name: eg-public
       namespace: envoy-gateway-system
+      # Bind to the HTTPS listener only. Without sectionName this route also
+      # attaches to the port-80 listener and beats the catch-all redirect in
+      # httproute-redirect-public.yaml on hostname specificity, serving the
+      # status page in cleartext.
+      sectionName: https
   hostnames:
-    - status.devops.coop
+    - status.project1-dev.devops.coop
   rules:
     - matches:
         - path:

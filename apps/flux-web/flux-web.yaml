@@ -10,6 +10,8 @@ spec:
       kind: Gateway
       name: eg-private
       namespace: envoy-gateway-system
+      # HTTPS only; plain HTTP on :80 is 301'd by httproute-redirect-private.yaml.
+      sectionName: https
   hostnames:
     - "flux.project1-dev.devops.coop"
   rules:

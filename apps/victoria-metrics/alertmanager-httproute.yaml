@@ -8,8 +8,10 @@ spec:
   parentRefs:
     - name: eg-private
       namespace: envoy-gateway-system
+      # HTTPS only; plain HTTP on :80 is 301'd by httproute-redirect-private.yaml.
+      sectionName: https
   hostnames:
-    - alertmanager.devops.coop
+    - alertmanager.project1-dev.devops.coop
   rules:
     - matches:
         - path:

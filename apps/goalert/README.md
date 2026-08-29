@@ -1,6 +1,6 @@
 # GoAlert
 
-[GoAlert](https://github.com/target/goalert) on-call scheduling, escalation policies, and paging, served at <https://goalert.devops.coop> (public Gateway, so on-call can reach it from a phone off VPN — see the tradeoff note in `values.yaml`'s `httpRoute` block). It is the alerting tail of the observability stack: the Alertmanager in `apps/victoria-metrics` routes alerts to it, and GoAlert decides who gets paged, how, and what happens when they don't answer.
+[GoAlert](https://github.com/target/goalert) on-call scheduling, escalation policies, and paging, served at <https://goalert.project1-dev.devops.coop> (public Gateway, so on-call can reach it from a phone off VPN — see the tradeoff note in `values.yaml`'s `httpRoute` block). It is the alerting tail of the observability stack: the Alertmanager in `apps/victoria-metrics` routes alerts to it, and GoAlert decides who gets paged, how, and what happens when they don't answer.
 
 Why GoAlert: Grafana OnCall OSS went into maintenance mode in March 2025 and its repo was archived in March 2026, which leaves GoAlert (built and run by Target, actively maintained) as the serious self-hosted on-call scheduler. GoAlert publishes no Helm chart of its own and the community ones are stale toys, so this app runs the image on the generic [devopscoop app chart](https://github.com/devopscoop/charts/tree/main/devopscoop/app) (the same chart `deploy_new_app.sh` scaffolds with): the chart renders the Deployment, Service, and HTTPRoute from `values.yaml`, and a CloudNativePG `Cluster` (`db-cluster.yaml`) provides Postgres — GoAlert keeps all state in the database and applies its own schema migrations at startup.
 
@@ -21,7 +21,7 @@ Why GoAlert: Grafana OnCall OSS went into maintenance mode in March 2025 and its
      sh -c 'goalert add-user --admin --user admin --email admin@devops.coop --db-url "$GOALERT_DB_URL"'
    ```
 
-4. Log in at <https://goalert.devops.coop> and build the on-call structure: users → a schedule → an escalation policy → a service.
+4. Log in at <https://goalert.project1-dev.devops.coop> and build the on-call structure: users → a schedule → an escalation policy → a service.
 
 ## Data-encryption key
 
@@ -34,7 +34,7 @@ Alerts enter GoAlert through a per-service integration key:
 1. In GoAlert, open the service that should own the alerts → **Integration Keys** → create one with **Key Type: Prometheus Alertmanager**, and copy the generated URL. It has the shape:
 
    ```text
-   https://goalert.devops.coop/api/v2/prometheusalertmanager/incoming?token=<integration-key>
+   https://goalert.project1-dev.devops.coop/api/v2/prometheusalertmanager/incoming?token=<integration-key>
    ```
 
 2. In `apps/victoria-metrics`, paste the URL into the `webhook_configs` entry of the `default` receiver in that app's Alertmanager config. The URL embeds the integration key — anyone holding it can open (and close) alerts — so it belongs in that app's `helm_secrets.yaml`, not `values.yaml`:
@@ -47,7 +47,7 @@ Alerts enter GoAlert through a per-service integration key:
          # lists each alert group once per receiver, so a separate goalert
          # receiver would display every alert twice.
        webhook_configs:
-         - url: https://goalert.devops.coop/api/v2/prometheusalertmanager/incoming?token=<integration-key>
+         - url: https://goalert.project1-dev.devops.coop/api/v2/prometheusalertmanager/incoming?token=<integration-key>
            send_resolved: true
    ```
 
