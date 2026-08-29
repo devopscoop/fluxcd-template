@@ -1,15 +1,17 @@
 # Catch-all 301 from plain HTTP to HTTPS on the public Gateway's port-80
-# listener. App HTTPRoutes must bind to their HTTPS listeners via sectionName
-# (see the apps' values.yaml) — a route without sectionName also attaches to
-# the http listener and wins over this catch-all on hostname specificity,
-# serving the app in cleartext.
+# listener. App HTTPRoutes must pin the HTTPS listener with `sectionName:
+# https` (see apps/goalert/values.yaml) — a route without sectionName also
+# attaches to the http listener and wins over this catch-all on hostname
+# specificity, serving the app in cleartext. Since the HTTPS listener is now a
+# single wildcard rather than one per hostname, that sectionName is the same
+# literal for every app.
 #
 # Port 80 is otherwise unused: the letsencrypt ClusterIssuer solves via DNS-01
 # (Route53), so ACME never depends on inbound HTTP.
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
-  name: eg-redirect-http-to-https
+  name: eg-public-redirect-http-to-https
 spec:
   parentRefs:
     - name: eg-public

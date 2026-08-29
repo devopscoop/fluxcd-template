@@ -2,7 +2,7 @@
 
 [Uptime Kuma](https://github.com/louislam/uptime-kuma) site monitoring
 (Helm chart via `release.yaml`), served at
-<https://status.devops.coop>.
+<https://status.project1-dev.devops.coop>.
 
 ## AutoKuma
 
@@ -55,7 +55,7 @@ and cross-reference fields like `parent_name` and `notification_name_list`
 model references monitors by database id (`publicGroupList[].monitorList[].id`)
 with no name resolution, and the page's logo is an uploaded file living on the
 uptime-kuma volume — neither survives declarative management. Keep editing the
-status page in the UI at <https://status.devops.coop/status/default>.
+status page in the UI at <https://status.project1-dev.devops.coop/status/default>.
 
 ### Credentials
 
@@ -73,8 +73,8 @@ binary from the GitHub releases page. Log in once, storing a token so the
 password doesn't end up in shell history:
 
 ```shell
-kuma-cli --url https://status.devops.coop \
+kuma-cli --url https://status.project1-dev.devops.coop \
   --username <user> --password '<pass>' --store-token login
-kuma-cli --url https://status.devops.coop monitor list
-kuma-cli --url https://status.devops.coop monitor get <id>
+kuma-cli --url https://status.project1-dev.devops.coop monitor list
+kuma-cli --url https://status.project1-dev.devops.coop monitor get <id>
 ```

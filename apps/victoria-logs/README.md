@@ -29,9 +29,10 @@ upstream data-ingestion docs.)
   Grafana in `apps/victoria-metrics`, pointed at the Service above.
 - Built-in web UI (vmui) for ad-hoc LogsQL queries — hits histogram, per-field
   facets with click-to-filter, live tailing — at
-  <https://vlogs.devops.coop/select/vmui> (private Gateway:
-  vmui-httproute.yaml, plus a per-cluster HTTPS listener in
-  apps/eg-custom-resources). Without gateway access:
+  <https://vlogs.project1-dev.devops.coop/select/vmui> (private Gateway:
+  vmui-httproute.yaml — the wildcard HTTPS listener in
+  apps/eg-custom-resources covers the hostname, so there is nothing to add
+  there). Without gateway access:
   `kubectl -n victoria-logs port-forward svc/victoria-logs-server 9428`,
   then open `http://localhost:9428/select/vmui`.
 

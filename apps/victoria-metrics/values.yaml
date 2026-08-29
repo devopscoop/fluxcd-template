@@ -79,7 +79,7 @@ alertmanager:
     # Public URL Alertmanager uses when generating links (e.g. the title link
     # in Slack notifications); without it they point at the internal service
     # URL http://vmalertmanager-victoria-metrics.victoria-metrics:9093.
-    externalURL: https://alertmanager.devops.coop
+    externalURL: https://alertmanager.project1-dev.devops.coop
 
     # See the IPv6-only note on vmsingle: the config-reloader sidecar needs
     # the flag even though Alertmanager itself doesn't.
@@ -162,7 +162,7 @@ alertmanager:
 # in every alert's "source" link (it deep-links into Grafana Explore).
 external:
   grafana:
-    host: https://grafana.devops.coop
+    host: https://grafana.project1-dev.devops.coop
 
 vmalert:
   spec:
@@ -259,7 +259,7 @@ grafana:
       # short links); without it they point at the default localhost:3000.
       # Same hostname as the kube-prometheus-stack Grafana: the two stacks are
       # either/or, so only one of them ever answers on it.
-      root_url: https://grafana.devops.coop/
+      root_url: https://grafana.project1-dev.devops.coop/
   # The VictoriaLogs datasource above and the "VictoriaMetrics (DS)"
   # datasource the chart provisions by default are Grafana plugins, not
   # built-in types. Grafana downloads them at startup, which needs egress to

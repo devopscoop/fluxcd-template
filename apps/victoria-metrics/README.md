@@ -2,18 +2,18 @@
 
 The metrics half of the VictoriaMetrics observability stack, via the [victoria-metrics-k8s-stack](https://docs.victoriametrics.com/helm/victoria-metrics-k8s-stack/) chart:
 
-- **vmsingle** — the metrics store (single-node, 30d retention, 20Gi PVC). Remote-write endpoint: `http://vmsingle-victoria-metrics.victoria-metrics.svc.cluster.local:8428/api/v1/write`; query UI at `https://vmui.devops.coop` (under `/vmui`).
+- **vmsingle** — the metrics store (single-node, 30d retention, 20Gi PVC). Remote-write endpoint: `http://vmsingle-victoria-metrics.victoria-metrics.svc.cluster.local:8428/api/v1/write`; query UI at `https://vmui.project1-dev.devops.coop` (under `/vmui`).
 - **vmagent** — scrapes the cluster (kubelet, cAdvisor, apiserver, CoreDNS, kube-state-metrics, node-exporter, and anything selected by VM scrape CRs) and remote-writes to vmsingle.
 - **vmalert** — evaluates the chart's default alerting/recording rules (the same kube-prometheus rule set kube-prometheus-stack ships, fetched by the chart's sync-job) plus any `VMRule`/`PrometheusRule` objects in the cluster.
-- **Alertmanager** — 1Gi PVC for silences and the notification log; UI at `https://alertmanager.devops.coop`.
+- **Alertmanager** — 1Gi PVC for silences and the notification log; UI at `https://alertmanager.project1-dev.devops.coop`.
 - **VictoriaMetrics operator** — reconciles the `VM*` CRs above and converts prometheus-operator objects (`ServiceMonitor`, `PodMonitor`, `PrometheusRule`, `Probe`, `ScrapeConfig`) into their VM equivalents, so charts written for prometheus-operator plug in unchanged.
-- **Grafana** — at `https://grafana.devops.coop`, provisioned with datasources for VictoriaMetrics (this app), VictoriaLogs (`apps/victoria-logs`), Tempo (`apps/tempo`), and Alertmanager.
+- **Grafana** — at `https://grafana.project1-dev.devops.coop`, provisioned with datasources for VictoriaMetrics (this app), VictoriaLogs (`apps/victoria-logs`), Tempo (`apps/tempo`), and Alertmanager.
 
 ## Either/or with kube-prometheus-stack
 
 victoria-metrics + victoria-logs + tempo + otel-collector + goalert form the **default observability stack**; kube-prometheus-stack + alloy + loki stay in the repo as the disabled alternative. Deploy one stack or the other, never both:
 
-- **Shared hostnames** — both stacks claim `grafana.devops.coop` and `alertmanager.devops.coop`; two HTTPRoutes for one hostname would fight over traffic.
+- **Shared hostnames** — both stacks claim `grafana.project1-dev.devops.coop` and `alertmanager.project1-dev.devops.coop`; two HTTPRoutes for one hostname would fight over traffic.
 - **One Grafana** — each stack ships its own Grafana provisioned with its own datasources; running two means two dashboards UIs on the same URL.
 - **CRD ownership** — the prometheus-operator CRDs (`monitoring.coreos.com`) are installed and owned by kube-prometheus-stack. This chart installs only the VictoriaMetrics CRDs (`operator.victoriametrics.com`); its operator *converts* prometheus-operator objects but does not install their CRDs. If you run this stack without kube-prometheus-stack and need charts that create `ServiceMonitor`s (most set `serviceMonitor.enabled`), install the [prometheus-operator-crds](https://artifacthub.io/packages/helm/prometheus-community/prometheus-operator-crds) chart as its own app — from this chart's perspective they are read-only inputs, so there is no conflict risk with whoever installs them, which is exactly why this app doesn't: on a cluster that already runs kube-prometheus-stack, a second owner would fight over CRD upgrades.
 
