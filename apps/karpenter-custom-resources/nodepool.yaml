@@ -52,22 +52,25 @@ spec:
         - key: karpenter.k8s.aws/instance-hypervisor
           operator: In
           values: ["nitro"]
-        # Minimum size "large": the VPC CNI derives a node's max-pods from
-        # the instance's ENI and per-ENI IP limits, and the smallest sizes
-        # land below what a cluster's baseline DaemonSets already need.
-        # Measured on an EKS 1.35 cluster: c7a.medium -> 8 max-pods,
-        # c6a.large -> 29, m6a.xlarge -> 110. Six kube-system DaemonSets
-        # (aws-node, kube-proxy, ebs-csi-node, efs-csi-node,
-        # eks-pod-identity-agent, eks-node-monitoring-agent) ship by default,
-        # so a max-pods-8 node has room for just two workload pods — and once
-        # it is full, every DaemonSet added later is stuck Pending on "Too
-        # many pods" forever, since a DaemonSet pod has no other node it is
-        # allowed to run on.
+        # Minimum size "large", for resource headroom. This floor originally
+        # carried a second job — keeping nodes above the max-pods figure the
+        # baseline DaemonSets need — but that problem is now fixed at its
+        # source by kubelet.maxPods in ec2nodeclass.yaml: Karpenter was
+        # applying IPv4 ENI math on an IPv6 cluster, where the AMI itself uses
+        # 110. See the comment there.
         #
-        # The damage is not contained to that node. A DaemonSet that can never
-        # reach full readiness fails the wait on its Helm release, which fails
-        # that app's Flux Kustomization health check, which blocks every app
-        # downstream of it via dependsOn.
+        # The floor stays because the baseline DaemonSets are not free on a
+        # small instance. Measured on an EKS 1.35 cluster, the eight node-wide
+        # DaemonSets plus one 25m/512Mi singleton already requested 225m of a
+        # c7a.medium's 940m allocatable CPU and 710Mi of its 1443Mi memory —
+        # roughly half the node before it hosts anything of consequence. The
+        # singletons that pin themselves to on-demand capacity (goalert,
+        # tempo, loki, victoria-metrics, nxrm-ha and friends) have little room
+        # to absorb that, and several run memory request == limit.
+        #
+        # "large" (2 vCPU / 4 GiB) is the smallest size leaving real headroom.
+        # Karpenter still consolidates onto the cheapest instance at or above
+        # the floor, so the cost effect is bounded.
         - key: karpenter.k8s.aws/instance-size
           operator: NotIn
           values: ["nano", "micro", "small", "medium"]

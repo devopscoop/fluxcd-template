@@ -28,3 +28,31 @@ spec:
   securityGroupSelectorTerms:
     - tags:
         karpenter.sh/discovery: project1-dev
+
+  # Pod capacity. Without this block Karpenter derives max-pods from the
+  # instance type's IPv4 ENI limits — ENIs x (IPv4s per ENI - 1) + 2 — which is
+  # the wrong formula for the IPv6 clusters this template targets. Under IPv6
+  # the VPC CNI hands each ENI a /80 prefix and pod density stops being
+  # IP-bound; the EKS-optimized AL2023 AMI's own bootstrap knows this and
+  # settles on 110. So the two node sources on a cluster disagree: nodes from
+  # aws-eks-template's managed node group come up at 110, while Karpenter
+  # nodes get the IPv4 numbers — measured on EKS 1.35, 8 on a c7a.medium
+  # (2 ENIs x 4) and 29 on a c6a.large (3 ENIs x 10). Karpenter passes its own
+  # --max-pods to the kubelet, which is what overrides the AMI's value.
+  #
+  # Those numbers are low enough to break scheduling outright. Eight node-wide
+  # DaemonSets ship with this template (kube-system: aws-node, kube-proxy,
+  # ebs-csi-node, efs-csi-node, eks-pod-identity-agent,
+  # eks-node-monitoring-agent; plus victoria-metrics node-exporter and
+  # otel-collector-agent), so an 8-slot node hosting a single workload pod has
+  # no room for the last DaemonSet. It stays Pending forever — Karpenter does
+  # not scale up for an unschedulable DaemonSet pod — and a DaemonSet that
+  # never reaches full readiness fails its Helm release wait, that app's Flux
+  # health check, and every app downstream via dependsOn.
+  #
+  # 110 matches the managed node group and is the kubelet's own recommended
+  # ceiling. Karpenter still bin-packs against CPU and memory, so this lifts
+  # only the artificial IP-derived cap; the instance-size floor in
+  # nodepool.yaml is what keeps nodes big enough to be worth scheduling on.
+  kubelet:
+    maxPods: 110
