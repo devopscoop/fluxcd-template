@@ -28,7 +28,7 @@ falcon-image-analyzer:
   # createComponentNamespaces only applies on install, so if falcon-platform
   # was already installed with this component off, create the
   # falcon-image-analyzer namespace by hand before the next upgrade.
-  enabled: false
+  enabled: true
   # Exactly one of deployment/daemonset must be on - the subchart schema is a
   # oneOf on the two. deployment (the default here) is a single non-privileged
   # replica that pulls each image from its registry to scan it, using the
