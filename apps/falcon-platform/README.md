@@ -6,8 +6,11 @@ subcharts:
 - **falcon-sensor** — runtime node protection (DaemonSet in `falcon-system`).
 - **falcon-kac** — Kubernetes Admission Controller (in `falcon-kac`).
 - **falcon-image-analyzer** — container image scanning (in `falcon-image-analyzer`).
-  Currently disabled in `values.yaml` — we don't have an Image Assessment
-  license yet.
+  Currently `enabled: false` in `values.yaml`. When switched on it runs in
+  Deployment mode: one non-privileged replica that pulls each image from its
+  registry to scan it. The alternative is `daemonset.enabled` (a privileged pod
+  per node, scanning through the container runtime socket), which also needs
+  `crowdstrikeConfig.agentRuntime` set.
 
 The HelmRelease lives in the `falcon-platform` namespace; the components deploy
 into their own namespaces (created by the chart's pre-install hook via
@@ -27,15 +30,56 @@ into their own namespaces (created by the chart's pre-install hook via
    - `global.containerRegistry.configJSON` — base64-encoded docker config JSON
      with the pull credentials from step 1.
    - `falcon-image-analyzer.crowdstrikeConfig.clientID`/`clientSecret` — an API
-     client with the Falcon Container Image (read/write) scope. Only needed
-     while `falcon-image-analyzer` is enabled.
+     client with the Falcon Container Image (read/write) scope. Required while
+     `falcon-image-analyzer` is enabled; the subchart schema validates both
+     values, so the HelmRelease fails until the placeholders are replaced.
 4. Encrypt the secrets with `./encrypt_secrets.sh`.
+
+## Updating the pinned images
+
+`./update.sh` repins all three images in `values.yaml` to the digest of the
+latest build each component publishes, recording the tag it came from as a
+line comment:
+
+```yaml
+digest: sha256:e860a5f5… # 8.11.0-19500-1
+```
+
+Digests are immutable, so a re-pushed tag cannot move the deployed image —
+which is what both the falcon-sensor and falcon-kac chart READMEs recommend
+over tags. The script resolves each tag to its multi-arch image index digest,
+so the pin still selects the right architecture per node.
+
+It downloads `falcon-container-sensor-pull.sh` from the latest
+[falcon-scripts release](https://github.com/CrowdStrike/falcon-scripts/releases)
+into this directory (gitignored), verifies it against that release's
+`checksum.txt`, prompts for a Falcon API client, and uses it for both the tag
+list and the registry credentials. The client needs both
+`Sensor Download [read]` and `Falcon Images Download [read]`:
+
+```shell
+./update.sh
+```
+
+The pull script defaults to the `us-1` cloud, so for any other region export
+`FALCON_CLOUD` first — `FALCON_CLOUD=us-2 ./update.sh`. Getting this wrong
+fails at "Unable to obtain CrowdStrike Falcon OAuth Token".
+
+It writes with `yq`, which reformats the file: inline comment spacing is
+normalized, blank lines between blocks are dropped, and any comment sitting
+directly above a rewritten key is lost. Only the image pins change
+semantically.
 
 ## Notes
 
 - `createComponentNamespaces: true` only applies on install. If you later
   enable an additional component, create its namespace manually before
   upgrading.
-- The falcon-sensor default is the kernel/`bpf` node sensor DaemonSet. See the
+- The falcon-sensor default is the node sensor DaemonSet. As of chart 1.5.1 the
+  `node.backend` value is deprecated and ignored — the sensor uses eBPF and
+  falls back to kernel mode on unsupported kernels. See the
   [falcon-helm docs](https://github.com/CrowdStrike/falcon-helm) for
   container-sensor and autopilot/GKE variants.
+- Chart 1.5.1 raised the falcon-kac default memory request and limit from
+  384Mi to 512Mi. `values.yaml` does not override them, so the upgrade
+  increases the KAC pod's footprint.

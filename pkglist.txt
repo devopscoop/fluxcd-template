@@ -38,6 +38,10 @@ go-yq
 # helm — pulling charts, showing values, prototyping installs
 helm
 
+# jq — apps/falcon-platform/update.sh parses the Falcon pull script's
+# --list-tags JSON
+jq
+
 # pre-commit — git hook framework used by .pre-commit-config.yaml
 pre-commit
 

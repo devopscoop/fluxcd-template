@@ -1,38 +1,42 @@
-# dyff between <(yq . <(helm show values crowdstrike/falcon-platform --version 1.4.0)) <(yq eval '. * load("values.yaml")' <(helm show values crowdstrike/falcon-platform --version 1.4.0))
-# vim -O <(helm show values crowdstrike/falcon-platform --version 1.4.0) values.yaml
+# dyff between <(yq . <(helm show values crowdstrike/falcon-platform --version 1.5.1)) <(yq eval '. * load("values.yaml")' <(helm show values crowdstrike/falcon-platform --version 1.5.1))
+# vim -O <(helm show values crowdstrike/falcon-platform --version 1.5.1) values.yaml
 
 # Create the component namespaces (falcon-system, falcon-kac,
 # falcon-image-analyzer) via pre-install hook. Only applies on install; if you
 # enable another component later, create its namespace manually before
 # upgrading.
 createComponentNamespaces: true
-
 global:
-  # Falcon Customer ID (CID) - required, not a secret. Falcon console → Host
-  # setup and management → Deploy → Sensor downloads.
+  # Falcon Customer ID (CID) - required, not a secret. Find it here:
+  # https://falcon.us-2.crowdstrike.com/sensor-downloads/all
   falcon:
-    cid: CHANGEME-CID  # format: ^[0-9a-fA-F]{32}-[0-9a-fA-F]{2}$
-
+    cid: CHANGEME-CID # format: ^[0-9a-fA-F]{32}-[0-9a-fA-F]{2}$
 falcon-sensor:
   # The subcharts ship placeholder image names (falcon-node-sensor,
   # falcon-kac) that resolve to docker.io and fail to pull — the CrowdStrike
   # registry path and a pinned tag are required. Auth comes from
-  # global.containerRegistry.configJSON in helm_secrets.yaml. List tags with:
-  # falcon-container-sensor-pull.sh --list-tags -t falcon-sensor (or -t falcon-kac)
+  # global.containerRegistry.configJSON in helm_secrets.yaml.
   node:
     image:
       repository: registry.crowdstrike.com/falcon-sensor/release/falcon-sensor
-      tag: "7.39.0-19204-1"
-
+      digest: sha256:26d60f33c9f651b598dccb78d42363a06ae5741f6c16176aa21c88d84b091027 # 8.10.0-19402-1
 falcon-kac:
   image:
     repository: registry.crowdstrike.com/falcon-kac/release/falcon-kac
-    tag: "7.39.0-3702"
-
+    digest: sha256:c72ef408a26a340aff7bc24d02f53e618f9895115ad39873beb8e0ab0905bb8e # 8.10.0-3901
 falcon-image-analyzer:
-  # Disabled: no license for Image Assessment currently. When licensed, set
-  # enabled: true, choose exactly one mode (deployment.enabled or
-  # daemonset.enabled - the values schema requires it), uncomment the API
-  # credentials in helm_secrets.yaml, and create the falcon-image-analyzer
-  # namespace by hand (createComponentNamespaces only applies on install).
-  enabled: false
+  # createComponentNamespaces only applies on install, so if falcon-platform
+  # was already installed with this component off, create the
+  # falcon-image-analyzer namespace by hand before the next upgrade.
+  enabled: true
+  # Exactly one of deployment/daemonset must be on - the subchart schema is a
+  # oneOf on the two. deployment (the default here) is a single non-privileged
+  # replica that pulls each image from its registry to scan it, using the
+  # credentials found by privateRegistries.autoDiscoverCredentials. daemonset
+  # is a privileged pod per node that scans images already on the node through
+  # the container runtime socket, and additionally requires
+  # crowdstrikeConfig.agentRuntime (docker|containerd|crio|podman).
+  deployment:
+    enabled: true
+  image:
+    digest: sha256:2670a66c025fa9ce43e3752edd90e63556df711d816ec0a8b9b2a3cc0dbcf471 # 1.0.26
