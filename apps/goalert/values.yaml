@@ -42,7 +42,7 @@ env:
   # notifications, validate auth callbacks, and render the webhook URLs shown
   # next to integration keys.
   - name: GOALERT_PUBLIC_URL
-    value: "https://goalert.devops.coop"
+    value: "https://goalert.project1-dev.devops.coop"
 
 # The HTTP listener only comes up after the startup DB migrations have
 # applied, so first boot (or an upgrade with big migrations) needs headroom:
@@ -73,8 +73,11 @@ httpRoute:
   parentRefs:
     - name: eg-public
       namespace: envoy-gateway-system
+      # Bind to the HTTPS listener only. Without sectionName this route also
+      # attaches to the port-80 listener and serves the app in cleartext.
+      sectionName: https
   hostnames:
-    - goalert.devops.coop
+    - goalert.project1-dev.devops.coop
   rules:
     - matches:
         - path:

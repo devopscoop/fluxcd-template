@@ -153,8 +153,10 @@ spec:
         target:
           kind: Deployment
           name: image-automation-controller
-      # image-reflector was sized at 1069Mi from an earlier peak; 14d usage now
-      # tops out around 100Mi (krr, 2026-08-22), so right-sized to 256Mi.
+      # image-reflector was sized at 1069Mi from an earlier peak, right-sized
+      # to 256Mi off 14d krr usage (2026-08-22), then OOMKilled at 256Mi on
+      # 2026-08-26 — its badger cache spikes above steady-state usage, so
+      # doubled to 512Mi.
       - patch: |
           apiVersion: apps/v1
           kind: Deployment
@@ -168,10 +170,10 @@ spec:
                     resources:
                       requests:
                         cpu: 10m
-                        memory: 256Mi
+                        memory: 512Mi
                       limits:
                         cpu: null
-                        memory: 256Mi
+                        memory: 512Mi
         target:
           kind: Deployment
           name: image-reflector-controller

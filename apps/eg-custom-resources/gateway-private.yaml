@@ -2,15 +2,35 @@
 # and the like) live here so they never ride an internet-facing LB. It stays
 # private via the GatewayClass default EnvoyProxy (eg-private) — unlike
 # eg-public (gateway-public.yaml), nothing should ever attach the eg-public
-# EnvoyProxy to this Gateway. Like the starting public Gateway it ships with
-# just the http listener; add HTTPS listeners per cluster (hostname + TLS,
-# typically issued by cert-manager) and restrict allowedRoutes to suit.
+# EnvoyProxy to this Gateway.
+#
+# TLS is ONE wildcard listener, not one per hostname. cert-manager's
+# gateway-shim reads each listener's hostname and issues a Certificate for it
+# into the certificateRefs secret, so a wildcard hostname yields a single
+# *.project1-dev.devops.coop cert covering every ops service. Adding one is
+# then just its HTTPRoute — nothing to edit here.
+#
+# Two constraints come with that:
+#   - A wildcard matches exactly ONE label. grafana.project1-dev.devops.coop
+#     matches; a.b.project1-dev.devops.coop and the bare apex do not. A
+#     hostname outside that shape still needs its own listener.
+#   - ACME will not issue a wildcard over HTTP-01, so the letsencrypt
+#     ClusterIssuer MUST use a DNS-01 solver — see
+#     apps/cert-manager-custom-resources/clusterissuer.yaml.
+#
+# The cert secret is deliberately NOT shared with eg-public's wildcard: both
+# Gateways carry the cluster-issuer annotation and live in this namespace, so
+# pointing both at one secret would leave two shim-managed Certificates
+# fighting over it. Two orders for the same name is well inside Let's
+# Encrypt's duplicate-certificate limit.
 #
 # The port-80 listener also answers the LB health check via
 # httproute-healthz-private.yaml (see the healthcheck notes in envoyproxy-private.yaml).
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt
   name: eg-private
 spec:
   gatewayClassName: eg
@@ -18,6 +38,18 @@ spec:
     - name: http
       protocol: HTTP
       port: 80
+      allowedRoutes:
+        namespaces:
+          from: All
+    - name: https
+      hostname: "*.project1-dev.devops.coop"
+      protocol: HTTPS
+      port: 443
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - kind: Secret
+            name: eg-private-wildcard-tls
       allowedRoutes:
         namespaces:
           from: All

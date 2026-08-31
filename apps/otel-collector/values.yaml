@@ -78,6 +78,112 @@ config:
     jaeger: null
     prometheus: null
     zipkin: null
+  processors:
+    # Tailed container logs carry no OTLP severity: the file_log preset's
+    # `container` operator parses only the CRI envelope, leaving the app's own
+    # level inside the body, so everything lands in VictoriaLogs with
+    # severity_text "Unspecified" (and shows as level "unknown"/"other" in
+    # Grafana and vmui). Lift the level out of the common body formats -- JSON
+    # ({"level":..., also severity/lvl keys), JSON and plain-text access logs
+    # by HTTP status, timestamp-then-level lines, envoy's own bracketed
+    # [ts][thread][level][logger] format, logfmt (level=info), klog (leading
+    # I/W/E/F), and leading uppercase LEVEL: prefixes -- into severity_text.
+    # Guards on severity_text == "" keep app-pushed OTLP severities untouched,
+    # and error_mode: ignore means a statement erroring on an odd body (e.g.
+    # non-string, malformed JSON) just skips that statement, never drops the
+    # log. Plain-text lines with no recognizable level stay "unknown", which
+    # is honest. The Grafana side of this mapping lives in the VictoriaLogs
+    # datasource's logLevelRules (apps/victoria-metrics/values.yaml); vmui
+    # detects severity_text natively.
+    transform/severity:
+      error_mode: ignore
+      log_statements:
+        - statements:
+            # JSON bodies: lift the level/severity/lvl key into severity_text.
+            - set(log.cache, ParseJSON(log.body)) where log.severity_text == "" and IsMatch(log.body, "^\\s*\\{")
+            - set(log.severity_text, String(log.cache["level"])) where log.severity_text == "" and log.cache["level"] != nil
+            - set(log.severity_text, String(log.cache["severity"])) where log.severity_text == "" and log.cache["severity"] != nil
+            - set(log.severity_text, String(log.cache["lvl"])) where log.severity_text == "" and log.cache["lvl"] != nil
+            # JSON access logs with no level key (the envoy gateways emit one
+            # per request -- 90%+ of level-less volume): derive the level from
+            # the HTTP status instead. Opinionated on purpose: it makes 5xx
+            # spikes stand out in vmui/Grafana. Must stay before the logfmt
+            # extract below, which overwrites the cached JSON.
+            - set(log.severity_text, "error") where log.severity_text == "" and log.cache["response_code"] != nil and log.cache["response_code"] >= 500
+            - set(log.severity_text, "warning") where log.severity_text == "" and log.cache["response_code"] != nil and log.cache["response_code"] >= 400
+            - set(log.severity_text, "info") where log.severity_text == "" and log.cache["response_code"] != nil
+            # Plain-text access logs, which no branch here matched: morgan's
+            # tiny format, e.g. "GET /sign-in?redirect_url=
+            # %2Fdashboard 200 - - 4.948 ms". Status-derived like the JSON
+            # access logs above, and for the same reason. Anchoring on a
+            # leading HTTP method keeps it off prose containing a 3-digit
+            # number, and Int() makes the thresholds numeric rather than
+            # lexicographic. The capture group is named access_status, not
+            # status: a failed ExtractPatterns leaves log.cache holding
+            # whatever the previous statement put there (error_mode: ignore
+            # skips the statement, it does not clear the cache), so a JSON
+            # body carrying a "status" key would otherwise be read as an
+            # access log here. Same reason the klog branch below uses "klog".
+            - 'set(log.cache, ExtractPatterns(log.body, "^(?:GET|HEAD|POST|PUT|PATCH|DELETE|OPTIONS|CONNECT|TRACE) \\S+ (?P<access_status>[1-5][0-9]{2})\\b")) where log.severity_text == ""'
+            - set(log.severity_text, "error") where log.severity_text == "" and log.cache["access_status"] != nil and Int(log.cache["access_status"]) >= 500
+            - set(log.severity_text, "warning") where log.severity_text == "" and log.cache["access_status"] != nil and Int(log.cache["access_status"]) >= 400
+            - set(log.severity_text, "info") where log.severity_text == "" and log.cache["access_status"] != nil
+            # Timestamp-then-level lines, which no branch above matches:
+            # "<RFC3339>\t<level>\t<caller>\t<message>" -- the format every
+            # VictoriaMetrics component and the collector's own zap logger
+            # use. vmagent was the only unclassified emitter left in the
+            # victoria-metrics namespace: "2026-08-27T19:01:18.915Z\twarn\t
+            # VictoriaMetrics/lib/promscrape/scrapework.go:401\tcannot scrape
+            # target ...". The separator is a TAB, not the spaces it looks
+            # like when pasted, so \s is what matches both. Case-insensitive
+            # because dev carries lowercase warn/info from VictoriaMetrics and
+            # uppercase ERROR from zap; ToLowerCase below normalizes them.
+            # Requiring a full RFC3339 timestamp AND a known level word AND
+            # trailing whitespace keeps this off prose and off "error=..."
+            # style text. Placed before the logfmt branch deliberately: a
+            # leading timestamp+level is a stronger signal than a "level="
+            # substring appearing anywhere later in a message. Distinct cache
+            # key (ts_level) for the reason given in the access-log branch.
+            - 'set(log.cache, ExtractPatterns(log.body, "(?i)^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z?\\s+(?P<ts_level>TRACE|DEBUG|INFO|WARN|WARNING|ERROR|DPANIC|PANIC|FATAL)\\s")) where log.severity_text == ""'
+            - set(log.severity_text, log.cache["ts_level"]) where log.severity_text == "" and log.cache["ts_level"] != nil
+            # Envoy's own (non-access) log format, which no branch above
+            # matches: "[2026-08-27 19:48:16.101][14][critical][wasm]
+            # [source/.../context.cc:1159] wasm log coraza ...". Emitted by
+            # the data-plane envoy pods -- the proxy Deployments Envoy Gateway
+            # runs in envoy-gateway-system, one fleet per Gateway; the eg
+            # controller sitting alongside them logs zap JSON, already covered
+            # above. This is the only place Coraza WAF blocks (apps/coraza)
+            # surface, so until this branch existed every block sat at
+            # "unknown". The bracketed level is envoy's own spdlog level, not
+            # the ModSecurity rule severity the Coraza message carries inline
+            # as [severity "emergency"]; envoy's is the one to use, since it
+            # grades the log line rather than the rule that fired. Anchored on
+            # timestamp + numeric thread id + level + logger, a strong enough
+            # signal to sit ahead of the logfmt branch below -- that one would
+            # otherwise latch onto a stray "level=" appearing inside a wasm
+            # message. "warning" precedes "warn" in the alternation so the
+            # longer spelling wins. Distinct cache key (envoy_level) for the
+            # reason given in the access-log branch.
+            - 'set(log.cache, ExtractPatterns(log.body, "^\\[[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9:.]+\\]\\[[0-9]+\\]\\[(?P<envoy_level>trace|debug|info|warning|warn|error|critical)\\]\\[")) where log.severity_text == ""'
+            - set(log.severity_text, log.cache["envoy_level"]) where log.severity_text == "" and log.cache["envoy_level"] != nil
+            # logfmt bodies: level=info / lvl=warn / severity="error".
+            - set(log.cache, ExtractPatterns(log.body, "(?i)\\b(?:level|lvl|severity)=\"?(?P<level>[A-Za-z]+)")) where log.severity_text == ""
+            - set(log.severity_text, log.cache["level"]) where log.severity_text == "" and log.cache["level"] != nil
+            # klog (kubernetes components: descheduler, kube-proxy, ...): the
+            # level is the leading char of "I0826 23:06:02.864467 1 x.go:42] m".
+            - set(log.cache, ExtractPatterns(log.body, "^(?P<klog>[IWEF])[0-9]{4} ")) where log.severity_text == ""
+            - set(log.severity_text, "info") where log.severity_text == "" and log.cache["klog"] == "I"
+            - set(log.severity_text, "warning") where log.severity_text == "" and log.cache["klog"] == "W"
+            - set(log.severity_text, "error") where log.severity_text == "" and log.cache["klog"] == "E"
+            - set(log.severity_text, "fatal") where log.severity_text == "" and log.cache["klog"] == "F"
+            # Leading uppercase level prefix: uvicorn's "INFO:     msg",
+            # bracket-style "[ERROR] msg", and bare "WARNING msg".
+            - 'set(log.cache, ExtractPatterns(log.body, "^\\[?(?P<level>TRACE|DEBUG|INFO|NOTICE|WARN|WARNING|ERROR|CRITICAL|FATAL|PANIC)\\]?[: ]")) where log.severity_text == ""'
+            - set(log.severity_text, log.cache["level"]) where log.severity_text == "" and log.cache["level"] != nil
+            # Normalize to lowercase -- covers app-pushed OTLP severities too
+            # (INFO/Info/info all become info), so LogsQL filters and the
+            # Grafana logLevelRules only ever deal with one spelling.
+            - set(log.severity_text, ToLowerCase(log.severity_text)) where log.severity_text != ""
   exporters:
     # All three pipelines are rerouted below, so the chart's default debug
     # exporter has no remaining consumer.
@@ -110,6 +216,14 @@ config:
       # memory_limiter + batch processors are maps, not lists, so they
       # survive the merge untouched.
       logs:
+        # Restating the processors list (chart default: memory_limiter, batch)
+        # to slot transform/severity in; the kubernetesAttributes preset still
+        # prepends k8s_attributes to the final rendered list. memory_limiter
+        # must stay first among these, batch last.
+        processors:
+          - memory_limiter
+          - transform/severity
+          - batch
         exporters:
           - otlphttp/victoria-logs
       metrics:

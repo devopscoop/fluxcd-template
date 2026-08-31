@@ -6,15 +6,17 @@ alertmanager:
     main:
       enabled: true
       hostnames:
-        - alertmanager.devops.coop
+        - alertmanager.project1-dev.devops.coop
       parentRefs:
         - name: eg-private
           namespace: envoy-gateway-system
+          # HTTPS only; plain HTTP on :80 is 301'd by httproute-redirect-private.yaml.
+          sectionName: https
   alertmanagerSpec:
     # Public URL Alertmanager uses when generating links (e.g. the title link in
     # Slack notifications); without it they point at the internal service URL
     # http://kube-prometheus-stack-alertmanager.kube-prometheus-stack:9093.
-    externalUrl: https://alertmanager.devops.coop
+    externalUrl: https://alertmanager.project1-dev.devops.coop
 
     # Sized from krr (2026-08-22, 14d dev usage); memory req=limit, no CPU limit.
     resources:
@@ -75,14 +77,17 @@ prometheus:
     main:
       enabled: true
       hostnames:
-        - prometheus.devops.coop
+        - prometheus.project1-dev.devops.coop
       parentRefs:
         - name: eg-private
           namespace: envoy-gateway-system
+          # HTTPS only; plain HTTP on :80 is 301'd by httproute-redirect-private.yaml.
+          sectionName: https
   prometheusSpec:
     # Public URL for the "Source" links on alerts (generatorURL); without it
     # they point at the internal service URL on port 9090.
-    externalUrl: https://prometheus.devops.coop
+    externalUrl: https://prometheus.project1-dev.devops.coop
+
     # Sized from krr (2026-08-22, 14d dev usage): peak ~1.1Gi. Extra headroom
     # because TSDB memory grows with series cardinality and query load; no CPU
     # limit.
@@ -126,7 +131,8 @@ grafana:
     server:
       # Public URL Grafana uses when generating absolute links (e.g. Explore
       # short links); without it they point at the default localhost:3000.
-      root_url: https://grafana.devops.coop/
+      root_url: https://grafana.project1-dev.devops.coop/
+
   # Provision the Loki store (apps/loki) as a datasource on this Grafana so logs
   # are queryable in Explore. Loki runs single-tenant, so no auth header needed.
   additionalDataSources:

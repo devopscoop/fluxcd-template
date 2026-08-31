@@ -1,0 +1,35 @@
+# A Gateway can only carry one ClientTrafficPolicy, so if eg-public ever needs
+# more client-facing settings they go in this policy.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: ClientTrafficPolicy
+metadata:
+  name: eg-public
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: eg-public
+  timeout:
+    http:
+
+      # Close idle downstream connections before the NLB silently expires them.
+      # The NLB in front of Envoy drops idle TCP flows at 350s WITHOUT
+      # notifying either peer (it only RSTs the next packet), while Envoy's
+      # default downstream idle timeout is 1h. Cloudflare keeps and reuses
+      # origin connections, so it can pick a flow the NLB already killed and
+      # surface a 520/reset to the user. Closing at 300s means Envoy sends a
+      # clean FIN while the flow is still alive end-to-end, and Cloudflare
+      # reconnects instead of erroring.  Active SSE streams are unaffected: the
+      # backend's 15s heartbeats reset the idle timer.
+      idleTimeout: 300s
+
+  connection:
+
+    # The coraza WAF buffers each request body for inspection, bounded by this
+    # per-connection buffer (Envoy default 32KiB). Keep it ≥ the CRS body limit
+    # (SecRequestBodyLimit, 131072) so a full permitted body fits the buffer
+    # and oversized bodies get a clean 413 instead of a mid-body stream reset
+    # Necessary but not sufficient: coraza-proxy-wasm 0.6.0 still truncates
+    # request bodies spanning multiple read chunks (>~16KiB) regardless of this
+    # buffer — see the request-body note in apps/coraza/README.md.
+    bufferLimit: 256Ki

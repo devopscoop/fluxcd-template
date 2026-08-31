@@ -26,71 +26,76 @@ This repo ships package manifests that install every CLI tool it uses (`age`, `b
 
 On other operating systems, install the tools listed above manually. Two gotchas: the scripts need the Flux Operator CLI (`flux-operator`), not the standard `flux` CLI; and `yq` must be the Go (mikefarah) implementation — on Arch that package is named `go-yq`.
 
+`kuma-cli` has no Homebrew formula (the AUR has `autokuma-cli`): on macOS,
+download the `kuma-mac` binary from the
+[AutoKuma releases](https://github.com/BigBoot/AutoKuma/releases) and put it
+on your `PATH` as `kuma-cli`. It manages Uptime Kuma entities; see
+`apps/uptime-kuma/README.md`.
+
 ## Deploying Flux
 
-<https://fluxcd.io/flux/installation/bootstrap/github/>
-
+1. Choose an installation method - either Fork or Subtree:
+   - Fork if you want a new git repo for this cluster:
+      1. Click the "Fork" button in this repo to create a repo in your organization with a name like `${cluster}-fluxcd`.
+   - Subtree if you want to put this code in an existing infrastructure as code git repo:
+      1. Change directory to your existing repo.
+      1. Checkout a new branch, use subtree to add this repo to a subdirectory, then change directory to it:
+         ```
+         git checkout -b $branch_name
+         git subtree add --prefix fluxcd git@github.com:devopscoop/aws-eks-template.git main
+         cd fluxcd
+         ```
+1. Create a GitHub App for Flux to authenticate with this repository:
+   1. Go to your GitHub organization settings: **Settings → Developer settings → GitHub Apps**.
+   1. Click **New GitHub App**.
+   1. Fill in the form:
+      - **GitHub App name**: `furlai-dev-infra-flux` (or any unique name)
+      - **Homepage URL**: `https://github.com/furlai/dev-infra`
+      - **Webhook**: uncheck **Active** (Flux doesn't need webhooks)
+      - **Permissions → Repository permissions**:
+        - **Contents**: Read and write (Flux reads the repo; image-automation-controller writes commits)
+        - **Metadata**: Read-only (required by GitHub)
+      - **Where can this GitHub App be installed**: Only on this account
+   1. Click **Create GitHub App**. Note the **App ID** shown at the top of the next page.
+   1. Scroll down to **Private keys** and click **Generate a private key**. Save the downloaded `.pem` file somewhere safe (e.g., `~/.config/flux/furlai-dev-infra-flux.pem`).
+   1. Click **Install App** in the left sidebar, then install it on the `furlai` organization and select only the `dev-infra` repository.
+   1. After installing, the URL will be `https://github.com/organizations/furlai/settings/installations/<installation-id>`. Note that **Installation ID**.
+   1. Download the `*.pem` file - you will need it later. DO NOT COMMIT IT - IT IS A SECRET!
 1. Edit variables.sh.
-1. Go to [Fine-grained personal access token](https://github.com/settings/tokens?type=beta).
-1. Click on "Generate new token".
-1. Use default settings, except for these:
-   - Token name: project1-dev (name of the git repo)
-   - Resource owner: devopscoop (name of the git organization)
-   - Repository access: only select repositories
-   - Select repositories: find this repo and select it.
-   - Add Permissions -> Administration -> Read and write.
-   - Add Permissions -> Contents -> Read and write.
-1. Create some environment variables, and ensure that sops dir exists:
-
+1. Source variables.sh:
+   ```
+   source variables.sh
+   ```
+1. Ensure that sops dir exists:
    ```bash
-   export GITHUB_TOKEN=put_your_token_here
-   if [[ "$OSTYPE" == "darwin"* ]]; then
-     export sops_dir="${HOME}/Library/Application Support/sops/age"
-   elif [[ "$OSTYPE" == "linux"* ]]; then
-     export sops_dir="${HOME}/.config/sops/age"
-   fi
    mkdir -p "${sops_dir}"
    ```
-
-1. TODO: Warning/admonition about encrypting keys.txt...
-1. Decrypt your existing SOPS age keys.txt file (if you have one), then create a new age key for this cluster:
-
-   ```bash
-   export temp_key=$(mktemp --tmpdir=$HOME)
-   age -d "${sops_dir}/keys.txt" > "${temp_key}"
-   age-keygen >> "${temp_key}"
+1. Decrypt your existing SOPS age keys.txt file (if you have one):
+   ```
+   export decrypted_keys=$(mktemp --tmpdir=$HOME)
+   age -d "${sops_dir}/keys.txt" > "${decrypted_keys}"
+   ```
+1. Create a new key for this cluster:
+   ```
+   export new_key=$(mktemp --tmpdir=$HOME)
+   age-keygen | tee -a "${new_key}"
    ```
 
 1. Add this new age public and private key to your organization's password manager.
-1. Re-encrypt your secrets, and delete the cleartext secret:
-
+1. Add the new key to your existing keys.txt file:
+   ```
+   cat "${new_key}" >> "${decrypted_keys}"
+   ```
+1. Re-encrypt your keys.txt:
    ```bash
    cp "${sops_dir}/keys.txt" "${sops_dir}/keys.txt.$(date +%s)"
-   age -p "${temp_key}" > "${sops_dir}/keys.txt"
-   rm -v "${temp_key}"
+   age -p "${decrypted_keys}" > "${sops_dir}/keys.txt"
    ```
 
 1. Add the public age key to .sops.yaml.
-1. Create a sops-encrypted copy of the age key:
-
-   ```bash
-   sops flux/flux-system/sops-age.secrets.yaml
+1. Encrypt the GitHub App `*.pem` file using your new SOPS key (this encrypted file will be committed later):
    ```
-
-   with content like this:
-
-   ```yaml
-   apiVersion: v1
-   kind: Secret
-   metadata:
-     name: sops-age
-     namespace: flux-system
-   stringData:
-     age.agekey: |
-       # created: 2025-02-18T13:13:26-05:00
-       # public key: age159dey5adr2eafv62ktuxt3churncy4h8dzclqm5x0xq774sdpc7qkklsxh
-       AGE-SECRET-KEY-<redacted>
-   type: Opaque
+   age -r your_sops_public_key -o devopscoop-project1-dev-flux.2026-06-16.private-key.pem.age ~/Downloads/devopscoop-project1-dev-flux.2026-06-16.private-key.pem
    ```
 
 1. Commit and add your files:
@@ -98,13 +103,17 @@ On other operating systems, install the tools listed above manually. Two gotchas
    ```bash
    git add \
     .sops.yaml \
-    flux/flux-system/sops-age.secrets.yaml \
+    *.pem.age \
     variables.sh
    git commit -m "Pre-deploy commit."
    git push
    ```
 
 1. Run `./deploy.sh`
+1. Clean up cleartext secrets once you're sure you've encrypted them and/or saved them in a password manager:
+   ```
+   rm -v "${decrypted_keys}" "${new_key}"
+   ```
 
 ## Deploying applications
 

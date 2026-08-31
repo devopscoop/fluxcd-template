@@ -21,5 +21,13 @@ resources:
 # before starting the new one, so a deploy can't deadlock on the volume or
 # briefly run two instances against the same database. (Chart default is
 # RollingUpdate.)
+# On a cluster whose Deployment predates this setting, the upgrade fails with
+# "rollingUpdate: Forbidden": the server-defaulted rollingUpdate fields have
+# no field manager, so server-side apply can't remove them
+# (kubernetes/kubernetes#118261), and removing them alone is a no-op because
+# defaulting re-adds them. One-time fix — replace the whole strategy in a
+# single write, then nudge this file so the stalled HelmRelease retries:
+#   kubectl patch deployment uptime-kuma -n uptime-kuma --type=json \
+#     -p='[{"op":"replace","path":"/spec/strategy","value":{"type":"Recreate"}}]'
 strategy:
   type: Recreate

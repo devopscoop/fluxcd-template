@@ -1,0 +1,205 @@
+# Alerting rules for the Envoy gateways, evaluated by this stack's vmalert
+# (selectAllByDefault picks up any VMRule in the cluster) over the series
+# collected by envoy-vmpodscrape.yaml / envoy-gateway-vmservicescrape.yaml.
+# Remember the routing model
+# (apps/victoria-metrics/README.md → "Alert routing"): every alert goes
+# to both Slack and GoAlert paging, so severity is a label on the page, not a
+# filter — which is why there are no info-level rules here.
+#
+# Upstream-cluster rules are adapted from adinhodovic/envoy-mixin
+# (https://github.com/adinhodovic/envoy-mixin/blob/main/prometheus_alerts.yaml,
+# the alerting companion to Envoy Gateway-era envoy dashboards), with
+# deliberate deviations:
+# - Dropped the no-op job=~".*" matchers and the multi-cluster "cluster"
+#   grouping label; group on the "gateway" label the pod scrape adds instead,
+#   so a page names the fleet (eg-private / eg-public) it fired for.
+# - 5xx: for raised 1m -> 5m (a single bad minute shouldn't page), and the
+#   absolute-rate guard lowered 5/s -> 1/s — at this template's traffic, 5/s
+#   of 5xx could hide a fully broken backend. Tune both with real traffic.
+# - The mixin's 4xx info alert is skipped on purpose: on an internet-facing
+#   gateway behind coraza (apps/coraza), 4xx is dominated by bot probing and
+#   WAF 403s — client behavior, not service health — and with the combined
+#   receiver an "info" alert still pages.
+# - The mixin ORs the three circuit-breaker gauges, but PromQL's `or` matches
+#   on the full label set ignoring metric name, so where all three exist only
+#   rq_open survives and an open cx/cx_pool breaker is masked by a closed
+#   rq_open=0. A __name__ regex over all three avoids that.
+# The downstream (edge) rules and the latency rule are our own — no public
+# ruleset ships a latency alert (samber/awesome-prometheus-alerts includes
+# downstream 5xx/timeout shapes; ours follow the mixin's ratio+guard form).
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  name: envoy
+spec:
+  groups:
+    - name: envoy-proxy
+      rules:
+        - alert: EnvoyDownstreamHighHttp5xxRate
+          annotations:
+            summary: Envoy is serving 5xx for >5% of edge requests.
+            description: >-
+              {{ printf "%.1f" $value }}% of downstream requests through
+              gateway {{ $labels.gateway }} got a 5xx over the last 5m. If no
+              single upstream alert fired alongside this, suspect the shared
+              path: the coraza wasm filter fail-closed (see
+              apps/eg/values.yaml) or a listener/route regression.
+          expr: |-
+            (
+              sum by (gateway) (rate(envoy_http_downstream_rq_xx{envoy_response_code_class="5"}[5m]))
+              /
+              sum by (gateway) (rate(envoy_http_downstream_rq_completed[5m]))
+            ) * 100 > 5
+            and
+            sum by (gateway) (rate(envoy_http_downstream_rq_xx{envoy_response_code_class="5"}[5m])) > 1
+          for: 5m
+          labels:
+            severity: critical
+        # The page-load-time rule (ENG-1613). envoy_http_downstream_rq_time
+        # is the edge-observed total request duration — request start to
+        # response end, so backend time plus Envoy filter time plus response
+        # transfer. It is the closest server-side stand-in for page load
+        # time; what it cannot see (browser render/JS, DNS/TLS setup, a page
+        # being many requests) needs RUM in the frontend, out of scope here.
+        # Two unit traps: Envoy histograms are in MILLISECONDS, not the
+        # Prometheus-conventional seconds, and the default buckets around
+        # this threshold are 500/1000/2500 — histogram_quantile interpolates
+        # linearly inside a bucket, so treat values between edges as
+        # estimates and keep the threshold at an edge.
+        - alert: EnvoyDownstreamSlowRequests
+          annotations:
+            summary: Envoy edge p99 request time is over 1s.
+            description: >-
+              p99 downstream request time through gateway
+              {{ $labels.gateway }} has been {{ printf "%.0f" $value }}ms
+              (threshold 1000ms) for 15m. Check the Envoy Global dashboard's
+              upstream-vs-downstream latency split: upstream ≈ backend time,
+              the difference ≈ time inside Envoy.
+          expr: |-
+            histogram_quantile(0.99,
+              sum by (gateway, le) (rate(envoy_http_downstream_rq_time_bucket[5m]))
+            ) > 1000
+          for: 15m
+          labels:
+            severity: warning
+        - alert: EnvoyUpstreamHighHttp5xxRate
+          annotations:
+            summary: An upstream cluster is answering >5% 5xx.
+            description: >-
+              {{ printf "%.1f" $value }}% of requests from gateway
+              {{ $labels.gateway }} to upstream cluster
+              {{ $labels.envoy_cluster_name }} got a 5xx over the last 5m.
+          expr: |-
+            (
+              sum by (gateway, envoy_cluster_name) (rate(envoy_cluster_upstream_rq_xx{envoy_response_code_class="5", envoy_cluster_name!=""}[5m]))
+              /
+              sum by (gateway, envoy_cluster_name) (rate(envoy_cluster_upstream_rq_total{envoy_cluster_name!=""}[5m]))
+            ) * 100 > 5
+            and
+            sum by (gateway, envoy_cluster_name) (rate(envoy_cluster_upstream_rq_xx{envoy_response_code_class="5", envoy_cluster_name!=""}[5m])) > 1
+          for: 5m
+          labels:
+            severity: critical
+        - alert: EnvoyCircuitBreakerOpen
+          annotations:
+            summary: An Envoy circuit breaker is open.
+            description: >-
+              A circuit breaker (request, connection, or connection-pool) has
+              been open for upstream cluster {{ $labels.envoy_cluster_name }}
+              on gateway {{ $labels.gateway }} for 5m — Envoy is shedding
+              load it believes the backend can't take.
+          expr: |-
+            max by (gateway, envoy_cluster_name) (
+              {__name__=~"envoy_cluster_circuit_breakers_default_(rq|cx|cx_pool)_open", envoy_cluster_name!=""}
+            ) > 0
+          for: 5m
+          labels:
+            severity: warning
+        - alert: EnvoyUpstreamConnectionFailures
+          annotations:
+            summary: Envoy can't open connections to an upstream.
+            description: >-
+              {{ printf "%.0f" $value }} failed connection attempts from
+              gateway {{ $labels.gateway }} to upstream cluster
+              {{ $labels.envoy_cluster_name }} in the last 5m.
+          expr: |-
+            sum by (gateway, envoy_cluster_name) (increase(envoy_cluster_upstream_cx_connect_fail{envoy_cluster_name!=""}[5m])) > 100
+          for: 10m
+          labels:
+            severity: warning
+        # The membership pair below reflects active health checks and outlier
+        # ejection. Without either configured on a cluster, healthy == total
+        # always, so these can't fire — they arm themselves as soon as a
+        # backend gets health checking. NoHealthyHosts also catches what the
+        # kube replica alerts can't: pods Ready but ejected/failing Envoy's
+        # own checks.
+        - alert: EnvoyUpstreamNoHealthyHosts
+          annotations:
+            summary: An upstream cluster has no healthy hosts.
+            description: >-
+              Every host in upstream cluster
+              {{ $labels.envoy_cluster_name }} is marked unhealthy on gateway
+              {{ $labels.gateway }} — requests to it are failing with no
+              healthy upstream.
+          expr: |-
+            sum by (gateway, envoy_cluster_name) (envoy_cluster_membership_healthy{envoy_cluster_name!=""}) == 0
+            and
+            sum by (gateway, envoy_cluster_name) (envoy_cluster_membership_total{envoy_cluster_name!=""}) > 0
+          for: 2m
+          labels:
+            severity: critical
+        - alert: EnvoyUpstreamUnhealthyHosts
+          annotations:
+            summary: Over half of an upstream cluster is unhealthy.
+            description: >-
+              {{ printf "%.0f" $value }}% of hosts in upstream cluster
+              {{ $labels.envoy_cluster_name }} are unhealthy on gateway
+              {{ $labels.gateway }}.
+          expr: |-
+            (
+              sum by (gateway, envoy_cluster_name) (envoy_cluster_membership_total{envoy_cluster_name!=""})
+              -
+              sum by (gateway, envoy_cluster_name) (envoy_cluster_membership_healthy{envoy_cluster_name!=""})
+            )
+            /
+            sum by (gateway, envoy_cluster_name) (envoy_cluster_membership_total{envoy_cluster_name!=""})
+            * 100 > 50
+          for: 5m
+          labels:
+            severity: warning
+        # No data until a Gateway gets an HTTPS listener (the template ships
+        # :80 only; TLS listeners are per-cluster config), then: cert-manager
+        # renews 30d before expiry, so 14d left means renewal — or the SDS
+        # push of the renewed cert into Envoy — has been broken for over two
+        # weeks.
+        - alert: EnvoyTlsCertExpiringSoon
+          annotations:
+            summary: A TLS cert served by Envoy expires in under 14 days.
+            description: >-
+              The soonest-expiring TLS certificate loaded in Envoy pod
+              {{ $labels.pod }} (gateway {{ $labels.gateway }}) expires in
+              {{ printf "%.0f" $value }} days. cert-manager renews 30d ahead,
+              so renewal or the SDS push is stuck.
+          expr: |-
+            min by (gateway, pod) (envoy_server_days_until_first_cert_expiring) < 14
+          for: 1h
+          labels:
+            severity: warning
+    - name: envoy-gateway
+      rules:
+        # A failing xDS push means proxies are serving stale config — and any
+        # proxy replica that (re)starts during the outage comes up with no
+        # listeners at all (the fail-closed window apps/eg/values.yaml sizes
+        # its HA against).
+        - alert: EnvoyGatewayXdsUpdateFailures
+          annotations:
+            summary: Envoy Gateway xDS snapshot updates are failing.
+            description: >-
+              xDS snapshot updates in {{ $labels.namespace }} have been
+              failing with status {{ $labels.status }} (node
+              {{ $labels.nodeID }}) over the last 5m.
+          expr: |-
+            sum by (namespace, status, nodeID) (increase(xds_snapshot_update_total{status!="success"}[5m])) > 0
+          for: 1m
+          labels:
+            severity: warning

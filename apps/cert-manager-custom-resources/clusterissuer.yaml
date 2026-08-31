@@ -26,9 +26,16 @@ spec:
     privateKeySecretRef:
       name: tls.key
 
+    # Pick ONE solver below and uncomment it. It must be a DNS-01 solver: both
+    # Gateways in apps/eg-custom-resources ask this issuer for a wildcard
+    # (*.project1-dev.devops.coop) so that adding a service needs no new
+    # listener, and ACME will not validate a wildcard over HTTP-01 — the
+    # http01 block is kept only for clusters that go back to per-hostname
+    # listeners.
     solvers:
 
-      # Use this for envoy gateway
+      # Envoy Gateway — per-hostname certificates ONLY; cannot issue the
+      # wildcards the Gateways currently request.
       # https://gateway.envoyproxy.io/docs/tasks/security/tls-cert-manager/#using-the-acme-issuer-with-lets-encrypt-and-http-01
       # - http01:
       #     gatewayHTTPRoute:
@@ -37,6 +44,7 @@ spec:
       #         name: eg-public
       #         namespace: envoy-gateway-system
 
+      # Cloudflare
       # - dns01:
       #     cloudflare:
       #       email: hostmaster@devops.coop
@@ -44,10 +52,19 @@ spec:
       #         name: cloudflare-apikey-secret
       #         key: apikey
 
-      # Use this for AWS Route53 (DNS-01). cert-manager authenticates via IRSA:
-      # set the role ARN on the cert-manager ServiceAccount (see
-      # apps/cert-manager/values.yaml -> serviceAccount.annotations).
+      # AWS Route53
+      #
+      # cert-manager authenticates via IRSA: set the role ARN on the
+      # cert-manager ServiceAccount (see apps/cert-manager/values.yaml ->
+      # serviceAccount.annotations).
+      #
+      # If you have CNAMEs in a zone that this cluster doesn't have write
+      # access to (ex. api.devops.coop CNAME api.prod.devops.coop), you can use
+      # `cnameStrategy: Follow`. Create ACME challenge records for each CNAME
+      # that you use (ex. _acme-challenge.api.devops.coop CNAME
+      # _acme-challenge.api.prod.devops.coop).
+      #
       # - dns01:
+      #     cnameStrategy: Follow
       #     route53:
       #       region: us-east-2
-      #       hostedZoneID: ZXXXXXXXXXXXXX

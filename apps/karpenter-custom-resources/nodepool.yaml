@@ -52,6 +52,28 @@ spec:
         - key: karpenter.k8s.aws/instance-hypervisor
           operator: In
           values: ["nitro"]
+        # Minimum size "large", for resource headroom. This floor originally
+        # carried a second job — keeping nodes above the max-pods figure the
+        # baseline DaemonSets need — but that problem is now fixed at its
+        # source by kubelet.maxPods in ec2nodeclass.yaml: Karpenter was
+        # applying IPv4 ENI math on an IPv6 cluster, where the AMI itself uses
+        # 110. See the comment there.
+        #
+        # The floor stays because the baseline DaemonSets are not free on a
+        # small instance. Measured on an EKS 1.35 cluster, the eight node-wide
+        # DaemonSets plus one 25m/512Mi singleton already requested 225m of a
+        # c7a.medium's 940m allocatable CPU and 710Mi of its 1443Mi memory —
+        # roughly half the node before it hosts anything of consequence. The
+        # singletons that pin themselves to on-demand capacity (goalert,
+        # tempo, loki, victoria-metrics, nxrm-ha and friends) have little room
+        # to absorb that, and several run memory request == limit.
+        #
+        # "large" (2 vCPU / 4 GiB) is the smallest size leaving real headroom.
+        # Karpenter still consolidates onto the cheapest instance at or above
+        # the floor, so the cost effect is bounded.
+        - key: karpenter.k8s.aws/instance-size
+          operator: NotIn
+          values: ["nano", "micro", "small", "medium"]
 
       # Replace nodes after 30 days so they pick up fresh AMIs and don't
       # accumulate drift (getting-started default).

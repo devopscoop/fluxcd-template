@@ -28,3 +28,56 @@ spec:
   securityGroupSelectorTerms:
     - tags:
         karpenter.sh/discovery: project1-dev
+
+  # Pod capacity. Without this block Karpenter derives max-pods from the
+  # instance type's IPv4 ENI limits — ENIs x (IPv4s per ENI - 1) + 2 — which is
+  # the wrong formula for the IPv6 clusters this template targets. Under IPv6
+  # the VPC CNI hands each ENI a /80 prefix and pod density stops being
+  # IP-bound; the EKS-optimized AL2023 AMI's own bootstrap knows this and
+  # settles on 110. So the two node sources on a cluster disagree: nodes from
+  # aws-eks-template's managed node group come up at 110, while Karpenter
+  # nodes get the IPv4 numbers — measured on EKS 1.35, 8 on a c7a.medium
+  # (2 ENIs x 4) and 29 on a c6a.large (3 ENIs x 10). Karpenter passes its own
+  # --max-pods to the kubelet, which is what overrides the AMI's value.
+  #
+  # Those numbers are low enough to break scheduling outright. Eight node-wide
+  # DaemonSets ship with this template (kube-system: aws-node, kube-proxy,
+  # ebs-csi-node, efs-csi-node, eks-pod-identity-agent,
+  # eks-node-monitoring-agent; plus victoria-metrics node-exporter and
+  # otel-collector-agent), so an 8-slot node hosting a single workload pod has
+  # no room for the last DaemonSet. It stays Pending forever — Karpenter does
+  # not scale up for an unschedulable DaemonSet pod — and a DaemonSet that
+  # never reaches full readiness fails its Helm release wait, that app's Flux
+  # health check, and every app downstream via dependsOn.
+  #
+  # 110 matches the managed node group and is the kubelet's own recommended
+  # ceiling. Karpenter still bin-packs against CPU and memory, so this lifts
+  # only the artificial IP-derived cap; the instance-size floor in
+  # nodepool.yaml is what keeps nodes big enough to be worth scheduling on.
+  kubelet:
+    maxPods: 110
+
+  # Tags applied to every AWS resource Karpenter creates for these nodes
+  # (instances, volumes, ENIs). Karpenter also reconciles this list onto
+  # already-running instances, so changes here don't wait for node rollover.
+  #
+  # VantaNoAlert deactivates the resource in Vanta (marks it out of scope),
+  # with the tag value recorded as the reason — the same mechanism
+  # aws-eks-template uses on the Loki/Tempo/flow-log buckets. Without it,
+  # Vanta's "Server CPU monitored (AWS)" test flags every Karpenter node.
+  # That test wants an AWS/EC2 CPUUtilization alarm dimensioned on either the
+  # instance or its Auto Scaling group; aws-eks-template's node_cpu alarm
+  # (cluster/cloudwatch-alarms.tf) covers the managed node groups by ASG, but
+  # Karpenter launches through EC2 Fleet with no ASG at all, so only
+  # per-instance alarms could satisfy it. Those would have to be created and
+  # deleted as nodes churn — consolidateAfter 1m, expireAfter 720h and spot
+  # reclaims (nodepool.yaml) — which needs a reconciler holding CloudWatch
+  # write credentials, disproportionate to what it buys here: node CPU is
+  # already monitored in-cluster, where node-exporter runs on every node and
+  # the NodeCPUHighUsage rule pages via GoAlert and posts to Slack (see
+  # apps/victoria-metrics).
+  #
+  # NOTE this takes the instances out of scope for ALL Vanta tests, not just
+  # the CPU one — the same caveat aws-eks-template records on the buckets.
+  tags:
+    VantaNoAlert: "Ephemeral Karpenter-managed EKS node - CPU and host health monitored in-cluster by node-exporter, NodeCPUHighUsage paging via GoAlert"

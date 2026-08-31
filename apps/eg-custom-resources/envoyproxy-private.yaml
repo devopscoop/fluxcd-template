@@ -5,8 +5,8 @@
 # is the internet-facing counterpart. On non-AWS platforms the two are
 # identical until you express the split with your LB provider's equivalent.
 #
-# High availability (both schemes): put one Envoy per AZ/node and keep every LB
-# node's address live in DNS.
+# High availability (both schemes): put one Envoy per AZ/node and keep every NLB
+# AZ node's IP live in DNS.
 #   - replicas: 3 with soft zone + hostname topology spread (maxSkew 1). Envoy
 #     Gateway sets no spread by default, and declaring our own DISABLES the
 #     kube-scheduler cluster defaults (which cover both zone AND hostname), so

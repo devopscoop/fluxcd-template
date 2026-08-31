@@ -1,22 +1,25 @@
+# https://fluxoperator.dev/docs/web-ui/ingress/
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
-  name: grafana
+  name: flux-web
+  namespace: flux-system
 spec:
-  # The private Gateway: monitoring UIs stay off the internet-facing LB even
-  # after eg-public goes public.
   parentRefs:
-    - name: eg-private
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: eg-private
       namespace: envoy-gateway-system
       # HTTPS only; plain HTTP on :80 is 301'd by httproute-redirect-private.yaml.
       sectionName: https
   hostnames:
-    - grafana.project1-dev.devops.coop
+    - "flux.project1-dev.devops.coop"
   rules:
     - matches:
         - path:
             type: PathPrefix
             value: /
       backendRefs:
-        - name: kube-prometheus-stack-grafana
-          port: 80
+        - name: flux-operator
+          namespace: flux-system
+          port: 9080

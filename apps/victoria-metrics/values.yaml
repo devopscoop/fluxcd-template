@@ -37,7 +37,11 @@ vmsingle:
     # otherwise) -- without it the pod can't accept service traffic or pass
     # probes, because the pod has no IPv4 address. Same flag on vmagent and
     # vmalert below. Alertmanager, Grafana, and the exporters are ordinary
-    # dual-stack Go listeners and need nothing.
+    # dual-stack Go listeners and need nothing -- but the config-reloader
+    # sidecar the operator injects into the vmagent, vmalert, and alertmanager
+    # pods is a VictoriaMetrics binary too, so those three also pass the flag
+    # via configReloaderExtraArgs; without it the sidecar's :8435 health
+    # probes get connection refused and kubelet restarts it forever.
     extraArgs:
       enableTCP6: "true"
     # 20Gi holds 30d comfortably: VictoriaMetrics compresses to well under a
@@ -53,14 +57,15 @@ vmsingle:
       resources:
         requests:
           storage: 20Gi
-    # Initial guesses (resize with krr after 14d of usage); memory req=limit,
-    # no CPU limit.
+    # Memory req=limit, no CPU limit. OOMKilled at 512Mi on 2026-08-26, right
+    # after the kubelet relabelConfigs fix below un-dropped the label-heavy
+    # cadvisor series — active series jumped for good, so doubled to 1Gi.
     resources:
       requests:
         cpu: 50m
-        memory: 512Mi
+        memory: 1Gi
       limits:
-        memory: 512Mi
+        memory: 1Gi
     # vmsingle is a singleton: if a spot reclaim takes it down, ingestion and
     # rule evaluation stop with it. Pin it to on-demand capacity, per the
     # NodePool contract in apps/karpenter-custom-resources/nodepool.yaml.
@@ -74,7 +79,12 @@ alertmanager:
     # Public URL Alertmanager uses when generating links (e.g. the title link
     # in Slack notifications); without it they point at the internal service
     # URL http://vmalertmanager-victoria-metrics.victoria-metrics:9093.
-    externalURL: https://alertmanager.devops.coop
+    externalURL: https://alertmanager.project1-dev.devops.coop
+
+    # See the IPv6-only note on vmsingle: the config-reloader sidecar needs
+    # the flag even though Alertmanager itself doesn't.
+    configReloaderExtraArgs:
+      enableTCP6: "true"
 
     # Initial guesses (resize with krr after 14d of usage); memory req=limit,
     # no CPU limit.
@@ -109,30 +119,41 @@ alertmanager:
 #       karpenter.sh/capacity-type: on-demand
 # <<< eks
 
-# Send every alert to Slack. The channel below is not secret, but the webhook
-# URL is, so it lives in helm_secrets.yaml (alertmanager.config.global.slack_api_url),
-# which Flux merges over this file -- see valuesFrom in release.yaml.
+# Alert routing. Only the default route receiver lives here: the route.routes
+# and receivers lists (Slack channel and message templates, Watchdog blackhole,
+# and the GoAlert webhook receiver) are in this app's helm_secrets.yaml -- edit
+# with `sops helm_secrets.yaml`. They are there because the GoAlert webhook URL
+# embeds an integration key (see apps/goalert/README.md), and Flux merges
+# valuesFrom like `helm -f`: maps deep-merge but lists are replaced wholesale,
+# so each list must live entirely in one file. Current routing: Watchdog is
+# blackholed; every other alert goes to BOTH GoAlert (paging) and Slack via
+# a single combined receiver (named "default") carrying both integrations --
+# one receiver, not one route per system, because the Alertmanager UI lists
+# each alert group once per receiver, so split receivers showed every alert
+# twice.
+# The receiver below is the mandatory root default and only fires if no
+# sub-route matches -- unreachable today, since helm_secrets.yaml's last
+# sub-route matches everything.
+#
+# group_by lives here, not on the sub-routes: children inherit it, and
+# grouping is not a secret, so it stays reviewable in this file rather than
+# behind sops. Without it, Alertmanager's default collapses every firing
+# alert into ONE group with no common labels, and GoAlert's Alertmanager
+# integration opens one alert per group -- so six unrelated alerts arrived
+# as a single GoAlert alert with nothing naming them, and a TargetDown page
+# never appeared under its own name (ENG-1613). alertname+namespace gives
+# one group per distinct problem, while still collapsing one alert that
+# fires across many pods into a single page. NOTE this also changes Slack:
+# it now gets a message per alertname+namespace instead of one digest
+# listing everything. Scoping group_by to paging only would mean splitting
+# the combined "default" receiver back into separate goalert and slack
+# routes/receivers in helm_secrets.yaml -- at the cost of the UI showing
+# every alert twice again (once per receiver).
 # >>> slack: deploy.sh uncomments this block when slack_alerts=true (variables.sh)
 #   config:
 #     route:
-#       receiver: slack
-#     receivers:
-#       # The chart's default route sends unmatched alerts to the 'blackhole'
-#       # receiver, and setting receivers here replaces the chart's whole list,
-#       # so keep it.
-#       - name: blackhole
-#       - name: slack
-#         slack_configs:
-#           - channel: '#alerts' # TODO: replace with your Slack channel
-#             send_resolved: true
-#             # Alertmanager's default Slack message is only a terse title like
-#             # "[FIRING:2] (ns/pod critical)". Keep that as the headline, but
-#             # render each alert's summary, description, and runbook in the body.
-#             title: '{{ template "slack.default.title" . }}'
-#             text: |-
-#               {{ range .Alerts }}*{{ .Labels.alertname }}* `{{ .Labels.severity }}`{{ if .Annotations.summary }} — {{ .Annotations.summary }}{{ end }}
-#               {{ .Annotations.description }}{{ if .Annotations.runbook_url }} <{{ .Annotations.runbook_url }}|:book: runbook>{{ end }}
-#               {{ end }}
+#       group_by: ["alertname", "namespace"]
+#       receiver: default
 # <<< slack
 
 # Grafana sits behind a repo-managed HTTPRoute (grafana-httproute.yaml), not
@@ -141,12 +162,14 @@ alertmanager:
 # in every alert's "source" link (it deep-links into Grafana Explore).
 external:
   grafana:
-    host: https://grafana.devops.coop
+    host: https://grafana.project1-dev.devops.coop
 
 vmalert:
   spec:
-    # See the IPv6-only note on vmsingle.
+    # See the IPv6-only note on vmsingle, for both args.
     extraArgs:
+      enableTCP6: "true"
+    configReloaderExtraArgs:
       enableTCP6: "true"
     # Initial guesses (resize with krr after 14d of usage); memory req=limit,
     # no CPU limit.
@@ -160,8 +183,11 @@ vmalert:
 vmagent:
   spec:
     # See the IPv6-only note on vmsingle. enableTCP6 also covers dialing, which
-    # vmagent needs to scrape targets that only have IPv6 addresses.
+    # vmagent needs to scrape targets that only have IPv6 addresses. The
+    # config-reloader flag is per the IPv6-only note on vmsingle.
     extraArgs:
+      enableTCP6: "true"
+    configReloaderExtraArgs:
       enableTCP6: "true"
     # Initial guesses (resize with krr after 14d of usage); memory req=limit,
     # no CPU limit. vmagent memory grows with the number of scraped series, so
@@ -189,6 +215,37 @@ defaultDatasources:
       uid: victorialogs
       access: proxy
       url: http://victoria-logs-server.victoria-logs.svc.cluster.local:9428
+      # Color log lines in Explore by level. severity_text is filled and
+      # lowercased by otel-collector's transform/severity processor (see
+      # apps/otel-collector/values.yaml); without these rules the plugin
+      # shows every line as "unknown". First matching rule wins. The numeric
+      # alternatives are pino's levels (60 fatal ... 10 trace).
+      jsonData:
+        logLevelRules:
+          - field: severity_text
+            operator: regex
+            value: "^(fatal|panic|critical|crit|emerg|alert|60)$"
+            level: critical
+          - field: severity_text
+            operator: regex
+            value: "^(error|err|50)$"
+            level: error
+          - field: severity_text
+            operator: regex
+            value: "^(warn|warning|40)$"
+            level: warning
+          - field: severity_text
+            operator: regex
+            value: "^(info|information|notice|30)$"
+            level: info
+          - field: severity_text
+            operator: regex
+            value: "^(debug|dbg|20)$"
+            level: debug
+          - field: severity_text
+            operator: regex
+            value: "^(trace|10)$"
+            level: trace
     - name: Tempo
       type: tempo
       uid: tempo
@@ -202,7 +259,7 @@ grafana:
       # short links); without it they point at the default localhost:3000.
       # Same hostname as the kube-prometheus-stack Grafana: the two stacks are
       # either/or, so only one of them ever answers on it.
-      root_url: https://grafana.devops.coop/
+      root_url: https://grafana.project1-dev.devops.coop/
   # The VictoriaLogs datasource above and the "VictoriaMetrics (DS)"
   # datasource the chart provisions by default are Grafana plugins, not
   # built-in types. Grafana downloads them at startup, which needs egress to
@@ -211,14 +268,16 @@ grafana:
   plugins:
     - victoriametrics-logs-datasource
     - victoriametrics-metrics-datasource
-  # Initial guesses (resize with krr after 14d of usage); memory req=limit,
-  # no CPU limit.
+  # Memory req=limit, no CPU limit. Doubled to 384Mi after OOMKills
+  # (2026-08-25), then OOMKilled again on 2026-08-26 once the kubelet
+  # relabelConfigs fix below un-dropped the label-heavy cadvisor series
+  # (dashboards now pull far more series per query) — doubled to 768Mi.
   resources:
     requests:
       cpu: 10m
-      memory: 192Mi
+      memory: 768Mi
     limits:
-      memory: 192Mi
+      memory: 768Mi
   # Dashboard/datasource provisioning sidecars share this block.
   sidecar:
     resources:
@@ -246,12 +305,31 @@ kube-state-metrics:
     limits:
       memory: 128Mi
 
+# The chart's default kubelet scrape labelmaps every Kubernetes node label
+# onto every kubelet/cadvisor series. On nodes with label-heavy provisioners
+# (Karpenter alone stamps ~20) that pushed series past vmsingle's
+# -maxLabelsPerTimeseries default of 40, so vmsingle dropped them on ingestion
+# (RowsRejectedOnIngestion + TooManyLogs alerts, and holes in dashboards for
+# pods on those nodes) -- and even under the cap it bloats every container
+# series with node metadata. Replace the default relabelConfigs with the same
+# list minus the labelmap (lists don't merge). The operator still attaches the
+# node name as the "node" and "instance" labels on its own; that's all the
+# bundled dashboards use.
+kubelet:
+  vmScrape:
+    spec:
+      relabelConfigs:
+        - sourceLabels: [__metrics_path__]
+          targetLabel: metrics_path
+        - targetLabel: job
+          replacement: kubelet
+
 # On EKS the scheduler, controller-manager, and etcd run inside the AWS-managed
 # control plane and expose no metrics endpoints, so none of these targets can
-# ever be scraped. Disable them so their scrape objects and permanently-firing
-# absence alerts go away. (Unlike kube-prometheus-stack, kube-proxy scraping is
-# already off by default in this chart.) On k0s/talos these components run on
-# your own nodes, so leave them enabled.
+# ever be scraped. Disable them so their scrape objects go away. (Unlike
+# kube-prometheus-stack, kube-proxy scraping is already off by default in this
+# chart.) On k0s/talos these components run on your own nodes, so leave them
+# enabled.
 # >>> eks: deploy.sh uncomments this block when k8s_platform=eks
 # kubeScheduler:
 #   enabled: false
@@ -260,3 +338,32 @@ kube-state-metrics:
 # kubeEtcd:
 #   enabled: false
 # <<< eks
+
+defaultRules:
+  groups:
+# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
+#     # Unlike kube-prometheus-stack, this chart does NOT gate the matching rule
+#     # groups on the kubeScheduler/kubeControllerManager flags above (it does
+#     # for etcd, but not for the scheduler or controller-manager), so their
+#     # absent(up{job=...}) alerts -- KubeSchedulerDown, KubeControllerManagerDown
+#     # -- fire forever even with the scrapes disabled. Disable those groups
+#     # explicitly too: the two alerting groups, plus the scheduler recording
+#     # rules that can never have data (they'd otherwise trip vmalert's
+#     # RecordingRulesNoData).
+#     kube-scheduler.rules:
+#       enabled: false
+#     kubernetes-system-scheduler:
+#       enabled: false
+#     kubernetes-system-controller-manager:
+#       enabled: false
+# <<< eks
+    # count:up0 records how many scrape targets are down (up == 0), so on a
+    # healthy cluster it matches nothing and produces 0 samples, which trips
+    # vmalert's RecordingRulesNoData alert after 30min. Nothing bundled reads
+    # it (up == 0 answers the same question, and its always-populated twin
+    # count:up1 stays enabled), so disable the rule rather than the alert --
+    # RecordingRulesNoData stays useful for rules that should always have data.
+    kube-prometheus-general.rules:
+      rules:
+        "count:up0":
+          enabled: false

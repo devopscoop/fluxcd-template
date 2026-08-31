@@ -24,6 +24,10 @@ brew "controlplaneio-fluxcd/tap/flux-operator"
 # git - commit/push throughout the bootstrap
 brew "git"
 
+# kuma-cli - inspecting/exporting Uptime Kuma entities for apps/autokuma; no
+# Homebrew formula exists, download the kuma-mac binary from
+# https://github.com/BigBoot/AutoKuma/releases into your PATH as kuma-cli
+
 # helm - pulling charts, showing values, prototyping installs
 brew "helm"
 

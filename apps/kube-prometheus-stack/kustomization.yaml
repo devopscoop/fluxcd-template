@@ -9,9 +9,11 @@ namespace: kube-prometheus-stack
 
 resources:
   - namespace.yaml
+  - basic-auth.secrets.yaml
   - ocirepo.yaml
   - release.yaml
   - grafana-httproute.yaml
+  - basic-auth-securitypolicy.yaml
 configMapGenerator:
   - name: kube-prometheus-stack-values
     files:
