@@ -56,3 +56,28 @@ spec:
   # nodepool.yaml is what keeps nodes big enough to be worth scheduling on.
   kubelet:
     maxPods: 110
+
+  # Tags applied to every AWS resource Karpenter creates for these nodes
+  # (instances, volumes, ENIs). Karpenter also reconciles this list onto
+  # already-running instances, so changes here don't wait for node rollover.
+  #
+  # VantaNoAlert deactivates the resource in Vanta (marks it out of scope),
+  # with the tag value recorded as the reason — the same mechanism
+  # aws-eks-template uses on the Loki/Tempo/flow-log buckets. Without it,
+  # Vanta's "Server CPU monitored (AWS)" test flags every Karpenter node.
+  # That test wants an AWS/EC2 CPUUtilization alarm dimensioned on either the
+  # instance or its Auto Scaling group; aws-eks-template's node_cpu alarm
+  # (cluster/cloudwatch-alarms.tf) covers the managed node groups by ASG, but
+  # Karpenter launches through EC2 Fleet with no ASG at all, so only
+  # per-instance alarms could satisfy it. Those would have to be created and
+  # deleted as nodes churn — consolidateAfter 1m, expireAfter 720h and spot
+  # reclaims (nodepool.yaml) — which needs a reconciler holding CloudWatch
+  # write credentials, disproportionate to what it buys here: node CPU is
+  # already monitored in-cluster, where node-exporter runs on every node and
+  # the NodeCPUHighUsage rule pages via GoAlert and posts to Slack (see
+  # apps/victoria-metrics).
+  #
+  # NOTE this takes the instances out of scope for ALL Vanta tests, not just
+  # the CPU one — the same caveat aws-eks-template records on the buckets.
+  tags:
+    VantaNoAlert: "Ephemeral Karpenter-managed EKS node - CPU and host health monitored in-cluster by node-exporter, NodeCPUHighUsage paging via GoAlert"
