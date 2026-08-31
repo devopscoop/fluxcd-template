@@ -27,6 +27,10 @@ brew "git"
 # helm - pulling charts, showing values, prototyping installs
 brew "helm"
 
+# jq - apps/falcon-platform/update.sh parses the Falcon pull script's
+# --list-tags JSON
+brew "jq"
+
 # pre-commit - git hook framework used by .pre-commit-config.yaml
 brew "pre-commit"
 
