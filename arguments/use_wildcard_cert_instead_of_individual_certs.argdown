@@ -1,0 +1,76 @@
+===
+title: "Use a wildcard certificate instead of individual certs?"
+subTitle: First-principles pro/con map for TLS on the two Envoy Gateways — one wildcard certificate on a shared listener, which this template ships today, versus a listener and a certificate per hostname
+author: Claude and 3uzbcqje
+date: 2026-08-31
+color:
+  tagColors:
+    pro: "#1a9850"
+    con: "#d73027"
+    context: "#756bb1"
+    alternative: "#e6ab02"
+    proposal: "#2166ac"
+===
+
+# The proposal
+
+[Use a wildcard cert]: For TLS on both Envoy Gateways, terminate every service on a single wildcard listener covering every name one label under project1-dev.devops.coop, backed by one cert-manager Certificate per Gateway, instead of giving each hostname its own listener and its own certificate. #proposal
+
+
+# Reasons for
+
+[Use a wildcard cert]
+  + <Routes ship instantly>: A service serves HTTPS the moment its HTTPRoute reconciles, because the certificate already exists and already covers the name; per-hostname issuance puts an ACME order on the critical path of every new route — a DNS-01 propagation wait or an HTTP-01 round trip, longer whenever the first attempt fails — so the unit of deployment stops being "a route plus a certificate you wait on". #pro
+    - <The wait is one-time and unattended>: The order happens once in a hostname's life and cert-manager retries it without supervision; a few minutes on the day a service is first published is nothing against the years it then runs. #con
+      - <It lands at the worst moment>: That wait is spent during the first cutover, when someone is watching to confirm the service works, and the symptom is a browser TLS error rather than a failed Flux reconciliation — it consumes debugging attention precisely when the change is least understood. #pro
+  + <One listener, not N>: Publishing a service touches one file, its HTTPRoute, instead of also appending a listener block and a certificateRef to the Gateway; the Gateway manifests stop growing with the service count, stop being the file every team must edit to ship anything, and stop being the merge-conflict point of the repo. #pro
+  + <Hostnames stay out of CT logs>: Every publicly-trusted certificate is published to Certificate Transparency logs, so per-hostname issuance broadcasts a complete, continuously updated inventory of internal service names to crt.sh — every monitoring UI, admin console, and internal API, named and timestamped — while a wildcard discloses only the parent domain, which DNS already gives away. #pro
+    - <Obscurity is not a control>: CT is one enumeration channel among several — brute-forcing a guessable naming scheme, the HTTPRoutes committed to this repo, the records external-dns publishes — so withholding the list raises the cost of reconnaissance without removing the capability, and nothing here should be reachable only because its name is unguessable. #con
+      - <Raising the cost is the whole claim>: Nobody argues the names are secret; the argument is that a curated, machine-readable, minutes-fresh list of every service is a gratuitous gift to an attacker, and declining to hand it over costs nothing because it falls out of a change made for other reasons. #pro
+      - <CT feeds are actively mined>: Attackers subscribe to CT streams specifically to find newly published hostnames and probe them during their least-hardened window — the first hours of a service's life — which is the same window <Routes ship instantly> is shortening for us. #pro
+  + <The renewal surface collapses>: Two Certificates per cluster to monitor, alert on, and reason about, instead of one per hostname; each additional Certificate is another object that can quietly fail to renew, and the failure is invisible unless somebody remembered to alert on that specific object. #pro
+    - <Correlated failure replaces isolated failure>: One certificate is one point of failure — an expired DNS provider token, a broken solver, a bad renewal — and it takes every hostname on the Gateway down at the same moment, where per-hostname certificates fail one service at a time and leave the rest serving. #con
+      - <A number you watch beats a number you do not>: N independently failing objects is not resilience if nothing alerts on any of them, and cert-manager renews at two-thirds of a 90-day lifetime, so a broken solver has roughly a month of headroom before any user notices — ample time for a single, actually-monitored alert to be acted on. #pro
+  + <Rate limits stop being a design constraint>: Let's Encrypt caps new certificates per registered domain per week and caps duplicates of the same name, and the bucket is devops.coop — shared by every cluster stamped from this template. One certificate per hostname per environment climbs toward those ceilings collectively, and exhausting them blocks issuance for services that were working fine. #pro
+  + <Ephemeral hostnames become free>: Per-branch previews, per-tenant subdomains, and short-lived debug endpoints cost an HTTPRoute and nothing else; under per-hostname issuance each one burns an ACME order, a rate-limit slot, and a CT entry that outlives the environment by years. #pro
+
+# Reasons against
+
+[Use a wildcard cert]
+  - <The listener list was an allowlist>: Per-hostname listeners were an implicit, reviewed allowlist — putting a name on the internet-facing Gateway required editing gateway-public.yaml, a CODEOWNERS-gated change someone had to approve. With one wildcard listener and allowedRoutes.namespaces.from set to All, any namespace can publish any name in the domain to the internet with an HTTPRoute alone, and nobody reviewing the Gateway ever sees it. #con
+    - <The selector restores the gate>: Setting allowedRoutes.namespaces.from to Selector plus an opt-in namespace label puts the reviewed step back — the reviewed artifact becomes the label rather than the listener — without giving up the shared certificate; the snippet is already written out in gateway-public.yaml. #pro
+      - <A gate that ships off is not a gate>: The selector is a commented-out suggestion and the shipped default is All, so the security property depends on every operator of every stamped cluster noticing the comment and acting on it — which is exactly the assumption the per-hostname design did not have to make. #con
+  - <One key authenticates every name>: A wildcard private key speaks for every hostname in the domain and cannot be revoked one name at a time; whoever reads that Secret — a workload with loose RBAC, a node hosting the Envoy pod, an etcd backup — can impersonate the entire domain, and the remedy is reissuing and redeploying everything at once. #con
+    - <The keys were already co-located>: Every listener terminates on the same Envoy fleet in the same namespace under the same RBAC, so per-hostname certificates would stack N keys inside one trust boundary; an attacker who can read one can read all of them, and the wildcard only concentrates what was already concentrated. #pro
+      - <The blast radius extends past this cluster>: Identical in-cluster, different outside it — a stolen per-hostname key forges one service, while a stolen wildcard key forges every name under project1-dev.devops.coop, including hostnames served by other systems and hostnames that do not exist yet. #con
+  - <It forces a zone-write credential>: ACME will not validate a wildcard over HTTP-01, so the ClusterIssuer must run DNS-01, which means cert-manager holds standing write access to the DNS zone (a Cloudflare API token in a SOPS secret, or a Route53 IRSA role). HTTP-01 needs no DNS credential at all, so the trade is a public hostname list for a writable zone — not obviously a security win. #con
+    - <DNS-01 is required here regardless>: The eg-private Gateway deliberately never rides an internet-facing load balancer, so an ACME server cannot reach its hostnames to complete an HTTP-01 challenge under any certificate strategy; the zone credential is the price of having private hostnames with public trust, not the price of the wildcard. #pro
+  - <A wildcard is exactly one label deep>: A wildcard matches exactly one DNS label, so grafana.project1-dev.devops.coop is covered while a.b.project1-dev.devops.coop and the bare apex are not, and any hostname outside that shape still needs its own listener and certificate. The per-hostname mechanism is not removed, only demoted to an exception — and an exception nobody remembers, since the failure is a route rejected with a hostname-mismatch condition that no dashboard shows. #con
+  - <A shared certificate enables cross-protocol confusion>: One certificate presented by many services is the precondition for ALPACA-style attacks, where a client is steered into a different service that presents the same certificate and still sees a valid name; NSA guidance singles this out as the main reason to avoid wildcards. Exposure is small today — the only non-HTTP listener, radicle on 8776, is plain TCP and presents no certificate — but it grows with every non-HTTP service added to these Gateways. #con
+    - <The fix belongs at the listener>: The mitigations for ALPACA are ALPN and SNI enforcement at the terminating proxy, which apply whether or not the certificate is shared; issuing N certificates to avoid a confusion attack is a blunt instrument aimed at the wrong layer. #pro
+
+# Cross-cutting context
+
+[Everything here is already reviewed]: Every HTTPRoute in this template lands through the same repository and the same CODEOWNERS review as the Gateway itself, so the lost allowlist costs nothing — until a cluster grows workloads applied outside GitOps, which is precisely the case a template cannot assume away.
+  -> <The listener list was an allowlist>
+  +> [Use a wildcard cert]
+
+[The naming scheme is guessable]: Hostnames here are just the app name under one cluster subdomain — grafana, alertmanager, goalert, uptime-kuma — so a wordlist of common tool names recovers most of the inventory without touching a CT log; the certificate strategy changes how convenient enumeration is, not whether it is possible.
+  +> <Obscurity is not a control>
+  -> <Hostnames stay out of CT logs>
+
+[The two Gateways carry different stakes]: eg-private never rides an internet-facing load balancer, so the allowlist and CT arguments barely register there, while on eg-public they are the entire debate — nothing forces both Gateways to answer this question the same way.
+  -> <The listener list was an allowlist>
+  +> [Split the decision per Gateway]
+
+[This template stamps fleets]: Whatever lands here is multiplied across every future cluster, and those clusters share one registered domain at Let's Encrypt and one pool of operators who must notice commented-out hardening; both the rate-limit savings and the shipped-default risk scale with the fleet.
+  +> <Rate limits stop being a design constraint>
+  +> <A gate that ships off is not a gate>
+
+
+# A common alternative
+
+[Split the decision per Gateway]: Keep the wildcard on eg-private, where nothing faces the internet and the instant-route benefit is pure profit, and return eg-public to per-hostname listeners so that every internet exposure is a reviewed edit with its own certificate and its own revocation. #alternative
+  -> [Use a wildcard cert]
+  + <Ceremony where it counts>: It spends the review step only on the handful of names that actually face the internet (today: uptime-kuma and goalert) and keeps the fast path for the ops services, which is where new hostnames are added most often. #pro
+  - <One cluster, two mental models>: Two Gateways that behave differently is a rule everyone must learn and no manifest states — the first internet-facing service added by someone who learned the eg-private workflow fails at TLS, and the DNS-01 credential is still required for the private wildcard, so the alternative pays the credential cost without collecting the credential's benefit. #con

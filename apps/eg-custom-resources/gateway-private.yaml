@@ -24,6 +24,10 @@
 # fighting over it. Two orders for the same name is well inside Let's
 # Encrypt's duplicate-certificate limit.
 #
+# The case for and against the wildcard — including what the per-hostname
+# listeners bought us that this gives up — is mapped in
+# arguments/use_wildcard_cert_instead_of_individual_certs.argdown.
+#
 # The port-80 listener also answers the LB health check via
 # httproute-healthz-private.yaml (see the healthcheck notes in envoyproxy-private.yaml).
 apiVersion: gateway.networking.k8s.io/v1
