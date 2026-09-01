@@ -1,0 +1,92 @@
+===
+title: "EBS volumes vs. local NVMe drives"
+subTitle: First-principles comparison map for CloudNativePG storage on EKS, organized by decision criterion — gp3 EBS volumes through the CSI driver (this template's default storage class) against instance-store NVMe on a static pool of storage-optimized nodes
+author: Claude and 3uzbcqje
+date: 2026-09-01
+color:
+  tagColors:
+    ebs: "#2166ac"
+    nvme: "#e08214"
+    context: "#756bb1"
+    alternative: "#35978f"
+===
+
+# The question
+
+Which substrate should hold a CNPG Cluster's data and WAL on this template's EKS platform? Neither option is a thesis to defend here — each criterion below collects what both sides have to say, and the context section names the conditions that swing the verdict. Node color marks which side an argument serves; the arrows carry the valence.
+
+[EBS volumes]: Back every CNPG Cluster's PersistentVolumeClaims with gp3 EBS volumes through the EBS CSI driver and this template's default gp3 storage class — durable, elastic network storage that outlives any node. #ebs
+  -> [Local NVMe]
+
+[Local NVMe]: Put PGDATA and WAL on the instance-store NVMe drives of storage-optimized instance types in a static node group outside Karpenter, and let Postgres replication plus the backup archive carry all durability — the copy on any one node is expendable. #nvme
+  -> [EBS volumes]
+
+
+# Durability and node loss
+
+<A node failure is a reattach, not a rebuild>: An EBS volume outlives its instance, so when a node dies the pod reschedules onto another node in the same availability zone, reattaches its volume, replays a little WAL, and rejoins in minutes; on instance store the same event destroys that copy of the database, and the replacement replica must be rebuilt from scratch — hours of streaming a full base backup at terabyte scale, spent while the cluster runs with reduced redundancy. #ebs
+  +> [EBS volumes]
+  - <Replicas make rebuilds routine>: CNPG is designed around losing copies — replacement replicas can bootstrap from the object-storage backup instead of taxing the primary, so a rebuild is unattended background bandwidth, not an incident, and the cluster serves at full capacity throughout. #nvme
+    - <Rebuild windows stack with churn>: On this template's Karpenter-consolidated clusters node replacement is routine, not exceptional — an AMI rotation or a consolidation pass recycles the whole storage pool, and overlapping multi-hour rebuilds leave stretches where one healthy copy is all that stands between the fleet and data loss. #ebs
+  - <The marquee feature rarely decides a failover>: When a primary's node dies, CNPG promotes a replica in seconds; the dead node's volume, by contrast, waits out force-detach timeouts measured in minutes before any reattach — so volume survival speeds up the return of the spare, not the failover itself, and in the moment that matters most the two substrates behave more alike than the pitch implies. #nvme
+
+<RPO zero without paying for it in latency>: With EBS, losing the primary's node loses no committed transaction even under asynchronous replication, because the volume — and every flushed WAL byte on it — survives to be replayed; on instance store the unreplicated tail dies with the node, so matching that guarantee forces synchronous replication, which puts a cross-zone network round trip inside every commit and spends the very latency local disks promised to save. #ebs
+  +> [EBS volumes]
+  - <Zone loss makes the guarantee symmetric>: EBS volumes are zonal, so an availability-zone outage strands the volume exactly as hardware loss destroys an instance-store disk — a team that genuinely requires zero data loss runs synchronous replication on either substrate, and under that setting the two storage choices carry the same commit latency. #nvme
+    - <Node loss is weekly, zone loss is annual>: The two failure modes are not equally priced — instance and node churn happen constantly on a consolidated cluster while zone outages make the news, so covering the overwhelmingly common event for free, with the rare one still handled by replicas, is most of the value at none of the cost. #ebs
+
+<Durability is paid for twice>: EBS already replicates every volume within its zone, and CNPG replicates the database again on top, so the fleet stores each byte replica-count times EBS's internal redundancy and pays gp3 rates on all of it; CNPG's own storage guidance treats Postgres replication as the durability layer and names local storage as its natural companion — exactly the design the NVMe side describes. #nvme
+  +> [Local NVMe]
+  - <The layers protect different things>: EBS redundancy absorbs media failure invisibly — no rebuild, no event, no reduced-redundancy window — while Postgres replication covers instances, zones, and software faults; drop the storage layer and every quiet disk death gets promoted to a cluster-level incident with a rebuild attached. #ebs
+
+# Performance under load
+
+<Every commit pays the network tax>: A Postgres commit is a WAL fsync, and an fsync to EBS is a round trip through a networked storage service measured in high hundreds of microseconds to milliseconds, against tens of microseconds on a Nitro NVMe device — an order of magnitude on the hottest path in the database, capping per-session transaction rate, and no amount of gp3 tuning removes it. #nvme
+  +> [Local NVMe]
+  - <Synchronous replication re-imposes the network>: The moment durability requirements demand a synchronous standby in another zone, commit latency is dominated by that round trip on either substrate, and the fsync advantage shrinks to a rounding error. #ebs
+    - <Only commits wait on the standby>: Synchronous replication gates the commit alone — index builds, vacuums, checkpoints, sorts, and every read that misses cache ride the local disk the whole time, so the NVMe advantage survives everywhere except the one code path the standby covers. #nvme
+
+<IOPS are free on the instance>: Storage-optimized instances include hundreds of thousands to millions of IOPS in the hourly price, while gp3 tops out at sixteen thousand per volume and buying serious provisioned IOPS on io2 can cost more than the instance running the database; per-instance EBS bandwidth is itself capped and shared with every other volume attached to the node. #nvme
+  +> [Local NVMe]
+
+# Capacity and elasticity
+
+<Capacity and speed are dials, not hardware>: A gp3 volume grows online through a PVC edit — CNPG supports live volume expansion — and IOPS and throughput are provisioned independently of size; instance-store capacity is welded to the instance family, so outgrowing the disk means a new machine type and a full rebuild, and every node in the pool carries the maximum disk whether its database needs it or not. #ebs
+  +> [EBS volumes]
+
+# Node lifecycle and scheduling
+
+<Karpenter keeps its freedom>: This template runs Karpenter and the descheduler on the premise that nodes are disposable and pods can move; EBS-backed database pods honor that within their zone, while local persistent volumes pin each pod to one node, demand a dedicated storage-optimized node pool that consolidation must be told to leave alone, and turn every voluntary node replacement into a data operation someone has to sequence. #ebs
+  +> [EBS volumes]
+  - <Database nodes opt out anyway>: Nobody points consolidation at database nodes — the local-NVMe pool would be a static node group outside Karpenter entirely, so there is no fight for the scheduler to referee, nothing for consolidation to be told, and the supposed conflict never occurs. #nvme
+    - <The exemption is the cost>: That concedes the argument rather than refuting it — the databases leave the automated node lifecycle the rest of the fleet enjoys, the platform runs two node-management regimes from that day on, and the static pool's AMI patching, resizing, and hardware retirements become hand-scheduled work in which every replacement is still a replica rebuild; an EBS-backed database needs no exemption at all, because a drain is a reattach, and it rides the shared pool like any other workload. #ebs
+
+# Backups and clones
+
+<Snapshots come with the substrate>: EBS volumes bring EBS snapshots — block-incremental base backups and minute-scale clones, weighed in the companion map on EBS snapshots versus Barman backups; instance store has no snapshot facility at all, so choosing NVMe answers that entire map by forfeit. #ebs
+  +> [EBS volumes]
+
+# Cross-cutting context
+
+[Karpenter churns nodes here]: Consolidation, spot interruption handling, and drift-driven AMI rotation make node replacement a background process in this template, which multiplies every per-node-loss cost and erodes any design that treats node death as rare. #context
+  +> <Rebuild windows stack with churn>
+  +> <Karpenter keeps its freedom>
+  -> <Replicas make rebuilds routine>
+
+[Database size sets the rebuild bill]: A fifty-gigabyte replica resyncs over lunch and makes instance store cheap to operate; a five-terabyte one takes the better part of a day, and every argument in this map about rebuilds, reattaches, and snapshots scales with that number. #context
+  +> <A node failure is a reattach, not a rebuild>
+  -> <Replicas make rebuilds routine>
+
+[Workload shape decides the latency stakes]: A read-mostly service in front of a warm cache barely notices EBS fsync latency, while a write-heavy ledger or queue lives and dies by it — the strongest card in the NVMe hand applies to a minority of databases, and benchmarks, not folklore, should say which ones. #context
+  +> <Every commit pays the network tax>
+
+[This template stamps bare metal too]: On the bare-metal platform there is no EBS, and the same trade reappears as replicated network storage (rook-ceph, longhorn) versus raw local disks — the reasoning in this map transfers even though the product names do not, which is worth remembering before encoding either answer into shared conventions. #context
+
+
+# A middle path
+
+[Escalate the storage tier per database]: Neither side has to win the fleet — default every cluster to gp3, raise provisioned IOPS and throughput when a database measurably needs it, step up to io2 beyond that, and reserve a local-NVMe node pool as the last rung for the one database that benchmarks prove is IO-bound past what EBS can serve. #alternative
+  -> [EBS volumes]
+  -> [Local NVMe]
+  + <Complexity is spent only where measured>: The fleet stays on the simple substrate, and the exotic one — local-volume provisioner, dedicated node pool, rebuild runbooks — is adopted per database, after evidence, instead of fleet-wide on principle. #alternative
+  - <The last rung carries the whole ladder>: One escalated database still obliges the platform to run and drill both substrates — the provisioner, the tainted pool, the second set of failure modes — so the marginal cost of the final step is nearly the cost of the NVMe decision itself, paid at the worst possible time: under an active performance problem. #alternative
