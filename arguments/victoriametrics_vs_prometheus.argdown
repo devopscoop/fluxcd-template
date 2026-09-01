@@ -1,0 +1,89 @@
+===
+title: "VictoriaMetrics vs. Prometheus"
+subTitle: First-principles comparison map for the metrics backend, organized by decision criterion — the victoria-metrics-k8s-stack (vmsingle, vmagent, vmalert, Alertmanager) against kube-prometheus-stack
+author: Claude and 3uzbcqje
+date: 2026-08-24
+color:
+  tagColors:
+    vm: "#2166ac"
+    prometheus: "#e08214"
+    context: "#756bb1"
+    alternative: "#35978f"
+===
+
+# The question
+
+Which backend should hold this template's metrics? Neither option is a thesis to defend here — each criterion below collects what both sides have to say, and the context section names the conditions that swing the verdict. Node color marks which side an argument serves; the arrows carry the valence.
+
+[VictoriaMetrics]: Deploy the victoria-metrics-k8s-stack — vmsingle for storage and query, vmagent for scraping, vmalert for rule evaluation, plus Alertmanager. #vm
+  -> [Prometheus]
+
+[Prometheus]: Deploy kube-prometheus-stack — a single Prometheus doing scrape, storage, query, and rule evaluation, with the ecosystem's years-hardened defaults wired end-to-end. #prometheus
+  -> [VictoriaMetrics]
+
+
+# Resource efficiency and retention
+
+<Resource efficiency compounds>: VictoriaMetrics typically needs a fraction of Prometheus's RAM and disk for the same series load thanks to better compression and indexing, and the saving is not a one-off — it compounds into longer retention, more headroom for cardinality accidents, and smaller singleton pods on every cluster stamped from this template. #vm
+  +> [VictoriaMetrics]
+  - <Both fit at template scale>: A small cluster ingests a few thousand samples per second; the template's Prometheus already runs comfortably in ~1.5Gi, so efficiency is a rounding error until the fleet or the cardinality grows substantially. #prometheus
+    - <Efficiency changes behavior, not just bills>: Cheap retention is qualitative, not cosmetic — 30 days of history becomes a year, capacity planning and seasonal comparisons become possible, and nobody rations labels out of fear of the TSDB, which is precisely when metrics start being trusted. #vm
+
+# Ecosystem, compatibility, and fluency
+
+<Prometheus is the reference implementation>: It is the CNCF-graduated standard the entire ecosystem writes against and tests against first; every exporter README, runbook, Stack Overflow answer, and incident postmortem assumes it, and deviating from the reference means all of that now applies to your system only by analogy. #prometheus
+  +> [Prometheus]
+  - <The interface is the standard, not the binary>: What the ecosystem actually targets is the exposition format, remote write, and PromQL — interfaces VictoriaMetrics implements — so the analogy gap is narrow in practice and concentrated in edge-case query semantics rather than day-to-day operation. #vm
+
+<Battle-tested defaults are part of the product>: kube-prometheus-stack ships years-hardened kubernetes-mixin alert rules and dashboards wired end-to-end; the VM stack mirrors them through conversion, and any drift between the mirror and upstream is now this template's problem to notice. #prometheus
+  +> [Prometheus]
+  - <Same mixin, converted mechanically>: The vm-k8s-stack ships the same kubernetes-mixin rules and the operator converts PrometheusRule objects mechanically rather than by hand-port, so drift is a version-lag concern, not a rewrite concern. #vm
+
+<The ecosystem carries over>: The VictoriaMetrics operator converts ServiceMonitor, PodMonitor, and PrometheusRule objects, MetricsQL is a PromQL superset, and Grafana talks to vmsingle through the standard Prometheus datasource — charts, dashboards, and alert rules written for the Prometheus ecosystem plug in largely unchanged. #vm
+  +> [VictoriaMetrics]
+  - <Largely unchanged is not unchanged>: Compatibility is high but not bug-for-bug — rate() lookbehind and staleness handling differ subtly, so upstream dashboards and finely-tuned alert expressions can render slightly different numbers and deserve re-validation after the switch. #prometheus
+
+<Team fluency favors the incumbent>: On-call engineers, hiring pipelines, and AI assistants alike have deeper Prometheus reflexes; at 3 a.m. the subtle MetricsQL difference is the kind of thing that extends an incident. #prometheus
+  +> [Prometheus]
+
+# Ingestion and protocols
+
+<Ingestion is a superset>: VictoriaMetrics accepts Prometheus remote write natively (no feature flag), plus OTLP, InfluxDB, Graphite, and Datadog protocols — so push-based pipelines (an OpenTelemetry Collector, RUM/web-vitals converters, edge agents) land without enabling receiver flags or adding gateways. #vm
+  +> [VictoriaMetrics]
+
+# Architecture and day-to-day operations
+
+<More moving parts on day one>: The VM stack splits scrape (vmagent), storage/query (vmsingle), and rules (vmalert) into separate deployments where one Prometheus pod does all three — more CRs to understand, more pods to watch, more places for config to live. #prometheus
+  +> [Prometheus]
+  - <The parts are the architecture>: Each part is small and nearly stateless except vmsingle, failure domains are isolated (a rule-evaluation crash no longer takes down ingestion), and the separation is exactly what makes the vmcluster upgrade a topology change instead of a re-architecture. #vm
+
+<Restarts and outages hurt less>: vmsingle starts in seconds where a large Prometheus TSDB can spend long minutes replaying its WAL, and vmagent buffers scraped samples to disk while storage is down — the scrape path survives storage restarts instead of losing the outage window from the record. #vm
+  +> [VictoriaMetrics]
+
+# Scale-out and governance
+
+<The scale-out path stays in-family>: When a single node is no longer enough, the same operator runs vmcluster with the same query language and CRDs; Prometheus at that point needs a second system bolted on (Thanos, Mimir, federation), each with its own architecture to learn. #vm
+  +> [VictoriaMetrics]
+  - <You may never need the path>: Most single-cluster deployments never outgrow one Prometheus; weighting the upgrade path assumes a scaling future that the boring default handles by simply not arriving. #prometheus
+
+<Single-vendor gravity>: VictoriaMetrics is developed by one company rather than a foundation, and the open core has an enterprise edge (downsampling, some multi-tenancy features are paid) — the project's direction and the free/paid boundary can move on the vendor's schedule. #prometheus
+  +> [Prometheus]
+  - <Apache 2.0 bounds the risk>: The core is permissively licensed with a large community and multiple forks possible; and the honest comparison at scale is not "vendor vs foundation" but "which vendor" — the Prometheus long-term-storage ecosystem (Mimir, Thanos hosting) has its own commercial gravity. #vm
+
+# Cross-cutting context
+
+[Metrics have bounded gravity]: Unlike a database, a metrics store's switching cost is capped by its retention window — walk away and you lose at most N days of history while dashboards and rules carry over — so this decision is unusually reversible in both directions, and neither choice deserves data-gravity-level agonizing. #context
+  -> <You may never need the path>
+  +> [Trial per cluster]
+
+[This template stamps fleets]: The template is per-cluster boilerplate — whatever lands here is multiplied across every future environment, so per-cluster resource savings scale with the fleet while one-time learning costs do not. #context
+  +> <Resource efficiency compounds>
+  -> <Team fluency favors the incumbent>
+
+
+# A middle path
+
+[Trial per cluster]: Keep kube-prometheus-stack as the default and enable the VictoriaMetrics stack on one non-critical cluster; because remote write, dashboards, and rules carry over, the trial is cheap, and bounded gravity means promotion or rollback later costs at most a retention window. #alternative
+  -> [VictoriaMetrics]
+  -> [Prometheus]
+  - <Two stacks is its own tax>: Carrying both stacks means two sets of alert rules, dashboards, and upgrade PRs to keep honest; the trial's carrying cost quietly exceeds the risk it hedges once it lingers past a quarter. #alternative

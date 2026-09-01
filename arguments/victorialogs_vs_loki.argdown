@@ -1,0 +1,90 @@
+===
+title: "VictoriaLogs vs. Loki"
+subTitle: First-principles comparison map for the log store, organized by decision criterion — single-node VictoriaLogs against the Loki single-binary deployment this template ships today
+author: Claude and 3uzbcqje
+date: 2026-08-24
+color:
+  tagColors:
+    vlogs: "#2166ac"
+    loki: "#e08214"
+    context: "#756bb1"
+    alternative: "#35978f"
+===
+
+# The question
+
+Which store should hold this template's logs? Neither option is a thesis to defend here — each criterion below collects what both sides have to say, and the context section names the conditions that swing the verdict. Node color marks which side an argument serves; the arrows carry the valence.
+
+[VictoriaLogs]: Deploy single-node VictoriaLogs — full-text search across all fields, one binary, local-disk persistence — keeping collector-agnostic ingestion (it accepts the Loki push API) and querying through Grafana. #vlogs
+  -> [Loki]
+
+[Loki]: Keep the Loki single-binary deployment this template ships today — label-indexed chunks in object storage, queried with LogQL as a first-class Grafana datasource. #loki
+  -> [VictoriaLogs]
+
+
+# Query model and ergonomics
+
+<Query any field, not just labels>: Loki's model only performs when teams curate a small label set and grep the rest, and it punishes mistakes with cardinality explosions; VictoriaLogs indexes for full-text search across all fields, so ad-hoc questions ("which pods logged this request ID last Tuesday?") need no upfront schema discipline to stay fast. #vlogs
+  +> [VictoriaLogs]
+  - <Labels are a feature too>: The label-first model is also what makes Loki cheap at enormous volume — indexing everything costs something, and disciplined labels plus grep is a deliberate trade, not only a limitation. #loki
+    - <The discipline is the cost>: The trade prices in a human process — label review, cardinality policing, developer education — that small teams reliably skip until the first cardinality incident; a store that does not need the process is cheaper in the currency that is actually scarce. #vlogs
+
+<LogQL knowledge does not transfer>: Saved queries, dashboards, and finger memory are written in LogQL; LogsQL is a different language, so the switch re-prices every existing query and every teammate's fluency, an invisible cost that lands during incidents. #loki
+  +> [Loki]
+  - <A template has no installed base>: For clusters stamped fresh from this template there are no saved queries to convert — the transfer cost is a migration-story concern, not a greenfield one. #vlogs
+
+<Grafana integration is a plugin>: Loki is a first-class Grafana datasource maintained in-core with deep Explore integration; VictoriaLogs arrives via the victoriametrics-logs-datasource plugin — actively developed, but a separate artifact to install, version, and trust with the primary debugging workflow. #loki
+  +> [Loki]
+
+# Operational surface and stack fit
+
+<A fraction of the moving parts>: The Loki app in this repo runs the single binary plus an nginx gateway, a results-cache memcached, sidecars, and a schema config, and its values file carries scar tissue — an IPv6 memberlist workaround and a chunk cache disabled to avoid a ~10Gi memory bill; VictoriaLogs is one binary with no ring, no memberlist, no schema epochs, and no cache tier to size. #vlogs
+  +> [VictoriaLogs]
+
+<Dramatically lighter at query time>: VictoriaLogs runs full-text queries in memory budgets where Loki leans on caches; the practical failure mode this prevents is the familiar one — a dashboard refresh fanning out over object storage and OOM-killing the single log pod. #vlogs
+  +> [VictoriaLogs]
+
+<One family with the metrics stack>: Paired with VictoriaMetrics, logs and metrics share an operator, CRD conventions, upgrade cadence, and mental model — the same coherence argument that favors LGTM inside the Grafana world applies to the VM family here. #vlogs
+  +> [VictoriaLogs]
+
+# Durability and storage
+
+<No object-storage backend in OSS>: Open-source VictoriaLogs persists to local disk only — durability rides on the PersistentVolume and its snapshot regime — while Loki's chunks live in S3 with eleven-nines durability and lifecycle policies, and its PVC holds only the WAL and cache. This is the structural difference; everything else is refinement. #loki
+  +> [Loki]
+  - <Telemetry is not a system of record>: These are 31-day operational logs, not audit records — a replicated or EBS-backed volume with snapshots loses at worst a recovery window of greppable history, and VictoriaLogs's compression keeps that volume small; if a compliance archive is required, tee the collector to S3 separately and keep the query store fast. #vlogs
+    - <Buckets also mean elasticity>: Object storage is not only durability — it decouples storage growth from the pod entirely, absorbs ingestion spikes without volume-resize operations, and makes retention a config knob rather than a disk-capacity negotiation. #loki
+
+# Ingestion and alerting
+
+<Ingestion is protocol-polyglot>: It natively accepts the Loki push API, Elasticsearch bulk, OTLP, syslog, and journald — the existing Alloy DaemonSet migrates by swapping one URL, an OpenTelemetry Collector lands logs without translation, and legacy shippers need no sidecars. #vlogs
+  +> [VictoriaLogs]
+
+<Log-based alerting through the same pipe>: vmalert evaluates LogsQL alerting rules directly against VictoriaLogs and fires into the same Alertmanager as metric alerts — no Loki ruler (a component this template never wired up) and no second alerting path to operate. #vlogs
+  +> [VictoriaLogs]
+
+# Maturity and scale
+
+<Fewer battle miles>: Loki has a decade-scale operational record at extreme scale and an enormous body of tuning lore; VictoriaLogs reached maturity recently, its cluster mode is younger still, and the sharp edges a template should pre-blunt for its users are less thoroughly catalogued. #loki
+  +> [Loki]
+  - <Simplicity shrinks the unknown surface>: Most of Loki's accumulated lore exists to navigate complexity VictoriaLogs does not have (schema migrations, ring membership, cache sizing); a system with fewer failure modes needs fewer battle miles to be trustworthy, as the workarounds in this very repo's Loki values illustrate. #vlogs
+
+<Scale-out story is younger>: Loki's SimpleScalable-to-distributed progression on shared object storage is a proven path to very large volumes; VictoriaLogs's cluster mode is newer and less widely deployed, so committing the template family-wide bets the high-volume future on the less-proven branch. #loki
+  +> [Loki]
+
+# Cross-cutting context
+
+[The repo already carries Loki workarounds]: This template's Loki values file documents an IPv6 memberlist hack held together by Helm quoting subtleties, a disabled chunk cache to dodge a ~10Gi memory request, and cache right-sizing from krr — first-party evidence of the operational surface the alternative removes. #context
+  +> <A fraction of the moving parts>
+
+[Log volume is the real fork]: At tens of GB/day on a small cluster, either store is comfortable and simplicity should win; at TB/day with many tenants, object-storage economics and proven horizontal scale dominate and the calculus flips — decide from expected volume, not ideology. #context
+  +> <Buckets also mean elasticity>
+  -> <Dramatically lighter at query time>
+
+
+# A middle path
+
+[Trial behind the push API]: Because VictoriaLogs accepts the Loki push protocol, stand it up beside Loki, point the collector's push URL at it (or tee to both) for a sprint, and compare query ergonomics, memory, and disk on real traffic before committing either way. #alternative
+  -> [VictoriaLogs]
+  -> [Loki]
+  + <The cheapest possible experiment>: One URL swap is reversible in minutes, produces first-party numbers instead of benchmark claims, and sidesteps the entire fewer-battle-miles debate with local evidence. #alternative
+  - <Double-ingest muddies the water>: Teeing doubles collector fan-out and disk during the trial, and a sprint of small-cluster traffic cannot exercise the scale regime where the two systems actually diverge. #alternative
