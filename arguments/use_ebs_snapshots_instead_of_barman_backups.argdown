@@ -1,0 +1,67 @@
+===
+title: "Use EBS snapshots instead of Barman backups?"
+subTitle: First-principles pro/con map for CNPG base backups on EKS — filesystem-level EBS volume snapshots through the CSI snapshotter versus barman-cloud base backups streamed to S3, with WAL archiving to object storage required for point-in-time recovery under either design
+author: Claude and 3uzbcqje
+date: 2026-09-01
+color:
+  tagColors:
+    pro: "#1a9850"
+    con: "#d73027"
+    context: "#756bb1"
+    alternative: "#e6ab02"
+    proposal: "#2166ac"
+===
+
+# The proposal
+
+[Use EBS snapshots]: Take CNPG base backups as CSI volume snapshots of each cluster's data and WAL volumes — EBS snapshots, on EKS — instead of streaming barman-cloud base backups into S3, while keeping WAL archiving to object storage for point-in-time recovery in both designs. #proposal
+
+
+# Reasons for
+
+[Use EBS snapshots]
+  + <Backups scale with change, not size>: EBS snapshots are block-incremental, so the nightly backup of a multi-terabyte, slow-churning database copies only the blocks that moved and finishes in minutes; a barman base backup reads and ships the entire database every time, an IO-and-network bill that grows linearly with size no matter how little changed. #pro
+    - <Postgres 17 narrows the gap>: Incremental base backup landed in Postgres 17 and recent Barman releases support it, so streamed backups are no longer condemned to be full — though only on the newest stacks, with a combine-backups step added to the restore path and the incremental chain becoming one more thing to verify. #con
+  + <Restore time stops scaling with size>: A new Cluster bootstrapped from a snapshot skips the bulk copy entirely — the volume exists within minutes at any size and WAL replay starts immediately; a barman recovery must first haul the whole base backup out of S3, so time-to-recovery grows with the database precisely when the pressure is highest. #pro
+    - <Hydration is the hidden phase>: A volume restored from a snapshot lazy-loads its blocks in the background, so the database opens quickly but limps at cold-read latency until its blocks are touched or deliberately warmed — and fast snapshot restore, the paid fix, bills steeply per zone-hour; a barman restore is slow to open but runs at full speed from the first query. Which method recovers faster depends on whether the clock stops at accepting connections or at normal performance. #con
+      - <Degraded now beats absent for longer>: A database that answers queries slowly while its working set faults in is still a database — warming the hot tables closes most of the gap — and few incident commanders would trade it for another hour of total unavailability. #pro
+  + <The backup window taxes nobody>: A barman base backup reads every byte of the database through a running instance for hours per run; a snapshot needs seconds of coordination at the block layer and uploads in the background, so the backup window stops being a nightly performance event to schedule around. #pro
+    - <Standbys absorb the tax already>: CNPG targets a standby for base backups by default, so the streaming cost lands on a replica whose spare capacity exists for exactly this, not on the primary — the tax is real but already routed to the payer who can afford it. #con
+  + <Production-data clones become cheap>: Bootstrapping a staging, migration-rehearsal, or forensics cluster from last night's snapshot takes minutes and costs only changed blocks, where the barman path re-downloads a full base backup for every clone — the ephemeral-database benefits promised in the CNPG-versus-RDS map get their teeth from this. #pro
+
+# Reasons against
+
+[Use EBS snapshots]
+  - <The backup only restores into AWS>: A snapshot is an EBS artifact, scoped to an account and a region and restorable only onto another EBS volume; barman backups in a bucket restore onto anything that runs Postgres — another cloud, a laptop, or the bare-metal platform this template also stamps, where rook-ceph can even serve the S3 endpoint itself. The copy of record for disasters is the wrong place to accept substrate lock-in. #con
+  - <More controllers on the restore path>: Volume snapshots need the external snapshot controller and its CRDs, a VolumeSnapshotClass, and snapshot support in the CSI driver — none of which this template ships today — and in a disaster the destination cluster must have all of that machinery healthy before recovery can even begin; barman needs a bucket, a credential, and the plugin. #con
+    - <The plugin is new machinery too>: In-tree barman support was deprecated in CNPG 1.26 in favor of the barman-cloud plugin — a separate component with its own sidecars, lifecycle, and upgrade cadence — so neither path is the zero-install incumbent anymore; both bolt new parts onto the operator. #pro
+    - <DLM removes the cluster from the loop>: A tag-based Data Lifecycle Manager policy snapshots every PVC-backed EBS volume from the AWS side — schedules, retention, cross-region copy, and snapshot locking included — with no snapshot controller, no CRDs, and nothing new running in the cluster on either the backup path or the restore path, and it covers every stateful workload in the fleet, not just the databases. #pro
+      - <What leaves the backup path returns as runbook>: A DLM snapshot is per-volume and crash-consistent, taken blind to Postgres — safe while data and WAL share one volume, because restore is just crash recovery, but silently unsafe the moment a cluster splits WAL onto its own walStorage volume, since the two snapshots are not taken together and neither CNPG nor DLM will say so; and because nothing in Kubernetes knows the snapshots exist, there is no Backup object to alert on and no recovery bootstrap to point at them — restoring means creating a volume from the snapshot by hand, statically provisioning a PV and PVC under the exact names CNPG expects, and only then starting the Cluster. The controllers saved on the backup path come back as manual steps at the worst possible moment. #con
+  - <The bucket is the better vault>: Backup deletion is the ransomware and fat-finger scenario, and the mature answer is a bucket in a separate account with versioning and S3 Object Lock — write-once storage the compromised cluster account cannot touch; snapshots default to living in the same account as the volumes they protect, deletable by anyone holding EC2 permissions. #con
+    - <Snapshots lock too>: EBS Snapshot Lock provides the same write-once guarantee, Recycle Bin catches deletions, and Data Lifecycle Manager automates cross-account copies — parity is closer than the folklore suggests, though assembling those pieces is AWS-side automation that lives outside this repository's GitOps. #pro
+  - <Object storage is the cheaper archive>: Snapshot storage costs roughly double S3 standard per gigabyte-month, stores blocks uncompressed where barman compresses Postgres data severalfold before upload, and offers only a coarse archive tier with a ninety-day minimum — while a bucket's lifecycle rules tier aging backups toward Glacier for cents. #con
+    - <Deltas can undercut fulls>: For a large, slow-changing database the comparison inverts — a retention window of block-level deltas can total less than the same window of compressed fulls even at double the unit price; the bill depends on churn rate and retention length, not on the headline per-gigabyte figure. #pro
+  - <The bucket never leaves>: Point-in-time recovery requires WAL archiving to object storage under either method, so adopting snapshots removes no dependency, no credential, and no bucket — it adds a second backup system beside the one that was already mandatory, with its own retention regime, monitoring, and failure modes to drill. #con
+
+# Cross-cutting context
+
+[WAL archiving is load-bearing either way]: The WAL archive in object storage carries point-in-time recovery and replica bootstrap under both designs; this map decides only who carries the base backup, which is a narrower question than snapshots-versus-barman sounds. #context
+  +> <The bucket never leaves>
+
+[Database size is the fulcrum]: Below about a hundred gigabytes a barman restore takes minutes and every snapshot advantage is noise; in the terabytes, backup windows and restore clocks dominate operations and the reasons for the proposal compound. #context
+  +> <Backups scale with change, not size>
+  +> <Restore time stops scaling with size>
+
+[The storage map gates this one]: If the companion map on EBS volumes versus local NVMe drives lands on local NVMe instance store, there is no EBS volume to snapshot and no snapshot facility in local persistent volumes — barman becomes the only candidate and this whole map is moot, so decide storage first. #context
+  -> [Use EBS snapshots]
+
+[This template stamps two substrates]: One template produces both EKS and bare-metal clusters, and a backup method that exists on only one substrate forks the runbooks, the drills, and the recovery documentation per platform — uniformity is itself worth something. #context
+  +> <The backup only restores into AWS>
+
+
+# A common alternative
+
+[Snapshot for speed, bucket for truth]: Run both — WAL archiving plus periodic barman base backups to S3 as the authoritative, portable, lockable copy of record, and volume snapshots on the large clusters for fast restores and cheap clones. #alternative
+  -> [Use EBS snapshots]
+  + <Each layer does what it is best at>: The bucket holds the disaster copy that restores anywhere and can be made immutable; snapshots serve the minutes-matter scenarios — big-cluster recovery and production-data clones — and neither mechanism is stretched past its strengths. #pro
+  - <Two backup systems, one drill budget>: Every backup path that is not regularly restored silently rots, and doubling the paths doubles the monitoring, retention tuning, and drill calendar — in practice the fast path gets rehearsed and the copy of record gets discovered broken during the disaster it existed for. #con
