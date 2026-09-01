@@ -16,15 +16,18 @@
 # - 5xx: for raised 1m -> 5m (a single bad minute shouldn't page), and the
 #   absolute-rate guard lowered 5/s -> 1/s — at this template's traffic, 5/s
 #   of 5xx could hide a fully broken backend. Tune both with real traffic.
-# - The mixin's 4xx info alert is skipped on purpose: on an internet-facing
-#   gateway behind coraza (apps/coraza), 4xx is dominated by bot probing and
-#   WAF 403s — client behavior, not service health — and with the combined
-#   receiver an "info" alert still pages.
+# - The mixin's 4xx alert is kept but re-tuned rather than copied: with the
+#   combined receiver its "info" severity would still page, and on an
+#   internet-facing gateway 4xx has a real baseline (bot probing, expired
+#   sessions, 404s), so it fires as a warning only past a ratio that means
+#   "the backend is rejecting most of what reaches it" — see the rule's own
+#   comment. There is still no *edge* (downstream) 4xx rule: at the edge the
+#   baseline additionally includes coraza's WAF 403s (apps/coraza).
 # - The mixin ORs the three circuit-breaker gauges, but PromQL's `or` matches
 #   on the full label set ignoring metric name, so where all three exist only
 #   rq_open survives and an open cx/cx_pool breaker is masked by a closed
 #   rq_open=0. A __name__ regex over all three avoids that.
-# The downstream (edge) rules and the latency rule are our own — no public
+# The downstream (edge) rules and the latency rules are our own — no public
 # ruleset ships a latency alert (samber/awesome-prometheus-alerts includes
 # downstream 5xx/timeout shapes; ours follow the mixin's ratio+guard form).
 apiVersion: operator.victoriametrics.com/v1beta1
@@ -100,6 +103,56 @@ spec:
           for: 5m
           labels:
             severity: critical
+        # 4xx at the upstream level is what the backend actually returned —
+        # coraza's WAF 403s are local replies at the edge and never reach a
+        # cluster — but bot probes the WAF passes (404 scans) still land
+        # here, hence the 25% ratio instead of the mixin's 5%: high enough
+        # to mean an auth/CORS/routing regression or a bad deploy, not
+        # organic client errors. Like the 5xx guards, tune on real traffic.
+        - alert: EnvoyUpstreamHighHttp4xxRate
+          annotations:
+            summary: An upstream cluster is answering >25% 4xx.
+            description: >-
+              {{ printf "%.1f" $value }}% of requests from gateway
+              {{ $labels.gateway }} to upstream cluster
+              {{ $labels.envoy_cluster_name }} got a 4xx over the last 5m.
+              At this ratio suspect a broken contract — an auth or CORS
+              regression, a route 404ing after a deploy — rather than
+              organic client errors.
+          expr: |-
+            (
+              sum by (gateway, envoy_cluster_name) (rate(envoy_cluster_upstream_rq_xx{envoy_response_code_class="4", envoy_cluster_name!=""}[5m]))
+              /
+              sum by (gateway, envoy_cluster_name) (rate(envoy_cluster_upstream_rq_total{envoy_cluster_name!=""}[5m]))
+            ) * 100 > 25
+            and
+            sum by (gateway, envoy_cluster_name) (rate(envoy_cluster_upstream_rq_xx{envoy_response_code_class="4", envoy_cluster_name!=""}[5m])) > 1
+          for: 5m
+          labels:
+            severity: warning
+        # Companion to EnvoyDownstreamSlowRequests, one hop in:
+        # envoy_cluster_upstream_rq_time is timed from sending the request
+        # upstream to receiving the full response, so it isolates the
+        # backend's share of the edge latency. Both firing → the backend is
+        # slow; downstream alone → the time is going into Envoy's filter
+        # chain or the client-side leg. Same unit traps as the downstream
+        # rule: milliseconds, and 1000 is a default bucket edge.
+        - alert: EnvoyUpstreamSlowRequests
+          annotations:
+            summary: An upstream cluster's p99 response time is over 1s.
+            description: >-
+              p99 request time from gateway {{ $labels.gateway }} to
+              upstream cluster {{ $labels.envoy_cluster_name }} has been
+              {{ printf "%.0f" $value }}ms (threshold 1000ms) for 15m — the
+              backend itself is slow, before Envoy filter time and the
+              client-side leg are added on top.
+          expr: |-
+            histogram_quantile(0.99,
+              sum by (gateway, envoy_cluster_name, le) (rate(envoy_cluster_upstream_rq_time_bucket{envoy_cluster_name!=""}[5m]))
+            ) > 1000
+          for: 15m
+          labels:
+            severity: warning
         - alert: EnvoyCircuitBreakerOpen
           annotations:
             summary: An Envoy circuit breaker is open.
