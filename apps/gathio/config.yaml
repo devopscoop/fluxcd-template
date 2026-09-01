@@ -1,0 +1,36 @@
+apiVersion: v1
+data:
+  config.toml: |
+    # Upstream reference: config/config.example.toml in
+    # https://github.com/lowercasename/gathio
+    # Any string value here can reference an environment variable with
+    # ${GATHIO_VARIABLE_NAME} syntax. Only GATHIO_-prefixed vars are supported.
+    #
+    # Gathio merges this file over its defaults with a shallow spread, so a key
+    # omitted from [general] ends up undefined rather than defaulted. Keep the
+    # whole table populated.
+
+    [general]
+    domain = "gathio.project1-dev.devops.coop"
+    port = "3000"
+    # Contact address shown on the instance and used as the From: address.
+    email = "contact@devops.coop"
+    site_name = "Gathio"
+    is_federated = true
+    # Events are deleted this many days after they end. 0 disables deletion.
+    delete_after_days = 7
+    email_logo_url = ""
+    show_kofi = false
+    show_public_event_list = false
+    max_comment_length = 5000
+    # 'nodemailer', 'sendgrid', 'mailgun', or 'none'. Switching away from 'none'
+    # means adding the matching credentials to helm_secrets.yaml.
+    mail_service = "none"
+    # Empty means anyone can create events on this instance.
+    creator_email_addresses = []
+
+    [database]
+    mongodb_url = "${GATHIO_MONGODB_URL}"
+kind: ConfigMap
+metadata:
+  name: config

@@ -1,0 +1,78 @@
+# dyff between <(yq . <(helm show values oci://registry.gitlab.com/devopscoop/charts/app --version 0.11.1)) <(yq eval '. * load("values.yaml")' <(helm show values oci://registry.gitlab.com/devopscoop/charts/app --version 0.11.1))
+# vim -O <(helm show values oci://registry.gitlab.com/devopscoop/charts/app --version 0.11.1) values.yaml
+
+# Event images uploaded by users are written to disk at /app/public/events, so
+# this is a StatefulSet with a PVC rather than a Deployment.
+workloadType: "StatefulSet"
+
+statefulSet:
+  volumeClaimTemplates:
+  - metadata:
+      name: events
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 5Gi
+
+replicaCount: 1
+
+image:
+  repository: ghcr.io/lowercasename/gathio
+  tag: "1.6.5@sha256:999c2370cb7f8148be772d12289e0dc658001ec5ea9979d91da4dce942ee6129"
+
+service:
+  port: 3000
+
+# eg-public ships with only its http listener; add an HTTPS listener for this
+# hostname to apps/eg-custom-resources/gateway-public.yaml, or the route has
+# nothing to attach to. See README.md.
+httpRoute:
+  enabled: true
+  parentRefs:
+  - name: eg-public
+    namespace: envoy-gateway-system
+  hostnames:
+  - gathio.project1-dev.devops.coop
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /
+
+# config.toml is mounted from the ConfigMap in config.yaml. Any string in it can
+# reference a GATHIO_-prefixed env var as ${GATHIO_FOO}; the sensitive ones
+# (the MongoDB URL) come from envSecret in helm_secrets.yaml.
+#
+# Note: the PVC is deliberately NOT listed under volumes:. The StatefulSet's
+# volumeClaimTemplate already supplies a volume named "events"; a bare
+# `- name: events` entry with no source renders into the pod spec as a volume
+# with no volume type, which the API server rejects.
+volumes:
+  - name: config
+    configMap:
+      name: config
+volumeMounts:
+  - name: config
+    mountPath: "/app/config/config.toml"
+    subPath: config.toml
+    readOnly: true
+  - name: events
+    mountPath: "/app/public/events"
+
+# Gathio serves / without touching MongoDB, so these prove the process is up,
+# not that the database is reachable.
+startupProbe:
+  httpGet:
+    path: /
+    port: http
+livenessProbe:
+  httpGet:
+    path: /
+    port: http
+readinessProbe:
+  httpGet:
+    path: /
+    port: http
+
+resources: {}

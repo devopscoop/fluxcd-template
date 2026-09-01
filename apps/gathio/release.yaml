@@ -1,0 +1,19 @@
+# https://fluxcd.io/flux/components/helm/helmreleases/
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: gathio
+spec:
+  # Both releases are in one Flux Kustomization, so ordering is a
+  # HelmRelease-level dependsOn rather than a Kustomization-level one.
+  dependsOn:
+    - name: mongodb
+  interval: 10m
+  valuesFrom:
+    - kind: ConfigMap
+      name: gathio-values
+    - kind: Secret
+      name: gathio-secrets
+  chartRef:
+    kind: OCIRepository
+    name: devopscoop-app
