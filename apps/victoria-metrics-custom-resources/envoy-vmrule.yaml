@@ -27,7 +27,7 @@
 #   on the full label set ignoring metric name, so where all three exist only
 #   rq_open survives and an open cx/cx_pool breaker is masked by a closed
 #   rq_open=0. A __name__ regex over all three avoids that.
-# The downstream (edge) rules and the latency rules are our own — no public
+# The downstream (edge) rules and the latency rule are our own — no public
 # ruleset ships a latency alert (samber/awesome-prometheus-alerts includes
 # downstream 5xx/timeout shapes; ours follow the mixin's ratio+guard form).
 apiVersion: operator.victoriametrics.com/v1beta1
@@ -128,29 +128,6 @@ spec:
             and
             sum by (gateway, envoy_cluster_name) (rate(envoy_cluster_upstream_rq_xx{envoy_response_code_class="4", envoy_cluster_name!=""}[5m])) > 1
           for: 5m
-          labels:
-            severity: warning
-        # Companion to EnvoyDownstreamSlowRequests, one hop in:
-        # envoy_cluster_upstream_rq_time is timed from sending the request
-        # upstream to receiving the full response, so it isolates the
-        # backend's share of the edge latency. Both firing → the backend is
-        # slow; downstream alone → the time is going into Envoy's filter
-        # chain or the client-side leg. Same unit traps as the downstream
-        # rule: milliseconds, and 1000 is a default bucket edge.
-        - alert: EnvoyUpstreamSlowRequests
-          annotations:
-            summary: An upstream cluster's p99 response time is over 1s.
-            description: >-
-              p99 request time from gateway {{ $labels.gateway }} to
-              upstream cluster {{ $labels.envoy_cluster_name }} has been
-              {{ printf "%.0f" $value }}ms (threshold 1000ms) for 15m — the
-              backend itself is slow, before Envoy filter time and the
-              client-side leg are added on top.
-          expr: |-
-            histogram_quantile(0.99,
-              sum by (gateway, envoy_cluster_name, le) (rate(envoy_cluster_upstream_rq_time_bucket{envoy_cluster_name!=""}[5m]))
-            ) > 1000
-          for: 15m
           labels:
             severity: warning
         - alert: EnvoyCircuitBreakerOpen
