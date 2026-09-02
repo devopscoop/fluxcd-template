@@ -22,6 +22,8 @@
 # 5. The eks marker blocks ship commented; the next deploy.sh run opens them
 #    when k8s_platform=eks.
 #
+# Restoring from backup: runbooks/restore-cnpg-database.md.
+#
 # CNPG auto-creates an `app-template-db-app` Secret (`<cluster>-app`) for the
 # owner of the database below; its `uri` key is a ready-made libpq connection
 # string pointing at the read-write Service (app-template-db-rw) — feed that

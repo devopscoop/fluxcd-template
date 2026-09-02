@@ -38,7 +38,7 @@ kubectl -n goalert get scheduledbackup,backup
 kubectl -n goalert get cluster goalert-db -o jsonpath='{.status.lastSuccessfulBackup}'
 ```
 
-To restore, create a new `Cluster` with `bootstrap.recovery` pointing at an `externalClusters` entry that uses the plugin (`barmanObjectName: goalert-db`, `serverName: goalert-db`) — see the [plugin's recovery docs](https://cloudnative-pg.io/plugin-barman-cloud/docs/usage/#restoring-a-cluster). Two things the object store does *not* contain: the `GOALERT_DATA_ENCRYPTION_KEY` (in this app's `helm_secrets.yaml` — restoring the database without the same key leaves the encrypted columns unreadable, see "Data-encryption key" above), and anything created after the last archived WAL segment.
+To restore, follow the step-by-step runbook: [`runbooks/restore-cnpg-database.md`](../../runbooks/restore-cnpg-database.md). Two things the object store does *not* contain: the `GOALERT_DATA_ENCRYPTION_KEY` (in this app's `helm_secrets.yaml` — restoring the database without the same key leaves the encrypted columns unreadable, see "Data-encryption key" above), and anything created after the last archived WAL segment.
 
 ## Wiring Alertmanager to GoAlert
 

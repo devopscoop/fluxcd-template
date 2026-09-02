@@ -104,7 +104,7 @@ spec:
 # cnpg-barman-plugin — this app's flux Kustomization dependsOn it) reads this
 # ObjectStore and runs a barman-cloud sidecar in each instance pod that ships
 # WAL segments continuously and base backups on the ScheduledBackup's cadence
-# (next document). Restore guidance: README.md "Backups".
+# (next document). Restore runbook: runbooks/restore-cnpg-database.md.
 #
 # Bucket and IAM role come from aws-eks-template (cluster/cnpg-backups.tf,
 # keyed by app under local.cnpg_databases — adding a database there stamps
