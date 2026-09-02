@@ -12,11 +12,19 @@ kind: Cluster
 metadata:
   name: goalert-db
 spec:
-  # GoAlert's dataset is tiny — schedules, escalation policies, and alert
-  # metadata, not metrics. instances: 1 keeps parity with the repo's other
-  # singletons; bump to 2-3 for real HA (CNPG handles streaming replication
-  # and failover, and GoAlert always connects through the -rw Service).
-  instances: 1
+  # One primary + two streaming replicas, CNPG's standard HA shape. Three
+  # matters, not just two: CNPG always creates a PDB requiring the primary to
+  # stay available, so a single-instance cluster blocks node drains outright
+  # ("Cannot evict pod as it would violate the pod's disruption budget",
+  # retrying forever). With replicas the operator instead switches the
+  # primary over ahead of the drain, and at 3+ instances the replica PDB
+  # (minAvailable: instances - 2) releases one replica at a time — a standby
+  # exists to fail over to even mid-drain, which 2 instances can't guarantee.
+  # Replication is async (CNPG default); GoAlert always connects through the
+  # -rw Service, so switchovers are invisible to it. The dataset is tiny
+  # (schedules, escalation policies, alert metadata), so the cost of HA is
+  # just two more pods and PVCs.
+  instances: 3
   # Pinned to PostgreSQL 17, deliberately: GoAlert v0.34 is tested against
   # PostgreSQL 13-17, while this repo's CNPG operator (1.28) defaults new
   # clusters to PostgreSQL 18, which GoAlert's test suite doesn't cover yet.
@@ -41,10 +49,13 @@ spec:
       memory: 512Mi
     limits:
       memory: 512Mi
-  # Paging flows through this single-instance database: a spot reclaim takes
-  # GoAlert down with it until the pod reschedules and recovers. Pin it to
-  # on-demand capacity, per the NodePool contract in
-  # apps/karpenter-custom-resources/nodepool.yaml.
+  # With three instances a spot reclaim is survivable (graceful drain →
+  # switchover), but a spot capacity crunch is exactly when alerts fire, and
+  # paging flows through this database. Keep it on on-demand capacity, per
+  # the NodePool contract in apps/karpenter-custom-resources/nodepool.yaml.
+  # Spread across nodes comes from CNPG's default preferred pod anti-affinity
+  # on kubernetes.io/hostname — preferred, not required, so Karpenter
+  # consolidation can still pack instances together when capacity is tight.
 # >>> eks: deploy.sh uncomments this block when k8s_platform=eks
 #   affinity:
 #     nodeSelector:
