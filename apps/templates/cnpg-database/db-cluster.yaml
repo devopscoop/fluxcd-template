@@ -12,7 +12,7 @@
 #    app's Kustomization in flux/flux-system/ dependsOn entries for cnpg and
 #    cnpg-barman-plugin.
 # 3. Add the database to local.cnpg_databases in aws-eks-template
-#    cluster/cnpg-databases.tf ({ <app> = "<app>-db" }); the apply stamps out
+#    cluster/cnpg-backups.tf ({ <app> = "<app>-db" }); the apply stamps out
 #    the S3 bucket and IRSA role, and its outputs carry the bucket name for
 #    the ObjectStore's destinationPath and the role ARN for the ACCOUNT_ID
 #    placeholder below.
@@ -101,7 +101,7 @@ spec:
   # IRSA: the instance pods run as the app-template-db ServiceAccount (CNPG
   # names it after the Cluster), and this annotation lets their barman-cloud
   # sidecars reach the backup bucket. Role and bucket come from
-  # aws-eks-template cluster/cnpg-databases.tf (see the cnpg_db_role_arns
+  # aws-eks-template cluster/cnpg-backups.tf (see the cnpg_db_role_arns
   # output).
 # >>> eks: deploy.sh uncomments this block when k8s_platform=eks
 #   serviceAccountTemplate:
@@ -116,7 +116,7 @@ spec:
 # WAL segments continuously and base backups on the ScheduledBackup's cadence
 # (next document).
 #
-# Bucket and IAM role come from aws-eks-template (cluster/cnpg-databases.tf,
+# Bucket and IAM role come from aws-eks-template (cluster/cnpg-backups.tf,
 # keyed by app under local.cnpg_databases — adding a database there stamps
 # out its bucket and role, with optional cross-region replication);
 # authentication is IRSA (inheritFromIAMRole) via the serviceAccountTemplate

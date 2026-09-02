@@ -89,7 +89,7 @@ spec:
   # IRSA: the instance pods run as the goalert-db ServiceAccount (CNPG names
   # it after the Cluster), and this annotation lets their barman-cloud
   # sidecars reach the backup bucket. Role and bucket come from
-  # aws-eks-template cluster/cnpg-databases.tf (see the cnpg_db_role_arns
+  # aws-eks-template cluster/cnpg-backups.tf (see the cnpg_db_role_arns
   # output).
 # >>> eks: deploy.sh uncomments this block when k8s_platform=eks
 #   serviceAccountTemplate:
@@ -104,7 +104,7 @@ spec:
 # WAL segments continuously and base backups on the ScheduledBackup's cadence
 # (next document). Restore guidance: README.md "Backups".
 #
-# Bucket and IAM role come from aws-eks-template (cluster/cnpg-databases.tf,
+# Bucket and IAM role come from aws-eks-template (cluster/cnpg-backups.tf,
 # keyed by app under local.cnpg_databases — adding a database there stamps
 # out its bucket and role, with optional cross-region replication);
 # authentication is IRSA (inheritFromIAMRole) via the serviceAccountTemplate
