@@ -50,39 +50,11 @@ At least one base backup must exist. Everything written after the last archived 
 
 ## 4. Edit `apps/goalert/db-cluster.yaml`
 
-Three changes to the Cluster document (the ObjectStore and ScheduledBackup documents stay as they are):
+Everything the restore needs ships commented out in the manifest itself; the ObjectStore and ScheduledBackup documents stay as they are. Three toggles in the Cluster document, each explained by the comment sitting on it:
 
-1. Replace the whole `bootstrap.initdb` block with `bootstrap.recovery`.
-2. Add a `serverName` parameter under `.spec.plugins` — the restored cluster's *new* archive path. Bump the suffix on every restore (`-r2`, `-r3`, ...).
-3. Add `externalClusters` pointing at where the backup lives — the *old* `serverName` (the Cluster name, unless a previous restore already bumped it).
-
-```yaml
-spec:
-  bootstrap:
-    recovery:
-      source: goalert-db
-      # Point-in-time only; omit recoveryTarget to recover to the end of WAL:
-      # recoveryTarget:
-      #   targetTime: "2026-09-02 16:20:00+00"
-  plugins:
-    - name: barman-cloud.cloudnative-pg.io
-      isWALArchiver: true
-      parameters:
-        barmanObjectName: goalert-db
-        # New archive path: CNPG refuses to archive into a WAL history it
-        # didn't create. Bump on every restore.
-        serverName: goalert-db-r2
-  externalClusters:
-    - name: goalert-db # must match bootstrap.recovery.source
-      plugin:
-        name: barman-cloud.cloudnative-pg.io
-        parameters:
-          barmanObjectName: goalert-db
-          # Where the backup you are restoring FROM lives: the old cluster's
-          # serverName — "goalert-db" originally, "goalert-db-r2" if you are
-          # restoring a cluster that was itself already restored once.
-          serverName: goalert-db
-```
+1. Comment out the `bootstrap.initdb` block and uncomment `bootstrap.recovery` beneath it. For a point-in-time restore, also uncomment `recoveryTarget` and set `targetTime`.
+2. Uncomment `serverName` under `.spec.plugins[0].parameters` — the restored cluster's *new* archive path, which CNPG requires because it refuses to archive into a WAL history it didn't create. Bump the suffix on every restore (`-r2`, `-r3`, ...).
+3. Uncomment the `externalClusters` block at the bottom of the Cluster document and point its `serverName` at where the backup you are restoring from lives — the *old* serverName (the Cluster name originally, `-rN` if this cluster was restored before).
 
 Check `storage.size` while you are in the file: the new PVCs must hold the restored data. The template ships 1Gi; a cluster that grew past that needs the size the old cluster actually had.
 
