@@ -5,6 +5,6 @@ kind: Kustomization
 
 resources:
   - gp3.yaml
-  - gp3-no-dlm.yaml
+  - gp3-dangerous.yaml
   - efs.yaml
   - gp2-not-default.yaml

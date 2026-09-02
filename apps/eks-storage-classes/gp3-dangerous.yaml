@@ -1,10 +1,11 @@
-# gp3, minus EBS snapshots: identical to gp3.yaml except volumes are tagged
-# dlm-exclude=true at provision time, which the DLM default policy in
-# aws-eks-template (dlm.tf, dlm_snapshot_cnpg_databases = false) skips. For
-# workloads whose backup story lives elsewhere — CNPG databases use it
-# because barman already backs them up (see apps/goalert), so daily EBS
-# snapshots of their volumes would be redundant spend and a crash-consistent
-# restore footgun next to barman's point-in-time recovery.
+# gp3, minus EBS snapshots — "dangerous" because volumes on this class have
+# NO snapshot safety net: they are tagged dlm-exclude=true at provision time,
+# which the DLM default policy in aws-eks-template (dlm.tf,
+# dlm_snapshot_cnpg_databases = false) skips. Only put data here if its
+# backup story genuinely lives elsewhere. CNPG databases use it because
+# barman already backs them up (see apps/goalert), so daily EBS snapshots of
+# their volumes would be redundant spend and a crash-consistent restore
+# footgun next to barman's point-in-time recovery.
 #
 # Tags apply at provision time only: a volume that existed before its
 # workload moved to this class keeps its old tags (and keeps being
@@ -12,7 +13,7 @@
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
-  name: gp3-no-dlm
+  name: gp3-dangerous
   annotations:
     # reclaimPolicy is immutable; let Flux delete+recreate when it changes.
     kustomize.toolkit.fluxcd.io/force: "enabled"
