@@ -44,7 +44,7 @@ spec:
       # and pgcrypto is a trusted extension since PostgreSQL 13, so the
       # (non-superuser) database owner above is allowed to create it.
   storage:
-    size: 5Gi
+    size: 1Gi
   # On EKS these volumes opt out of the DLM snapshot policy: barman owns this
   # database's backups (the ObjectStore below), so daily EBS snapshots would
   # be redundant spend — and a crash-consistent snapshot of one replica's

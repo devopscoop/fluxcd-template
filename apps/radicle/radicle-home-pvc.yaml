@@ -14,8 +14,8 @@ metadata:
 spec:
   accessModes:
     - ReadWriteOnce
-  # Sized for the repos in seeded-repos.txt rather than the whole network --
-  # config.json blocks by default. Revisit as that list grows.
+  # Template-minimal 1Gi; grow with seeded-repos.txt (config.json blocks
+  # seeding the whole network by default). Volumes can grow but never shrink.
   resources:
     requests:
-      storage: 10Gi
+      storage: 1Gi

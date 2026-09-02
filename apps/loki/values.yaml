@@ -126,7 +126,7 @@ singleBinary:
     # Local PVC is only used for the WAL and tsdb/boltdb shipper cache, not for
     # log chunks (those go to S3).
     enabled: true
-    size: 10Gi
+    size: 1Gi
   # Loki runs as a single replica with replication_factor 1 and its WAL on the
   # PVC above, so a spot reclaim stops log ingestion and risks unflushed WAL
   # data. Pin it to on-demand capacity, per the NodePool contract in

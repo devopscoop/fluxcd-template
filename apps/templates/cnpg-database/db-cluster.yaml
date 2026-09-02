@@ -56,7 +56,7 @@ spec:
       # CREATE EXTENSION IF NOT EXISTS in their own migrations need nothing
       # here. Anything untrusted needs postInitSQL.
   storage:
-    size: 5Gi
+    size: 1Gi
   # On EKS these volumes opt out of the DLM snapshot policy: barman owns this
   # database's backups (the ObjectStore below), so daily EBS snapshots would
   # be redundant spend — and a crash-consistent snapshot of one replica's

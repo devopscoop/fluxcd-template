@@ -44,19 +44,19 @@ vmsingle:
     # probes get connection refused and kubelet restarts it forever.
     extraArgs:
       enableTCP6: "true"
-    # 20Gi holds 30d comfortably: VictoriaMetrics compresses to well under a
-    # byte per sample (roughly 7x denser than Prometheus's TSDB), so this is
-    # the counterpart of the 50Gi Prometheus volume in
-    # apps/kube-prometheus-stack. There is no retentionSize equivalent to
-    # tune: when the disk does fill, vmsingle switches to read-only instead of
-    # crash-looping. No storageClassName, so the cluster's default
-    # StorageClass is used.
+    # Ships at the template's minimal 1Gi — volumes can grow but never
+    # shrink, so size up per deployment; as a guide, 30d on a small cluster
+    # fits comfortably in ~20Gi (VictoriaMetrics compresses to well under a
+    # byte per sample, roughly 7x denser than Prometheus's TSDB). There is no
+    # retentionSize equivalent to tune: when the disk does fill, vmsingle
+    # switches to read-only instead of crash-looping. No storageClassName, so
+    # the cluster's default StorageClass is used.
     storage:
       accessModes:
         - ReadWriteOnce
       resources:
         requests:
-          storage: 20Gi
+          storage: 1Gi
     # Memory req=limit, no CPU limit. OOMKilled at 512Mi on 2026-08-26, right
     # after the kubelet relabelConfigs fix below un-dropped the label-heavy
     # cadvisor series — active series jumped for good, so doubled to 1Gi.
