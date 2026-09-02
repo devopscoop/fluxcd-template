@@ -6,9 +6,10 @@ metadata:
 spec:
   # db-cluster.yaml is a CloudNativePG Cluster CR, so applying it needs the
   # CRD and the operator's admission webhook to be serving, and on a fresh
-  # bootstrap cnpg must land first. objectstore.yaml is likewise a CR whose
-  # CRD ships with the barman plugin, and the plugin must be registered with
-  # the operator before the Cluster references it for WAL archiving.
+  # bootstrap cnpg must land first. The ObjectStore in db-cluster.yaml is
+  # likewise a CR whose CRD ships with the barman plugin, and the plugin must
+  # be registered with the operator before the Cluster references it for WAL
+  # archiving.
   dependsOn:
     - name: cnpg
     - name: cnpg-barman-plugin

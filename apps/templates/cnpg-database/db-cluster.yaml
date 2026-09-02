@@ -1,21 +1,35 @@
-# GoAlert's PostgreSQL, run by the CloudNativePG operator (apps/cnpg — the
-# flux Kustomization for this app dependsOn it). GoAlert applies its own
-# schema migrations at startup, so CNPG only has to provide an empty database
-# and credentials.
+# A CloudNativePG PostgreSQL database with barman backups to S3, in three
+# documents: the Cluster, the ObjectStore its backups land in, and the daily
+# ScheduledBackup. Copied (not scaffolded by a script — copy it by hand) from
+# apps/goalert's db-cluster.yaml, the live example of this pattern.
 #
-# Three documents: the Cluster, the ObjectStore its barman backups land in,
-# and the daily ScheduledBackup. One file so the database's whole story reads
-# top to bottom — apps/templates/cnpg-database holds the reusable copy for
-# creating new databases.
+# To give an app a database:
 #
-# CNPG auto-creates a `goalert-db-app` Secret (`<cluster>-app`) for the owner
-# of the database below; its `uri` key is a ready-made libpq connection string
-# pointing at the read-write Service (goalert-db-rw). deployment.yaml feeds
-# that key straight into GOALERT_DB_URL.
+# 1. Copy this file into apps/<app>/ and replace every "app-template" with
+#    the app's name, e.g.:
+#      sed -i "s/app-template/myapp/g" apps/myapp/db-cluster.yaml
+# 2. Add the file to that app's kustomization.yaml resources, and give the
+#    app's Kustomization in flux/flux-system/ dependsOn entries for cnpg and
+#    cnpg-barman-plugin.
+# 3. Add the database to local.cnpg_databases in aws-eks-template
+#    cluster/cnpg-databases.tf ({ <app> = "<app>-db" }); the apply stamps out
+#    the S3 bucket and IRSA role, and its outputs carry the bucket name for
+#    the ObjectStore's destinationPath and the role ARN for the ACCOUNT_ID
+#    placeholder below.
+# 4. Review the sizing and comments marked "per app" below: instances,
+#    postgres major version, initdb extensions, resources, and whether the
+#    database belongs on on-demand capacity.
+# 5. The eks marker blocks ship commented; the next deploy.sh run opens them
+#    when k8s_platform=eks.
+#
+# CNPG auto-creates an `app-template-db-app` Secret (`<cluster>-app`) for the
+# owner of the database below; its `uri` key is a ready-made libpq connection
+# string pointing at the read-write Service (app-template-db-rw) — feed that
+# key to the app instead of hand-assembling credentials.
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
-  name: goalert-db
+  name: app-template-db
 spec:
   # One primary + two streaming replicas, CNPG's standard HA shape. Three
   # matters, not just two: CNPG always creates a PDB requiring the primary to
@@ -25,24 +39,22 @@ spec:
   # primary over ahead of the drain, and at 3+ instances the replica PDB
   # (minAvailable: instances - 2) releases one replica at a time — a standby
   # exists to fail over to even mid-drain, which 2 instances can't guarantee.
-  # Replication is async (CNPG default); GoAlert always connects through the
-  # -rw Service, so switchovers are invisible to it. The dataset is tiny
-  # (schedules, escalation policies, alert metadata), so the cost of HA is
-  # just two more pods and PVCs.
+  # Replication is async (CNPG default); clients connect through the -rw
+  # Service, so switchovers are invisible to them.
   instances: 3
-  # Pinned to PostgreSQL 17, deliberately: GoAlert v0.34 is tested against
-  # PostgreSQL 13-17, while this repo's CNPG operator (1.28) defaults new
-  # clusters to PostgreSQL 18, which GoAlert's test suite doesn't cover yet.
-  # Bump the major here deliberately, alongside GoAlert upgrades.
+  # Per app: pin the postgres major deliberately to one your app supports,
+  # and bump it alongside app upgrades — this repo's CNPG operator (1.28)
+  # defaults new clusters to PostgreSQL 18, which may be newer than the app's
+  # test matrix (goalert's was: v0.34 tested against 13-17 only).
   imageName: ghcr.io/cloudnative-pg/postgresql:17.11-system-trixie
   bootstrap:
     initdb:
-      database: goalert
-      owner: goalert
-      # No postInitSQL for the pgcrypto extension GoAlert needs: its
-      # migrations run CREATE EXTENSION IF NOT EXISTS pgcrypto themselves,
-      # and pgcrypto is a trusted extension since PostgreSQL 13, so the
-      # (non-superuser) database owner above is allowed to create it.
+      database: app-template
+      owner: app-template
+      # Per app: extensions. Trusted extensions (pgcrypto, uuid-ossp, ...)
+      # can be created by the non-superuser owner above — apps that run
+      # CREATE EXTENSION IF NOT EXISTS in their own migrations need nothing
+      # here. Anything untrusted needs postInitSQL.
   storage:
     size: 5Gi
   # On EKS these volumes opt out of the DLM snapshot policy: barman owns this
@@ -64,30 +76,30 @@ spec:
     - name: barman-cloud.cloudnative-pg.io
       isWALArchiver: true
       parameters:
-        barmanObjectName: goalert-db
-  # Memory req=limit, no CPU limit. Doubled from the initial 256Mi guess
-  # after the postgres container was OOMKilled 9 times in its first half hour
-  # (KubePodCrashLooping); resize with krr after some real usage.
+        barmanObjectName: app-template-db
+  # Per app: memory req=limit, no CPU limit, then resize with krr after some
+  # real usage. 512Mi is the floor goalert-db landed on after 256Mi was
+  # OOMKilled repeatedly in its first half hour.
   resources:
     requests:
       cpu: 25m
       memory: 512Mi
     limits:
       memory: 512Mi
-  # With three instances a spot reclaim is survivable (graceful drain →
-  # switchover), but a spot capacity crunch is exactly when alerts fire, and
-  # paging flows through this database. Keep it on on-demand capacity, per
-  # the NodePool contract in apps/karpenter-custom-resources/nodepool.yaml.
+  # Per app: with three instances a spot reclaim is survivable (graceful
+  # drain → switchover), so only databases that must stay writable through a
+  # spot capacity crunch need this pin — goalert-db keeps it because paging
+  # flows through it; drop it for workloads that can ride out a blip, per the
+  # NodePool contract in apps/karpenter-custom-resources/nodepool.yaml.
   # Spread across nodes comes from CNPG's default preferred pod anti-affinity
-  # on kubernetes.io/hostname — preferred, not required, so Karpenter
-  # consolidation can still pack instances together when capacity is tight.
+  # on kubernetes.io/hostname.
 # >>> eks: deploy.sh uncomments this block when k8s_platform=eks
 #   affinity:
 #     nodeSelector:
 #       karpenter.sh/capacity-type: on-demand
 # <<< eks
-  # IRSA: the instance pods run as the goalert-db ServiceAccount (CNPG names
-  # it after the Cluster), and this annotation lets their barman-cloud
+  # IRSA: the instance pods run as the app-template-db ServiceAccount (CNPG
+  # names it after the Cluster), and this annotation lets their barman-cloud
   # sidecars reach the backup bucket. Role and bucket come from
   # aws-eks-template cluster/cnpg-databases.tf (see the cnpg_db_role_arns
   # output).
@@ -95,14 +107,14 @@ spec:
 #   serviceAccountTemplate:
 #     metadata:
 #       annotations:
-#         eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT_ID:role/goalert-db"
+#         eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT_ID:role/app-template-db"
 # <<< eks
 ---
-# Where goalert-db's backups live. The Barman Cloud Plugin (apps/
+# Where app-template-db's backups live. The Barman Cloud Plugin (apps/
 # cnpg-barman-plugin — this app's flux Kustomization dependsOn it) reads this
 # ObjectStore and runs a barman-cloud sidecar in each instance pod that ships
 # WAL segments continuously and base backups on the ScheduledBackup's cadence
-# (next document). Restore guidance: README.md "Backups".
+# (next document).
 #
 # Bucket and IAM role come from aws-eks-template (cluster/cnpg-databases.tf,
 # keyed by app under local.cnpg_databases — adding a database there stamps
@@ -114,10 +126,10 @@ spec:
 apiVersion: barmancloud.cnpg.io/v1
 kind: ObjectStore
 metadata:
-  name: goalert-db
+  name: app-template-db
 spec:
   configuration:
-    destinationPath: s3://devopscoop-project1-dev-goalert-db-backups/
+    destinationPath: s3://devopscoop-project1-dev-app-template-db-backups/
     s3Credentials:
       inheritFromIAMRole: true
     wal:
@@ -131,8 +143,8 @@ spec:
   retentionPolicy: "30d"
   instanceSidecarConfiguration:
     # Memory req=limit, no CPU limit, same as the postgres containers in the
-    # Cluster above. The sidecar only streams compressed WAL and backup
-    # data, and the dataset is tiny.
+    # Cluster above. The sidecar only streams compressed WAL and backup data;
+    # revisit if the dataset stops being tiny.
     resources:
       requests:
         cpu: 10m
@@ -140,17 +152,17 @@ spec:
       limits:
         memory: 128Mi
 ---
-# Daily base backup of goalert-db, on top of the continuous WAL archiving
-# the Barman Cloud Plugin does regardless (the ObjectStore above) — together
-# they give point-in-time recovery anywhere inside the retention window, not
-# just nightly snapshots.
+# Daily base backup of app-template-db, on top of the continuous WAL
+# archiving the Barman Cloud Plugin does regardless (the ObjectStore above) —
+# together they give point-in-time recovery anywhere inside the retention
+# window, not just nightly snapshots.
 apiVersion: postgresql.cnpg.io/v1
 kind: ScheduledBackup
 metadata:
-  name: goalert-db-daily
+  name: app-template-db-daily
 spec:
   cluster:
-    name: goalert-db
+    name: app-template-db
   # CNPG's cron format has a leading seconds field: daily at 04:00 UTC.
   schedule: "0 0 4 * * *"
   method: plugin
