@@ -60,7 +60,7 @@ pre-commit run validate-flux --all-files   # just the Flux conventions hook
 
 `.githooks/validate-flux.py` enforces two rules:
 
-- Every `Namespace` resource needs the `kustomize.toolkit.fluxcd.io/prune: disabled` annotation, so Flux won't delete namespaces (and PVCs with them). Rationale and the counter-argument are in `docs/prune.argdown`.
+- Every `Namespace` resource needs the `kustomize.toolkit.fluxcd.io/prune: disabled` annotation, so Flux won't delete namespaces (and PVCs with them). Rationale and the counter-argument are in `arguments/prune.argdown`.
 - Every `dependsOn` entry must name a Flux Kustomization that exists in `flux/flux-system/`, with no dependency cycles. This check scans that whole directory regardless of which files are staged, so it catches a dangling reference even when you only touched `apps/`.
 
 ## Other scripts

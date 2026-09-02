@@ -11,9 +11,11 @@ resources:
   - namespace.yaml
   - ocirepo.yaml
   - release.yaml
-  # GoAlert's PostgreSQL (a CloudNativePG Cluster CR) lives outside the chart
-  # so it deploys to the same namespace with no cross-app dependsOn beyond
-  # cnpg itself.
+  # GoAlert's PostgreSQL — the CloudNativePG Cluster plus its barman backup
+  # wiring (ObjectStore, daily ScheduledBackup) in one file. It lives outside
+  # the chart so it deploys to the same namespace with no cross-app dependsOn
+  # beyond cnpg itself and cnpg-barman-plugin. New databases start from the
+  # reusable copy in apps/templates/cnpg-database.
   - db-cluster.yaml
 configMapGenerator:
   - name: goalert-values

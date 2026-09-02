@@ -1,0 +1,26 @@
+# https://fluxcd.io/flux/guides/helmreleases/#refer-to-values-in-configmaps-generated-with-kustomize
+# https://fluxcd.io/flux/guides/helmreleases/#refer-to-values-in-secret-generated-with-kustomize-and-sops
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# The CNPG operator discovers plugins through their Service in the operator's
+# own namespace, so this app deploys into cnpg-system alongside it. There is
+# deliberately no namespace.yaml here: apps/cnpg owns the Namespace object
+# (two Flux Kustomizations must not both manage it), and this app's flux
+# Kustomization dependsOn cnpg.
+namespace: cnpg-system
+
+resources:
+  - helmrepo.yaml
+  - release.yaml
+configMapGenerator:
+  - name: cnpg-barman-plugin-values
+    files:
+      - values.yaml=values.yaml
+secretGenerator:
+  - name: cnpg-barman-plugin-secrets
+    files:
+      - values.yaml=helm_secrets.yaml
+configurations:
+  - kustomizeconfig.yaml

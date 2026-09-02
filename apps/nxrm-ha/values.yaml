@@ -15,11 +15,11 @@ ingress:
   tls:
     - hosts:
         - nexus.project1-dev.devops.coop
-      secretName: nexus-tls
+      secretName: nexus-tls # pragma: allowlist secret -- a Secret's name, not a value
 
 persistence:
   enabled: true
-  size: 8Gi
+  size: 1Gi
 
 # Nexus is slow to start and its PVC currently also holds the blob stores
 # (blobStores below is empty), so a spot reclaim means repository downtime and
@@ -37,7 +37,7 @@ metrics:
     enabled: true
 
 rootPassword:
-  secret: nxrm-ha
+  secret: nxrm-ha # pragma: allowlist secret -- a Secret's name, not a value
 
 config:
   enabled: true

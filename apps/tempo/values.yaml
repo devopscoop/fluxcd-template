@@ -195,11 +195,12 @@ config: |
 
 # The PVC (mounted at /var/tempo) holds only what must survive a restart: the
 # ingester WAL and not-yet-flushed head blocks, plus the metrics-generator's
-# remote-write WAL. Trace blocks live in S3. 10Gi is the chart default,
-# pinned because the WAL sizing leans on it (same size as loki's WAL volume).
+# remote-write WAL. Trace blocks live in S3. Ships at the template's minimal
+# 1Gi (chart default is 10Gi; the WAL sizing leans on volume size) — grow it
+# alongside real ingest; volumes can grow but never shrink.
 persistence:
   enabled: true
-  size: 10Gi
+  size: 1Gi
 
 # Tempo runs as a single replica with its WAL on the PVC above, so a spot
 # reclaim stops trace ingestion and risks unflushed WAL data. Pin it to

@@ -109,15 +109,17 @@ prometheus:
             - ReadWriteOnce
           resources:
             requests:
-              storage: 50Gi
-    # Keep 30 days of history (the chart defaults to 10d). Sizing rule of
-    # thumb: disk = ingested samples/s x retention seconds x ~2 bytes; a small
+              storage: 1Gi
+    # Aim for 30 days of history (the chart defaults to 10d) — but the volume
+    # ships at the template's minimal 1Gi, which holds far less; volumes can
+    # grow but never shrink, so size up per deployment. Sizing rule of thumb:
+    # disk = ingested samples/s x retention seconds x ~2 bytes; a small
     # cluster ingests a few thousand samples/s, so 30d lands in the 15-35GB
     # range. retentionSize caps the TSDB below the volume size so Prometheus
     # prunes the oldest blocks instead of filling the disk and crash-looping;
     # grow storage and retentionSize together.
     retention: 30d
-    retentionSize: 45GB
+    retentionSize: 900MB
     # Prometheus is a singleton: pin it to on-demand capacity, per the
     # NodePool contract in apps/karpenter-custom-resources/nodepool.yaml, so a
     # spot reclaim can't interrupt scraping and alert evaluation.

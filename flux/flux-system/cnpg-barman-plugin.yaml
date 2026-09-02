@@ -1,0 +1,25 @@
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: cnpg-barman-plugin
+  namespace: flux-system
+spec:
+  # The plugin deploys into cnpg-system next to the operator (CNPG's plugin
+  # discovery is namespace-local) and relies on apps/cnpg's Namespace object;
+  # its Issuer/Certificates need cert-manager's CRDs and webhook serving.
+  dependsOn:
+    - name: cnpg
+    - name: cert-manager
+  interval: 10m0s
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  path: fluxcd/apps/cnpg-barman-plugin
+  prune: true
+  wait: true
+  timeout: 5m0s
+  decryption:
+    provider: sops
+    secretRef:
+      name: sops-age
+  suspend: false

@@ -33,10 +33,11 @@ server:
     # The key difference from Loki: open-source single-node VictoriaLogs
     # stores to local disk only — there is no object-storage backend — so
     # durability rides entirely on this PV, and disk usage grows with
-    # ingestion. VictoriaLogs compresses aggressively, so 20Gi goes a long
-    # way (chart default is 10Gi); grow it with usage.
+    # ingestion. Ships at the template's minimal 1Gi (chart default is 10Gi);
+    # VictoriaLogs compresses aggressively, but grow this with real ingestion
+    # — volumes can grow but never shrink.
     enabled: true
-    size: 20Gi
+    size: 1Gi
 
   # Initial guesses — no usage data yet; resize with krr after ~14d of dev
   # usage. Memory req=limit, no CPU limit.
