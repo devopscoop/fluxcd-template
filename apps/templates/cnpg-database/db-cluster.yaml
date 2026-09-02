@@ -56,16 +56,6 @@ spec:
       # can be created by the non-superuser owner above — apps that run
       # CREATE EXTENSION IF NOT EXISTS in their own migrations need nothing
       # here. Anything untrusted needs postInitSQL.
-    # Restoring from the barman object store
-    # (runbooks/restore-cnpg-database.md): comment out initdb above,
-    # uncomment recovery below, and see the serverName and
-    # externalClusters toggles further down this file.
-#     recovery:
-#       source: app-template-db
-#       ## Point-in-time only; omit recoveryTarget to recover to the
-#       ## end of the archived WAL:
-#       # recoveryTarget:
-#       #   targetTime: "2026-09-02 16:20:00+00"
   storage:
     size: 1Gi
   # On EKS these volumes opt out of the DLM snapshot policy: barman owns this
@@ -90,10 +80,6 @@ spec:
       isWALArchiver: true
       parameters:
         barmanObjectName: app-template-db
-        # Restore only: the restored cluster's new archive path —
-        # CNPG refuses to archive into a WAL history it didn't
-        # create. Bump the suffix on every restore (r2 -> r3 -> ...).
-#         serverName: app-template-db-r2
   # Per app: memory req=limit, no CPU limit, then resize with krr after some
   # real usage. 512Mi is the floor goalert-db landed on after 256Mi was
   # OOMKilled repeatedly in its first half hour.
@@ -114,16 +100,6 @@ spec:
 #       annotations:
 #         eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT_ID:role/app-template-db"
 # <<< eks
-  # Restore only — where the backup being restored FROM lives: the
-  # OLD serverName (the Cluster name originally, or its -rN if
-  # restoring a cluster that was itself restored before).
-#   externalClusters:
-#     - name: app-template-db ## must match bootstrap.recovery.source
-#       plugin:
-#         name: barman-cloud.cloudnative-pg.io
-#         parameters:
-#           barmanObjectName: app-template-db
-#           serverName: app-template-db
 ---
 # Where app-template-db's backups live. The Barman Cloud Plugin (apps/
 # cnpg-barman-plugin — this app's flux Kustomization dependsOn it) reads this
