@@ -62,8 +62,8 @@ spec:
   # be redundant spend — and a crash-consistent snapshot of one replica's
   # volume is a restore footgun next to barman's point-in-time recovery.
   # gp3-dangerous (apps/eks-storage-classes) tags the volumes
-  # dlm-exclude=true; pair with dlm_snapshot_cnpg_databases = false in
-  # aws-eks-template. Tags apply at provision time only — retro-tag
+  # dlm-exclude=true, which the DLM policy in aws-eks-template (cluster/
+  # dlm.tf) skips. Tags apply at provision time only — retro-tag
   # pre-existing volumes by hand, or leave them snapshotted (harmless).
 # >>> eks: deploy.sh uncomments this block when k8s_platform=eks
 #     storageClass: gp3-dangerous

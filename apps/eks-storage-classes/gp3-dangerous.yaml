@@ -1,7 +1,7 @@
 # gp3, minus EBS snapshots — "dangerous" because volumes on this class have
 # NO snapshot safety net: they are tagged dlm-exclude=true at provision time,
-# which the DLM default policy in aws-eks-template (dlm.tf,
-# dlm_snapshot_cnpg_databases = false) skips. Only put data here if its
+# which the DLM policy in aws-eks-template (cluster/dlm.tf) skips. Only put
+# data here if its
 # backup story genuinely lives elsewhere. CNPG databases use it because
 # barman already backs them up (see apps/goalert), so daily EBS snapshots of
 # their volumes would be redundant spend and a crash-consistent restore
