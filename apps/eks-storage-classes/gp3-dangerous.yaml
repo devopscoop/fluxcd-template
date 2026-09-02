@@ -1,15 +1,18 @@
 # gp3, minus EBS snapshots — "dangerous" because volumes on this class have
-# NO snapshot safety net: they are tagged dlm-exclude=true at provision time,
-# which the DLM policy in aws-eks-template (cluster/dlm.tf) skips. Only put
-# data here if its
-# backup story genuinely lives elsewhere. CNPG databases use it because
+# NO snapshot safety net: the DLM policy in aws-eks-template (cluster/dlm.tf)
+# only snapshots volumes tagged Backup=dlm (which the default gp3 class
+# applies), and this class tags Backup=none instead. Only put data here if
+# its backup story genuinely lives elsewhere. CNPG databases use it because
 # barman already backs them up (see apps/goalert), so daily EBS snapshots of
 # their volumes would be redundant spend and a crash-consistent restore
 # footgun next to barman's point-in-time recovery.
 #
-# Tags apply at provision time only: a volume that existed before its
-# workload moved to this class keeps its old tags (and keeps being
-# snapshotted — the safe failure mode) until retro-tagged by hand.
+# Backup=none rather than no tag at all: the Backup key answers "how is this
+# volume backed up", so "none" records a deliberate decision, and a volume
+# with no Backup key stays a reliable sign of something unaccounted for
+# (the dlm.tf comment carries the audit query). Tags apply at provision time
+# only — a volume that existed before its workload moved to this class keeps
+# its old tags until retro-tagged by hand.
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
@@ -25,4 +28,4 @@ parameters:
   type: gp3
   fsType: ext4
   encrypted: "true"
-  tagSpecification_1: "dlm-exclude=true"
+  tagSpecification_1: "Backup=none"

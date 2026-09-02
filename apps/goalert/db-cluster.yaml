@@ -49,10 +49,12 @@ spec:
   # database's backups (the ObjectStore below), so daily EBS snapshots would
   # be redundant spend — and a crash-consistent snapshot of one replica's
   # volume is a restore footgun next to barman's point-in-time recovery.
-  # gp3-dangerous (apps/eks-storage-classes) tags the volumes
-  # dlm-exclude=true, which the DLM policy in aws-eks-template (cluster/
-  # dlm.tf) skips. Tags apply at provision time only — retro-tag
-  # pre-existing volumes by hand, or leave them snapshotted (harmless).
+  # The DLM policy in aws-eks-template (cluster/dlm.tf) only snapshots
+  # volumes tagged Backup=dlm (applied by the default gp3 class);
+  # gp3-dangerous (apps/eks-storage-classes) tags them Backup=none instead.
+  # Tags apply at provision time only, so volumes that predate the Backup
+  # tag are already out of the policy — hand-tag them Backup=none anyway so
+  # they read as deliberate, not unaccounted for.
 # >>> eks: deploy.sh uncomments this block when k8s_platform=eks
 #     storageClass: gp3-dangerous
 # <<< eks

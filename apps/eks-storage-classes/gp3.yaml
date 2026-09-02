@@ -17,3 +17,10 @@ parameters:
   type: gp3
   fsType: ext4
   encrypted: "true"
+  # Opts every volume from this class into the daily DLM EBS snapshots — the
+  # policy in aws-eks-template (cluster/dlm.tf) targets exactly this tag.
+  # The key answers "how is this volume backed up": gp3-dangerous applies
+  # Backup=none instead, and a volume with no Backup tag at all predates
+  # this tagSpecification and needs retro-tagging (tags apply at provision
+  # time only; the dlm.tf comment carries the audit query).
+  tagSpecification_1: "Backup=dlm"
