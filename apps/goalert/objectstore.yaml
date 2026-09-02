@@ -1,0 +1,41 @@
+# Where goalert-db's backups live. The Barman Cloud Plugin (apps/
+# cnpg-barman-plugin — this app's flux Kustomization dependsOn it) reads this
+# ObjectStore and runs a barman-cloud sidecar in each instance pod that ships
+# WAL segments continuously and base backups on scheduledbackup.yaml's
+# cadence. Restore guidance: README.md "Backups".
+#
+# Bucket and IAM role come from aws-eks-template (cluster/cnpg-databases.tf,
+# keyed by app under local.cnpg_databases — adding a database there stamps
+# out its bucket and role, with optional cross-region replication);
+# authentication is IRSA (inheritFromIAMRole) via the serviceAccountTemplate
+# annotation in db-cluster.yaml, so no credentials Secret is needed. On a
+# non-AWS platform, point destinationPath at an S3-compatible store and
+# supply credentials via a Secret referenced from s3Credentials instead.
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: goalert-db
+spec:
+  configuration:
+    destinationPath: s3://devopscoop-project1-dev-goalert-db-backups/
+    s3Credentials:
+      inheritFromIAMRole: true
+    wal:
+      compression: gzip
+    data:
+      compression: gzip
+  # Recovery-window retention: barman keeps enough base backups and WAL to
+  # restore to any point in the last 30 days, and deletes obsolete objects
+  # itself after each successful backup — which is why the bucket has no
+  # object-expiration lifecycle rule of its own.
+  retentionPolicy: "30d"
+  instanceSidecarConfiguration:
+    # Memory req=limit, no CPU limit, same as the postgres containers in
+    # db-cluster.yaml. The sidecar only streams compressed WAL and backup
+    # data, and the dataset is tiny.
+    resources:
+      requests:
+        cpu: 10m
+        memory: 128Mi
+      limits:
+        memory: 128Mi

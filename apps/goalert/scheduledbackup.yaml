@@ -1,0 +1,23 @@
+# Daily base backup of goalert-db, on top of the continuous WAL archiving
+# the Barman Cloud Plugin does regardless (objectstore.yaml) — together they
+# give point-in-time recovery anywhere inside the retention window, not just
+# nightly snapshots.
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: goalert-db-daily
+spec:
+  cluster:
+    name: goalert-db
+  # CNPG's cron format has a leading seconds field: daily at 04:00 UTC.
+  schedule: "0 0 4 * * *"
+  method: plugin
+  pluginConfiguration:
+    name: barman-cloud.cloudnative-pg.io
+  # Take the first backup as soon as this resource lands instead of waiting
+  # up to a day — it's what seeds the object store on a fresh bootstrap.
+  immediate: true
+  # Backup objects get an ownerReference to this ScheduledBackup, so deleting
+  # it garbage-collects the Backup resources (the S3 data stays; barman's
+  # retention policy owns that).
+  backupOwnerReference: self

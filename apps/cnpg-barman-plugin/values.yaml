@@ -1,0 +1,17 @@
+# dyff between <(yq . <(helm show values cnpg/plugin-barman-cloud --version 0.7.1)) <(yq eval '. * load("values.yaml")' <(helm show values cnpg/plugin-barman-cloud --version 0.7.1))
+# vim -O <(helm show values cnpg/plugin-barman-cloud --version 0.7.1) values.yaml
+
+# The chart's defaults already do everything that matters here: install the
+# ObjectStore CRD and create the cert-manager Issuer/Certificates that secure
+# the operator<->plugin gRPC channel (hence this app's flux Kustomization
+# dependsOn cert-manager). Per-database backup config (bucket, retention,
+# schedule) lives with each database app — see apps/goalert.
+
+# Memory req=limit, no CPU limit, same rationale as apps/cnpg; the plugin
+# controller just reconciles ObjectStore CRs and serves gRPC to the operator.
+resources:
+  limits:
+    memory: 128Mi
+  requests:
+    cpu: 10m
+    memory: 128Mi

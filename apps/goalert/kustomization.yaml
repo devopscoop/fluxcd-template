@@ -13,8 +13,11 @@ resources:
   - release.yaml
   # GoAlert's PostgreSQL (a CloudNativePG Cluster CR) lives outside the chart
   # so it deploys to the same namespace with no cross-app dependsOn beyond
-  # cnpg itself.
+  # cnpg itself and cnpg-barman-plugin.
   - db-cluster.yaml
+  # Daily barman backups of that database to S3 (see README.md "Backups").
+  - objectstore.yaml
+  - scheduledbackup.yaml
 configMapGenerator:
   - name: goalert-values
     files:

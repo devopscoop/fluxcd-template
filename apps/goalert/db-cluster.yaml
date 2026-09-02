@@ -40,6 +40,14 @@ spec:
       # (non-superuser) database owner above is allowed to create it.
   storage:
     size: 5Gi
+  # Continuous WAL archiving + base backups through the Barman Cloud Plugin
+  # (apps/cnpg-barman-plugin). The bucket, retention, and sidecar tuning live
+  # in objectstore.yaml; the daily cadence in scheduledbackup.yaml.
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: goalert-db
   # Memory req=limit, no CPU limit. Doubled from the initial 256Mi guess
   # after the postgres container was OOMKilled 9 times in its first half hour
   # (KubePodCrashLooping); resize with krr after some real usage.
@@ -60,4 +68,15 @@ spec:
 #   affinity:
 #     nodeSelector:
 #       karpenter.sh/capacity-type: on-demand
+# <<< eks
+  # IRSA: the instance pods run as the goalert-db ServiceAccount (CNPG names
+  # it after the Cluster), and this annotation lets their barman-cloud
+  # sidecars reach the backup bucket. Role and bucket come from
+  # aws-eks-template cluster/cnpg-databases.tf (see the cnpg_db_role_arns
+  # output).
+# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
+#   serviceAccountTemplate:
+#     metadata:
+#       annotations:
+#         eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT_ID:role/goalert-db"
 # <<< eks
