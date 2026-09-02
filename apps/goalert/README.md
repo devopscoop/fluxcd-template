@@ -27,19 +27,6 @@ Why GoAlert: Grafana OnCall OSS went into maintenance mode in March 2025 and its
 
 `helm_secrets.yaml` (SOPS) holds `GOALERT_DATA_ENCRYPTION_KEY` under the chart's `envSecret` key — the chart creates a Secret from it and envFroms it into the Deployment. GoAlert passes the value through a key derivation function and encrypts sensitive data it stores in Postgres (e.g. signing keys) with the result — so it can be any string, but losing or changing it invalidates that data, and every replica must use the same value. Before bootstrap: fill a value from `openssl rand -base64 32` into `helm_secrets.yaml.decrypted` and run `../../encrypt_secrets.sh`. On a running cluster: edit in place with `sops helm_secrets.yaml`.
 
-## Backups
-
-The database archives WAL continuously and takes a nightly base backup (04:00 UTC) to `s3://devopscoop-project1-dev-goalert-db-backups/` through the CNPG Barman Cloud Plugin (`apps/cnpg-barman-plugin`). The `ObjectStore` in `db-cluster.yaml` says where and for how long (30-day recovery window — barman deletes obsolete objects itself); the `ScheduledBackup` there says when. The bucket and the IRSA role the sidecars assume come from aws-eks-template (`cluster/cnpg-backups.tf` — one map entry per CNPG database, with an optional cross-region replication toggle for prod). Because WAL is archived too, this is point-in-time recovery to any moment inside the window, not just nightly snapshots. On EKS the database volumes use the `gp3-dangerous` StorageClass, which tags them `Backup=none` instead of gp3's `Backup=dlm` and so keeps them out of the daily DLM EBS snapshots (barman makes those redundant) — see `apps/eks-storage-classes/gp3-dangerous.yaml` and `cluster/dlm.tf` in aws-eks-template.
-
-Verify backups are flowing:
-
-```shell
-kubectl -n goalert get scheduledbackup,backup
-kubectl -n goalert get cluster goalert-db -o jsonpath='{.status.lastSuccessfulBackup}'
-```
-
-To restore, follow the step-by-step runbook: [`runbooks/restore-cnpg-database.md`](../../runbooks/restore-cnpg-database.md). Two things the object store does *not* contain: the `GOALERT_DATA_ENCRYPTION_KEY` (in this app's `helm_secrets.yaml` — restoring the database without the same key leaves the encrypted columns unreadable, see "Data-encryption key" above), and anything created after the last archived WAL segment.
-
 ## Wiring Alertmanager to GoAlert
 
 Alerts enter GoAlert through a per-service integration key:
