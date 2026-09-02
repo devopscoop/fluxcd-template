@@ -1,0 +1,27 @@
+# gp3, minus EBS snapshots: identical to gp3.yaml except volumes are tagged
+# dlm-exclude=true at provision time, which the DLM default policy in
+# aws-eks-template (dlm.tf, dlm_snapshot_cnpg_databases = false) skips. For
+# workloads whose backup story lives elsewhere — CNPG databases use it
+# because barman already backs them up (see apps/goalert), so daily EBS
+# snapshots of their volumes would be redundant spend and a crash-consistent
+# restore footgun next to barman's point-in-time recovery.
+#
+# Tags apply at provision time only: a volume that existed before its
+# workload moved to this class keeps its old tags (and keeps being
+# snapshotted — the safe failure mode) until retro-tagged by hand.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: gp3-no-dlm
+  annotations:
+    # reclaimPolicy is immutable; let Flux delete+recreate when it changes.
+    kustomize.toolkit.fluxcd.io/force: "enabled"
+provisioner: ebs.csi.aws.com
+allowVolumeExpansion: true
+reclaimPolicy: Retain
+volumeBindingMode: WaitForFirstConsumer
+parameters:
+  type: gp3
+  fsType: ext4
+  encrypted: "true"
+  tagSpecification_1: "dlm-exclude=true"

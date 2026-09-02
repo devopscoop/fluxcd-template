@@ -40,6 +40,17 @@ spec:
       # (non-superuser) database owner above is allowed to create it.
   storage:
     size: 5Gi
+  # On EKS these volumes opt out of the DLM snapshot policy: barman owns this
+  # database's backups (objectstore.yaml), so daily EBS snapshots would be
+  # redundant spend — and a crash-consistent snapshot of one replica's volume
+  # is a restore footgun next to barman's point-in-time recovery. gp3-no-dlm
+  # (apps/eks-storage-classes) tags the volumes dlm-exclude=true; pair with
+  # dlm_snapshot_cnpg_databases = false in aws-eks-template. Tags apply at
+  # provision time only — retro-tag pre-existing volumes by hand, or leave
+  # them snapshotted (harmless).
+# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
+#     storageClass: gp3-no-dlm
+# <<< eks
   # Continuous WAL archiving + base backups through the Barman Cloud Plugin
   # (apps/cnpg-barman-plugin). The bucket, retention, and sidecar tuning live
   # in objectstore.yaml; the daily cadence in scheduledbackup.yaml.
