@@ -76,18 +76,6 @@ spec:
       memory: 512Mi
     limits:
       memory: 512Mi
-  # With three instances a spot reclaim is survivable (graceful drain →
-  # switchover), but a spot capacity crunch is exactly when alerts fire, and
-  # paging flows through this database. Keep it on on-demand capacity, per
-  # the NodePool contract in apps/karpenter-custom-resources/nodepool.yaml.
-  # Spread across nodes comes from CNPG's default preferred pod anti-affinity
-  # on kubernetes.io/hostname — preferred, not required, so Karpenter
-  # consolidation can still pack instances together when capacity is tight.
-# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
-#   affinity:
-#     nodeSelector:
-#       karpenter.sh/capacity-type: on-demand
-# <<< eks
   # IRSA: the instance pods run as the goalert-db ServiceAccount (CNPG names
   # it after the Cluster), and this annotation lets their barman-cloud
   # sidecars reach the backup bucket. Role and bucket come from
