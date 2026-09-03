@@ -135,22 +135,22 @@ fi
 # On EKS, uncomment the EKS-specific marker blocks in the app manifests (IRSA
 # serviceAccount annotations, AWS NLB annotations, ...). On non-EKS platforms
 # these AWS features don't exist, so the blocks stay commented.
-# uncomment_blocks.sh owns the transform and prints each file it processed;
+# toggle_blocks.sh owns the transform and prints each file it processed;
 # the loop stages exactly those (the git bookkeeping stays in this script,
 # like encrypt_secrets.sh below). A pipe rather than process substitution so
-# pipefail makes a failing uncomment_blocks.sh fatal instead of a silent
+# pipefail makes a failing toggle_blocks.sh fatal instead of a silent
 # no-op that would leave blocks commented.
 # Deliberately NOT gated on $bootstrapped: an app added after bootstrap ships
 # with its marker blocks still commented, so re-runs converge them. This is
 # safe to repeat -- uncommenting is a no-op for blocks already open, and
 # commit_and_push skips an empty stage.
 if [[ "$k8s_platform" == "eks" ]]; then
-  ./uncomment_blocks.sh eks | while read -r f; do git add "$f"; done
+  ./toggle_blocks.sh --enable eks | while read -r f; do git add "$f"; done
   commit_and_push "Enabling EKS-specific annotation blocks"
 fi
 
 # Uncomment the Alertmanager -> Slack config in apps/kube-prometheus-stack and
-# apps/victoria-metrics (uncomment_blocks.sh finds every slack block
+# apps/victoria-metrics (toggle_blocks.sh finds every slack block
 # repo-wide). The channel is set in each app's values.yaml; the webhook URL
 # (the secret half) comes from its helm_secrets.yaml.decrypted, which gets
 # SOPS-encrypted further down during bootstrap. Like the eks step above, this
@@ -158,7 +158,7 @@ fi
 # ${var:-} so set -u doesn't kill the script on a variables.sh from before this
 # variable existed.
 if [[ "${slack_alerts:-false}" == "true" ]]; then
-  ./uncomment_blocks.sh slack | while read -r f; do git add "$f"; done
+  ./toggle_blocks.sh --enable slack | while read -r f; do git add "$f"; done
   commit_and_push "Enabling Alertmanager Slack notifications"
 fi
 
