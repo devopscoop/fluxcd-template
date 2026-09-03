@@ -132,9 +132,14 @@ if [[ "$bootstrapped" == "false" ]]; then
   commit_and_push "Replacing project1-dev with ${cluster_name}"
 fi
 
-# On EKS, uncomment the EKS-specific marker blocks in the app manifests (IRSA
-# serviceAccount annotations, AWS NLB annotations, ...). On non-EKS platforms
-# these AWS features don't exist, so the blocks stay commented.
+# On EKS, uncomment the eks and karpenter marker blocks in the app manifests.
+# eks blocks hold EKS-platform config (IRSA serviceAccount annotations, AWS
+# NLB annotations, ...); karpenter blocks pin spot-intolerant workloads to
+# on-demand nodes via karpenter.sh/capacity-type. Separate markers because
+# those labels exist only on Karpenter-provisioned nodes, not on EKS nodes in
+# general, and the pinning can be toggled on its own (toggle_blocks.sh
+# --disable karpenter). On non-EKS platforms neither applies, so the blocks
+# stay commented.
 # toggle_blocks.sh owns the transform and prints each file it processed;
 # the loop stages exactly those (the git bookkeeping stays in this script,
 # like encrypt_secrets.sh below). A pipe rather than process substitution so
@@ -145,8 +150,8 @@ fi
 # safe to repeat -- uncommenting is a no-op for blocks already open, and
 # commit_and_push skips an empty stage.
 if [[ "$k8s_platform" == "eks" ]]; then
-  ./toggle_blocks.sh --enable eks | while read -r f; do git add "$f"; done
-  commit_and_push "Enabling EKS-specific annotation blocks"
+  ./toggle_blocks.sh --enable eks,karpenter | while read -r f; do git add "$f"; done
+  commit_and_push "Enabling EKS and Karpenter marker blocks"
 fi
 
 # Uncomment the Alertmanager -> Slack config in apps/kube-prometheus-stack and

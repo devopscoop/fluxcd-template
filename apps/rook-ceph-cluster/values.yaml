@@ -6,7 +6,7 @@
 # copies, and spot reclaims correlate (whole instance pools get reclaimed
 # together), so 3-way replication is not real protection. Volume consumers are
 # unaffected -- RBD/CephFS clients don't need Ceph daemons on their own node.
-# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
+# >>> karpenter: deploy.sh uncomments this block when k8s_platform=eks
 # cephClusterSpec:
 #   placement:
 #     all:
@@ -18,4 +18,4 @@
 #                   operator: In
 #                   values:
 #                     - on-demand
-# <<< eks
+# <<< karpenter

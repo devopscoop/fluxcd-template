@@ -131,10 +131,10 @@ singleBinary:
   # PVC above, so a spot reclaim stops log ingestion and risks unflushed WAL
   # data. Pin it to on-demand capacity, per the NodePool contract in
   # apps/karpenter-custom-resources/nodepool.yaml.
-# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
+# >>> karpenter: deploy.sh uncomments this block when k8s_platform=eks
 #   nodeSelector:
 #     karpenter.sh/capacity-type: on-demand
-# <<< eks
+# <<< karpenter
 read:
   replicas: 0
 write:
