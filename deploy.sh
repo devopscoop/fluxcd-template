@@ -132,52 +132,33 @@ if [[ "$bootstrapped" == "false" ]]; then
   commit_and_push "Replacing project1-dev with ${cluster_name}"
 fi
 
-# Some manifests ship optional blocks that are commented out by default, each
-# delimited by `# >>> <marker>` / `# <<< <marker>` marker comments. This strips
-# the leading comment from the lines between the given marker's delimiters
-# (leaving the markers in place, so this stays idempotent and self-documenting).
-# WARNING: never write the literal opening marker anywhere except the real
-# markers (in prose, drop the leading hash) -- any tracked file containing it
-# gets fed through awk here.
-uncomment_blocks() {
-  local marker=$1
-  while read -r f; do
-    # awk (not sed) for identical behavior on GNU and BSD/Mac. The mandatory
-    # space in /^# / keeps re-runs from eating hashes one at a time, and lets
-    # genuine comments inside a block survive uncommenting: write those with a
-    # doubled hash (## like this) and they're left alone.
-    awk -v marker="$marker" '
-      index($0, "# >>> " marker) { print; inblk=1; next }
-      index($0, "# <<< " marker) { print; inblk=0; next }
-      inblk { sub(/^# /, ""); sub(/^#$/, ""); print; next }
-      { print }
-    ' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
-    git add "$f"
-  done < <(git grep -Il "# >>> ${marker}" -- ':!deploy.sh')
-}
-
-# On EKS, uncomment the EKS-specific blocks in the app manifests (IRSA
+# On EKS, uncomment the EKS-specific marker blocks in the app manifests (IRSA
 # serviceAccount annotations, AWS NLB annotations, ...). On non-EKS platforms
 # these AWS features don't exist, so the blocks stay commented.
+# toggle_blocks.sh owns the transform and prints each file it processed;
+# the loop stages exactly those (the git bookkeeping stays in this script,
+# like encrypt_secrets.sh below). A pipe rather than process substitution so
+# pipefail makes a failing toggle_blocks.sh fatal instead of a silent
+# no-op that would leave blocks commented.
 # Deliberately NOT gated on $bootstrapped: an app added after bootstrap ships
 # with its marker blocks still commented, so re-runs converge them. This is
 # safe to repeat -- uncommenting is a no-op for blocks already open, and
 # commit_and_push skips an empty stage.
 if [[ "$k8s_platform" == "eks" ]]; then
-  uncomment_blocks eks
+  ./toggle_blocks.sh --enable eks | while read -r f; do git add "$f"; done
   commit_and_push "Enabling EKS-specific annotation blocks"
 fi
 
 # Uncomment the Alertmanager -> Slack config in apps/kube-prometheus-stack and
-# apps/victoria-metrics (the grep below finds every slack block repo-wide). The
-# channel is set in each app's values.yaml; the webhook URL (the secret half)
-# comes from its helm_secrets.yaml.decrypted, which gets SOPS-encrypted further
-# down during bootstrap. Like the eks step above, this runs on every
-# invocation so later-added apps get their blocks opened too.
+# apps/victoria-metrics (toggle_blocks.sh finds every slack block
+# repo-wide). The channel is set in each app's values.yaml; the webhook URL
+# (the secret half) comes from its helm_secrets.yaml.decrypted, which gets
+# SOPS-encrypted further down during bootstrap. Like the eks step above, this
+# runs on every invocation so later-added apps get their blocks opened too.
 # ${var:-} so set -u doesn't kill the script on a variables.sh from before this
 # variable existed.
 if [[ "${slack_alerts:-false}" == "true" ]]; then
-  uncomment_blocks slack
+  ./toggle_blocks.sh --enable slack | while read -r f; do git add "$f"; done
   commit_and_push "Enabling Alertmanager Slack notifications"
 fi
 

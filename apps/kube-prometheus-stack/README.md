@@ -14,4 +14,4 @@ Alertmanager can send every alert to a Slack channel. To enable it before runnin
 1. Set your channel in the `>>> slack` block in values.yaml.
 1. Set `slack_alerts=true` in variables.sh. deploy.sh uncomments the `>>> slack` block and encrypts the webhook.
 
-To enable it on an already-deployed cluster instead, uncomment the `>>> slack` block in values.yaml by hand (strip the leading `#` and space between the markers, leaving the markers in place), and edit your webhook URL into the encrypted secrets with `sops helm_secrets.yaml`.
+To enable it on an already-deployed cluster instead, uncomment the `>>> slack` block in values.yaml — run `./toggle_blocks.sh --enable slack` from the repo root, or by hand: strip the leading `#` and space between the markers, leaving the markers in place — and edit your webhook URL into the encrypted secrets with `sops helm_secrets.yaml`.
