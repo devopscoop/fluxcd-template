@@ -20,8 +20,9 @@
 #
 # WARNING: never write the literal opening marker anywhere except the real
 # markers (in prose, drop the leading hash) -- any tracked file containing it
-# gets fed through awk here. (This file is the one exception: it's excluded
-# from the grep below.)
+# gets fed through awk here. (Two exceptions are excluded from the grep below:
+# this file, and apps/templates/, whose boilerplate must keep shipping with
+# its blocks commented out.)
 #
 # Usage: ./toggle_blocks.sh --enable|--disable MARKER[,MARKER...] ...
 #
@@ -85,5 +86,5 @@ for op in "${ops[@]}"; do
       { print "# " $0 }
     ' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
     printf '%s\n' "$f"
-  done < <(git grep -Il "# >>> ${marker}" -- ':!toggle_blocks.sh')
+  done < <(git grep -Il "# >>> ${marker}" -- ':!toggle_blocks.sh' ':!apps/templates')
 done
