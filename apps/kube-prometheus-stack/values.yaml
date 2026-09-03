@@ -43,10 +43,10 @@ alertmanager:
     # pages -- including about the reclaim itself. Pin it to on-demand
     # capacity, per the NodePool contract in
     # apps/karpenter-custom-resources/nodepool.yaml.
-# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
+# >>> karpenter: deploy.sh uncomments this block when k8s_platform=eks
 #     nodeSelector:
 #       karpenter.sh/capacity-type: on-demand
-# <<< eks
+# <<< karpenter
 
 # Send every alert to Slack. The channel below is not secret, but the webhook
 # URL is, so it lives in helm_secrets.yaml (alertmanager.config.global.slack_api_url),
@@ -123,10 +123,10 @@ prometheus:
     # Prometheus is a singleton: pin it to on-demand capacity, per the
     # NodePool contract in apps/karpenter-custom-resources/nodepool.yaml, so a
     # spot reclaim can't interrupt scraping and alert evaluation.
-# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
+# >>> karpenter: deploy.sh uncomments this block when k8s_platform=eks
 #     nodeSelector:
 #       karpenter.sh/capacity-type: on-demand
-# <<< eks
+# <<< karpenter
 
 grafana:
   grafana.ini:

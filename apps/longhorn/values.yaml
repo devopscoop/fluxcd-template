@@ -119,9 +119,9 @@ defaultSettings:
   # so this also restricts workloads that mount Longhorn PVCs to on-demand
   # nodes. Longhorn requires all volumes to be detached before this setting
   # can be changed on a live cluster.
-# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
+# >>> karpenter: deploy.sh uncomments this block when k8s_platform=eks
 #   systemManagedComponentsNodeSelector: karpenter.sh/capacity-type:on-demand
-# <<< eks
+# <<< karpenter
   # -- PriorityClass for system-managed Longhorn components.
   # This setting can help prevent Longhorn components from being evicted under Node Pressure.
   # Notice that this will be applied to Longhorn user-deployed components by default if there are no priority class values set yet, such as `longhornManager.priorityClass`.
@@ -283,10 +283,10 @@ longhornManager:
   # reclaim permanently destroys that node's replicas, so keep spot capacity
   # out of the pool entirely (see also systemManagedComponentsNodeSelector in
   # defaultSettings above).
-# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
+# >>> karpenter: deploy.sh uncomments this block when k8s_platform=eks
 #   nodeSelector:
 #     karpenter.sh/capacity-type: on-demand
-# <<< eks
+# <<< karpenter
   # -- Annotation for the Longhorn Manager service.
   serviceAnnotations: {}
   ## If you want to set annotations for the Longhorn Manager service, delete the `{}` in the line above
@@ -308,10 +308,10 @@ longhornDriver:
   #   value: "value"
   #   effect: "NoSchedule"
   # -- Node selector for Longhorn Driver. Specify the nodes allowed to run Longhorn Driver.
-# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
+# >>> karpenter: deploy.sh uncomments this block when k8s_platform=eks
 #   nodeSelector:
 #     karpenter.sh/capacity-type: on-demand
-# <<< eks
+# <<< karpenter
 longhornUI:
   # -- Replica count for Longhorn UI.
   replicas: 2
@@ -339,10 +339,10 @@ longhornUI:
   #   value: "value"
   #   effect: "NoSchedule"
   # -- Node selector for Longhorn UI. Specify the nodes allowed to run Longhorn UI.
-# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
+# >>> karpenter: deploy.sh uncomments this block when k8s_platform=eks
 #   nodeSelector:
 #     karpenter.sh/capacity-type: on-demand
-# <<< eks
+# <<< karpenter
 ingress:
   # -- Setting that allows Longhorn to generate ingress records for the Longhorn UI service.
   enabled: false

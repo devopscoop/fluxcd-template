@@ -11,7 +11,7 @@
 # the bookkeeping (deploy.sh stages exactly the files printed) and running it
 # by hand never touches your index.
 #
-# deploy.sh runs the --enable side on every invocation (the eks/slack markers,
+# deploy.sh runs the --enable side on every invocation (the eks/karpenter/slack markers,
 # gated on variables.sh) and never disables, so normally there is no need to
 # run this directly. It exists as its own script so a block can also be
 # toggled without a full deploy -- no variables.sh, cluster access, or AWS

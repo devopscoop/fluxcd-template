@@ -69,10 +69,10 @@ vmsingle:
     # vmsingle is a singleton: if a spot reclaim takes it down, ingestion and
     # rule evaluation stop with it. Pin it to on-demand capacity, per the
     # NodePool contract in apps/karpenter-custom-resources/nodepool.yaml.
-# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
+# >>> karpenter: deploy.sh uncomments this block when k8s_platform=eks
 #     nodeSelector:
 #       karpenter.sh/capacity-type: on-demand
-# <<< eks
+# <<< karpenter
 
 alertmanager:
   spec:
@@ -114,10 +114,10 @@ alertmanager:
     # apps/karpenter-custom-resources/nodepool.yaml. (Gossip clustering only
     # starts at replicaCount > 1, so single-replica Alertmanager also sidesteps
     # any memberlist-over-IPv6 concerns -- see apps/loki/values.yaml.)
-# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
+# >>> karpenter: deploy.sh uncomments this block when k8s_platform=eks
 #     nodeSelector:
 #       karpenter.sh/capacity-type: on-demand
-# <<< eks
+# <<< karpenter
 
 # Alert routing. Only the default route receiver lives here: the route.routes
 # and receivers lists (Slack channel and message templates, Watchdog blackhole,

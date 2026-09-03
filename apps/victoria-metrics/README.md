@@ -43,4 +43,4 @@ This stack is the default: deploy.sh's `core_app_list` registers `victoria-metri
 
 - The cluster is IPv6-only, and VictoriaMetrics binaries listen and dial IPv4-only by default; every VM component in values.yaml sets `enableTCP6: "true"`. Alertmanager, Grafana, and the exporters are ordinary dual-stack Go listeners and need nothing.
 - The chart's sync-job fetches the default dashboards and rules from raw.githubusercontent.com at install time, and Grafana downloads the VictoriaMetrics/VictoriaLogs datasource plugins from grafana.com at startup — both need internet egress.
-- vmsingle and Alertmanager are singletons; on EKS, deploy.sh pins them to on-demand capacity (the `>>> eks` blocks in values.yaml).
+- vmsingle and Alertmanager are singletons; on EKS, deploy.sh pins them to on-demand capacity (the `>>> karpenter` blocks in values.yaml).

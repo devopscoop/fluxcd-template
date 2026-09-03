@@ -97,7 +97,7 @@ resources:
 # running GoAlert is reclaimed, paging goes silent until the pod reschedules.
 # Pin it to on-demand, per the NodePool contract in
 # apps/karpenter-custom-resources/nodepool.yaml.
-# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
+# >>> karpenter: deploy.sh uncomments this block when k8s_platform=eks
 # nodeSelector:
 #   karpenter.sh/capacity-type: on-demand
-# <<< eks
+# <<< karpenter
