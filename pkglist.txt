@@ -1,8 +1,9 @@
 # Arch Linux package list for fluxcd-template — the pacman/AUR equivalent of
 # the Brewfile. Installs every CLI tool used or referenced by this repo.
 #
-# Requires an AUR helper (yay or paru) because flux-operator and dyff are AUR
-# packages; everything else is in the official repos.
+# Requires an AUR helper (yay or paru) because autokuma-cli, dyff,
+# flux-operator, and kubectl-cnpg are AUR packages; everything else is in the
+# official repos.
 #
 # Usage:
 #   grep -vE '^(#|$)' pkglist.txt | yay -S --needed -
@@ -41,6 +42,10 @@ helm
 # jq — apps/falcon-platform/update.sh parses the Falcon pull script's
 # --list-tags JSON
 jq
+
+# kubectl-cnpg — AUR; the CloudNativePG kubectl plugin, used in
+# runbooks/connect-cnpg-database.md and runbooks/restore-cnpg-database.md
+kubectl-cnpg
 
 # pre-commit — git hook framework used by .pre-commit-config.yaml
 pre-commit
