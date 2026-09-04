@@ -116,7 +116,7 @@ The `goalert-db-app` Secret is managed by the operator, which reconciles the app
 ## 7. Sanity-check the data
 
 ```shell
-kubectl cnpg psql goalert-db -n goalert   # or: kubectl -n goalert exec -it goalert-db-1 -- psql -U postgres goalert
+kubectl cnpg psql goalert-db -n goalert   # more ways in: runbooks/connect-cnpg-database.md
 ```
 
 Run whatever proves the restore landed where you wanted — for a PITR, verify the bad write is absent and the last good one is present.

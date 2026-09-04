@@ -10,7 +10,7 @@ helm install nxrm-ha sonatype/nxrm-ha --create-namespace --namespace nxrm-ha --v
 
 ## Install required packages
 
-This repo ships package manifests that install every CLI tool it uses (`age`, `bash`, `curl`, `dyff`, `flux-operator`, `git`, `helm`, `jq`, `pre-commit`, `python`, `sops`, `vim`, and the Go `yq`):
+This repo ships package manifests that install every CLI tool it uses (`age`, `bash`, `curl`, `dyff`, `flux-operator`, `git`, `helm`, `jq`, `kubectl-cnpg`, `pre-commit`, `python`, `sops`, `vim`, and the Go `yq`):
 
 - macOS, using [Homebrew](https://brew.sh/) and the `Brewfile`:
 
@@ -18,7 +18,7 @@ This repo ships package manifests that install every CLI tool it uses (`age`, `b
   brew bundle
   ```
 
-- Arch Linux, using the `pkglist.txt`. This requires an AUR helper such as [yay](https://github.com/Jguer/yay) or [paru](https://github.com/Morganamilo/paru), because `flux-operator` and `dyff` are AUR packages:
+- Arch Linux, using the `pkglist.txt`. This requires an AUR helper such as [yay](https://github.com/Jguer/yay) or [paru](https://github.com/Morganamilo/paru), because `autokuma-cli`, `dyff`, `flux-operator`, and `kubectl-cnpg` are AUR packages:
 
   ```shell
   grep -vE '^(#|$)' pkglist.txt | yay -S --needed -

@@ -35,6 +35,10 @@ brew "helm"
 # --list-tags JSON
 brew "jq"
 
+# kubectl-cnpg - the CloudNativePG kubectl plugin, used in
+# runbooks/connect-cnpg-database.md and runbooks/restore-cnpg-database.md
+brew "kubectl-cnpg"
+
 # pre-commit - git hook framework used by .pre-commit-config.yaml
 brew "pre-commit"
 
