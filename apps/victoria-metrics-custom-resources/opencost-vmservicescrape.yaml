@@ -1,0 +1,20 @@
+# Scrape the OpenCost exporter's cost metrics (node_total_hourly_cost,
+# pv_hourly_cost, container_*_allocation, opencost_build_info, ...) from
+# apps/opencost's "opencost" Service, port "http" (:9003), standard /metrics
+# path (verified in opencost-helm-chart 2.5.30, matching apps/opencost's
+# pin). Lives here rather than in apps/opencost for the CRD-ordering reason
+# in kustomization.yaml. The "OpenCost / Overview" dashboard in
+# apps/victoria-metrics reads these series back out of vmsingle.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMServiceScrape
+metadata:
+  name: opencost
+spec:
+  namespaceSelector:
+    matchNames:
+      - opencost
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: opencost
+  endpoints:
+    - port: http

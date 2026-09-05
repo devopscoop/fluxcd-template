@@ -21,3 +21,4 @@ resources:
   - envoy-vmpodscrape.yaml
   - envoy-gateway-vmservicescrape.yaml
   - envoy-vmrule.yaml
+  - opencost-vmservicescrape.yaml
