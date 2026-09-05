@@ -294,3 +294,12 @@ resources:
     memory: 256Mi
   limits:
     memory: 256Mi
+
+# The per-node collector must also cover nodes tainted CriticalAddonsOnly
+# (the managed node group reserved for scheduling-critical workloads and
+# databases — see aws-eks-template), or their logs stop shipping.
+# >>> karpenter: deploy.sh uncomments this block when k8s_platform=eks
+# tolerations:
+#   - key: CriticalAddonsOnly
+#     operator: Exists
+# <<< karpenter
