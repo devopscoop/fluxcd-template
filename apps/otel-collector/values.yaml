@@ -294,3 +294,17 @@ resources:
     memory: 256Mi
   limits:
     memory: 256Mi
+
+# A per-node agent must actually get onto every node, or that node's logs
+# stop shipping. At the default priority (0) the scheduler cannot preempt
+# anything to place the DaemonSet pod on a full node — observed in prod
+# 2026-09-07: a node whose memory requests sat at 99% left the collector
+# Pending with "Insufficient memory ... No preemption victims found", while
+# the node kept hosting envoy fleets and app workloads whose logs went
+# uncollected. system-node-critical is the standard class for node agents
+# (kube-proxy, aws-node, the CSI drivers): the scheduler evicts a
+# lower-priority pod to make room, nothing preempts the collector, and
+# kubelet evicts it last under node pressure. Node-critical outranks the
+# cluster-critical class the descheduler runs at, which is the right
+# ordering for a per-node agent vs a rescheduleable singleton.
+priorityClassName: system-node-critical
