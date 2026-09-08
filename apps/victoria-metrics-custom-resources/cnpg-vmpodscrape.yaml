@@ -1,8 +1,9 @@
 # Scrape every CloudNativePG database instance — the postgres exporter the
 # instance manager serves on :9187 (the container port named "metrics"):
 # connections, transactions, replication lag, WAL activity, backup freshness
-# and the rest of the cnpg_* collectors that feed
-# apps/victoria-metrics/cnpg-dashboard.yaml. The operator stamps
+# and the rest of the cnpg_* collectors that feed the CloudNativePG dashboard
+# (chart-provisioned; see monitoring.grafanaDashboard in
+# apps/cnpg/values.yaml). The operator stamps
 # cnpg.io/podRole=instance on every instance pod of every Cluster, so one
 # fleet-wide scrape covers goalert's database and any future one scaffolded
 # from apps/templates/cnpg-database with no per-app config.

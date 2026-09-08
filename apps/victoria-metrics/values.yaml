@@ -286,6 +286,16 @@ grafana:
         memory: 128Mi
       limits:
         memory: 128Mi
+    # Load grafana_dashboard=1 ConfigMaps from every namespace instead of
+    # only this one, so a chart that packages its own dashboard can just
+    # enable it wherever it deploys (apps/cnpg's monitoring.grafanaDashboard)
+    # and the dashboard tracks that chart's pin with no vendored copy here.
+    # The sidecar's ClusterRole already allows it. Trade-off: anything that
+    # can create a labeled ConfigMap in some namespace can register a
+    # dashboard. Mirrored in apps/kube-prometheus-stack — the two stacks are
+    # either/or, so keep them interchangeable.
+    dashboards:
+      searchNamespace: ALL
 
 # Initial guesses (resize with krr after 14d of usage); memory req=limit, no
 # CPU limit.
