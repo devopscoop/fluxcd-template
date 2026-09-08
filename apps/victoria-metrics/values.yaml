@@ -125,8 +125,9 @@ alertmanager:
 # with `sops helm_secrets.yaml`. They are there because the GoAlert webhook URL
 # embeds an integration key (see apps/goalert/README.md), and Flux merges
 # valuesFrom like `helm -f`: maps deep-merge but lists are replaced wholesale,
-# so each list must live entirely in one file. Current routing: Watchdog is
-# blackholed; every other alert goes to BOTH GoAlert (paging) and Slack via
+# so each list must live entirely in one file. Current routing: Watchdog and
+# InfoInhibitor are blackholed; every other alert goes to BOTH GoAlert
+# (paging) and Slack via
 # a single combined receiver (named "default") carrying both integrations --
 # one receiver, not one route per system, because the Alertmanager UI lists
 # each alert group once per receiver, so split receivers showed every alert
@@ -149,11 +150,51 @@ alertmanager:
 # the combined "default" receiver back into separate goalert and slack
 # routes/receivers in helm_secrets.yaml -- at the cost of the UI showing
 # every alert twice again (once per receiver).
+#
+# inhibit_rules implement the severity ladder the bundled alert rules assume
+# but the chart does not ship (its default values carry these rules only as a
+# commented-out example, unlike kube-prometheus-stack, which installs them):
+# critical mutes warning+info for the same alertname+namespace, warning mutes
+# info likewise, and InfoInhibitor -- a bundled meta-alert that fires whenever
+# a severity=info alert is pending or firing in a namespace -- mutes every
+# info alert in its namespace. Net effect: info alerts never notify on their
+# own; when a warning/critical alert fires in the same namespace,
+# InfoInhibitor stops firing there (that's its expr) and the info alerts
+# un-mute to ride along as context. InfoInhibitor itself is blackholed in
+# helm_secrets.yaml's routes (muted alerts still work as inhibition sources).
+# Without these rules every info-severity blip pages GoAlert: a falcon-kac
+# pod replacement briefly fills its 2-pod ResourceQuota, KubeQuotaFullyUsed
+# (info) goes pending, and InfoInhibitor -- severity=none, no `for:` -- fired
+# through the catch-all route within seconds, twice in one day (2026-09-08).
+# The list lives here, not helm_secrets.yaml, because nothing in it is
+# secret (same reasoning as group_by above); it's a sibling of the
+# route.routes list, so the each-list-in-one-file rule is satisfied.
 # >>> slack: deploy.sh uncomments this block when slack_alerts=true (variables.sh)
 #   config:
 #     route:
 #       group_by: ["alertname", "namespace"]
 #       receiver: default
+#     inhibit_rules:
+#       - source_matchers:
+#           - severity = critical
+#         target_matchers:
+#           - severity =~ warning|info
+#         equal:
+#           - namespace
+#           - alertname
+#       - source_matchers:
+#           - severity = warning
+#         target_matchers:
+#           - severity = info
+#         equal:
+#           - namespace
+#           - alertname
+#       - source_matchers:
+#           - alertname = InfoInhibitor
+#         target_matchers:
+#           - severity = info
+#         equal:
+#           - namespace
 # <<< slack
 
 # Grafana sits behind a repo-managed HTTPRoute (grafana-httproute.yaml), not
