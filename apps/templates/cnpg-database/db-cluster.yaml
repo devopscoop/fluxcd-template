@@ -44,6 +44,26 @@ spec:
   # Replication is async (CNPG default); clients connect through the -rw
   # Service, so switchovers are invisible to them.
   instances: 3
+  # A database must not ride Karpenter capacity: consolidation and drift
+  # drains force a switchover whenever the bin-packer rearranges nodes (the
+  # operator switches the primary over as soon as its node is cordoned, so
+  # the primary PDB never gets to object). The affinity pins the instances to
+  # managed-node-group nodes — `Exists` on the label survives node-group
+  # renames and blue/green rotations — and the toleration matches the
+  # CriticalAddonsOnly taint that reserves those nodes for scheduling-critical
+  # workloads (see the managed node group in aws-eks-template).
+# >>> karpenter: deploy.sh uncomments this block when k8s_platform=eks
+#   affinity:
+#     nodeAffinity:
+#       requiredDuringSchedulingIgnoredDuringExecution:
+#         nodeSelectorTerms:
+#           - matchExpressions:
+#               - key: eks.amazonaws.com/nodegroup
+#                 operator: Exists
+#     tolerations:
+#       - key: CriticalAddonsOnly
+#         operator: Exists
+# <<< karpenter
   # Per app: pin the postgres major deliberately to one your app supports,
   # and bump it alongside app upgrades — this repo's CNPG operator (1.28)
   # defaults new clusters to PostgreSQL 18, which may be newer than the app's

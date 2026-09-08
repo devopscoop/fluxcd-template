@@ -30,6 +30,26 @@ spec:
   # (schedules, escalation policies, alert metadata), so the cost of HA is
   # just two more pods and PVCs.
   instances: 3
+  # A database must not ride Karpenter capacity: consolidation and drift
+  # drains force a switchover whenever the bin-packer rearranges nodes (the
+  # operator switches the primary over as soon as its node is cordoned, so
+  # the primary PDB never gets to object). The affinity pins the instances to
+  # managed-node-group nodes — `Exists` on the label survives node-group
+  # renames and blue/green rotations — and the toleration matches the
+  # CriticalAddonsOnly taint that reserves those nodes for scheduling-critical
+  # workloads (see the managed node group in aws-eks-template).
+# >>> karpenter: deploy.sh uncomments this block when k8s_platform=eks
+#   affinity:
+#     nodeAffinity:
+#       requiredDuringSchedulingIgnoredDuringExecution:
+#         nodeSelectorTerms:
+#           - matchExpressions:
+#               - key: eks.amazonaws.com/nodegroup
+#                 operator: Exists
+#     tolerations:
+#       - key: CriticalAddonsOnly
+#         operator: Exists
+# <<< karpenter
   # Pinned to PostgreSQL 17, deliberately: GoAlert v0.34 is tested against
   # PostgreSQL 13-17, while this repo's CNPG operator (1.28) defaults new
   # clusters to PostgreSQL 18, which GoAlert's test suite doesn't cover yet.
