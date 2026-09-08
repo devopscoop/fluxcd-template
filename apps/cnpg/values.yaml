@@ -8,6 +8,9 @@ resources:
     cpu: 10m
     memory: 129Mi
 
-monitoring:
-  grafanaDashboard:
-    create: true
+# No monitoring.grafanaDashboard.create here: it drops the dashboard
+# ConfigMap into this namespace, where no Grafana sidecar looks (each stack's
+# sidecar only loads ConfigMaps from its own namespace). The dashboard is
+# vendored with the stack instead — apps/victoria-metrics/cnpg-dashboard.yaml,
+# which also explains why it isn't chart-managed — and scraping is the
+# cnpg-*vmpodscrape.yaml pair in apps/victoria-metrics-custom-resources.

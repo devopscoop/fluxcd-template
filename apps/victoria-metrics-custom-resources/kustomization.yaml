@@ -21,3 +21,5 @@ resources:
   - envoy-vmpodscrape.yaml
   - envoy-gateway-vmservicescrape.yaml
   - envoy-vmrule.yaml
+  - cnpg-vmpodscrape.yaml
+  - cnpg-operator-vmpodscrape.yaml

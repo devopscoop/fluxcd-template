@@ -17,6 +17,7 @@ resources:
   - envoy-proxy-global-dashboard.yaml
   - envoy-clusters-dashboard.yaml
   - envoy-gateway-global-dashboard.yaml
+  - cnpg-dashboard.yaml
 configMapGenerator:
   - name: victoria-metrics-values
     files:
