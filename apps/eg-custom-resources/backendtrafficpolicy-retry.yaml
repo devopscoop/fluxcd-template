@@ -1,0 +1,35 @@
+# Endpoint removal always races pod shutdown: the SIGTERM to the container
+# and the EndpointSlice update propagate in parallel, and Envoy only learns
+# about the removal via watch → xDS, a beat behind the kubelet. An app that
+# closes its listener as soon as SIGTERM lands leaves a short window where
+# Envoy still routes to the dead endpoint, gets connection-refused, and
+# synthesizes a 503 (UF flag) downstream. Rolling updates cross this window
+# on every deploy.
+#
+# Retrying absorbs the race without encoding a drain sleep into every
+# workload's preStop hook, and it also covers endpoint loss no preStop can
+# help with (spot reclaim, node crash, OOMKill, Karpenter consolidation).
+# Both triggers fire before any request bytes reach the upstream, so the
+# retry is safe for non-idempotent requests. Do NOT add `reset` or 5xx-based
+# triggers here: those can replay a request the upstream already processed.
+#
+# A route-level BackendTrafficPolicy overrides this gateway-level policy
+# wholesale for its route unless that policy sets `mergeType: StrategicMerge`.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: retry-connect-failure
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: eg-public
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: eg-private
+  retry:
+    numRetries: 2
+    retryOn:
+      triggers:
+        - connect-failure
+        - refused-stream
