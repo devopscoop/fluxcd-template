@@ -13,7 +13,10 @@ metadata:
 spec:
   namespaceSelector:
     matchNames:
-      - cnpg
+      # The namespace apps/cnpg deploys the operator into (its
+      # namespace.yaml), not the release name; "cnpg" here matched nothing
+      # and the scrape pool sat empty (ScrapePoolHasNoTargets).
+      - cnpg-system
   selector:
     matchLabels:
       app.kubernetes.io/name: cloudnative-pg
