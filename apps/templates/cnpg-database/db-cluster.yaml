@@ -147,6 +147,64 @@ spec:
 #       annotations:
 #         eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT_ID:role/app-template-db"
 # <<< eks
+  # Developer SSO straight into Postgres: PostgreSQL 18's native OAuth
+  # (SASL OAUTHBEARER) against the optional dex app (apps/dex). psql runs
+  # dex's device flow — the public `psql` staticClient in
+  # apps/dex/helm_secrets.yaml — and the server validates the resulting JWT
+  # through a validator library, mapping the email claim to a per-developer
+  # role: no passwords, no shared credentials, and offboarding rides the
+  # upstream IdP. Deliberately a separate marker from `dex` (web SSO),
+  # because this side has hard prerequisites:
+  #   - Postgres ships NO validator. Build one (e.g. Percona-Lab's
+  #     pg_oidc_validator, JWT/JWKS-based) into an OCI extension image and
+  #     replace the placeholder reference below — enabling this block with
+  #     the placeholder breaks the instance pods on an unpullable image.
+  #   - Image-volume extensions need Kubernetes 1.35+ (1.33/1.34 only with
+  #     the ImageVolume feature gate) and a containerd 2.1+ runtime.
+  #   - Clients need psql 18 with libpq built against libcurl: Debian/Ubuntu
+  #     PGDG ship it as the libpq-oauth package; Homebrew's builds lack it.
+  #   - Validator libraries are young. The oauth hba rule below is scoped to
+  #     the developers group, so apps and break-glass access stay on CNPG's
+  #     default scram catch-all (appended after these rules).
+  # The issuer must equal config.issuer in apps/dex/values.yaml byte-for-byte
+  # and be reachable from the instance pods (discovery + JWKS fetch). Then:
+  #   psql "host=<endpoint> dbname=app-template user=alice \
+  #     oauth_issuer=https://dex.project1-dev.devops.coop oauth_client_id=psql"
+  # prints a URL and code; the developer approves in the browser via the
+  # upstream IdP and lands in their own audited role.
+# >>> pg-oauth: NOT auto-enabled — enable per adoption after building a validator image (see apps/dex/README.md)
+#   postgresql:
+#     extensions:
+#       - name: pg-oidc-validator
+#         image:
+#           reference: ghcr.io/YOUR_ORG/pg-oidc-validator:18-trixie
+#     parameters:
+#       oauth_validator_libraries: "pg_oidc_validator"
+#       pg_oidc_validator.authn_field: "email"
+#     pg_hba:
+#       - hostssl all +developers all oauth issuer="https://dex.project1-dev.devops.coop" scope="openid email" map=oidc
+#     pg_ident:
+#       # Workspace email -> the role named after its local part
+#       # (alice@example.com logs in as alice; the role must exist below).
+#       - oidc /^(.*)@example\.com$ \1
+#   managed:
+#     roles:
+#       # The group the oauth hba rule matches. Grant it what developers may
+#       # do — pg_read_all_data is read-only everywhere; note tables behind
+#       # row-level security additionally need bypassrls on the login roles
+#       # to be readable, a per-app data-access decision.
+#       - name: developers
+#         ensure: present
+#         login: false
+#         inRoles:
+#           - pg_read_all_data
+#       # One login role per human, named after the email local part.
+#       - name: alice
+#         ensure: present
+#         login: true
+#         inRoles:
+#           - developers
+# <<< pg-oauth
 ---
 # Where app-template-db's backups live. The Barman Cloud Plugin (apps/
 # cnpg-barman-plugin — this app's flux Kustomization dependsOn it) reads this

@@ -37,12 +37,17 @@ cutover across every SSO consumer, not a rename.
 
 Anything that speaks OIDC: Grafana, kubectl (via OIDC auth), internal
 tools. The consumer that motivated this app is PostgreSQL 18's native
-OAuth — psql runs the device authorization flow against a public static
-client (example commented in `helm_secrets.yaml`), and Postgres validates
-the resulting JWT through a validator library configured with this issuer.
-The server-side validator (e.g. Percona's `pg_oidc_validator`) is part of
-the database's deployment, not this app; the `pg_hba.conf` `issuer=`
-option must equal `config.issuer` exactly.
+OAuth — psql runs the device authorization flow against the public `psql`
+static client (commented in `helm_secrets.yaml`), and Postgres validates
+the resulting JWT through a validator library configured with this
+issuer. The database template
+(`apps/templates/cnpg-database/db-cluster.yaml`) ships this wiring as a
+`pg-oauth` marker block — deliberately separate from the `dex` marker,
+since it additionally requires building a validator extension image
+(Postgres ships none; e.g. Percona-Lab's `pg_oidc_validator`), Kubernetes
+1.35+ image volumes, and curl-enabled psql 18 on developer machines. The
+block's comments carry the details; the `issuer=` in `pg_hba` must equal
+`config.issuer` exactly.
 
 ### Grafana
 
