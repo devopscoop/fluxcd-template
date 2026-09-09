@@ -63,6 +63,33 @@ The local admin login form stays enabled as break-glass for when Dex or
 the upstream IdP is down; SSO users get their role from group membership,
 falling back to Viewer.
 
+### Any HTTPRoute (Prometheus, Alertmanager, …)
+
+For apps with no OIDC support of their own, Envoy Gateway's
+`SecurityPolicy` OIDC filter runs the login at the gateway: browsers get
+redirected to dex, authenticate upstream, and return with a session
+cookie — the app itself never learns about auth. The same `dex` marker
+enables `oidc-securitypolicy.yaml` in both monitoring stacks, covering
+Alertmanager plus vmui (victoria-metrics) or Prometheus
+(kube-prometheus-stack). With `cookieDomain` set to the parent domain,
+one login covers every protected hostname.
+
+Wiring for a new route: add its `/oauth2/callback` URL to the
+`envoy-gateway` staticClient here, and either add the route to an
+existing policy's `targetRefs` (same namespace only) or copy the policy
+into the route's app. The client secret pairs three ways — the
+staticClient here and `eg-oidc-client.secrets.yaml` in each monitoring
+app — one generated value in all of them.
+
+Two cautions: never target the dex or grafana routes (dex would put the
+login behind the login; Grafana runs its own OIDC and the filter breaks
+its callback), and note kube-prometheus-stack ships htpasswd basic auth
+on these routes — Envoy Gateway honors only the oldest SecurityPolicy
+per route, so the swap must disable it:
+`./toggle_blocks.sh --enable dex --disable basic-auth`. This gates the
+browser path only; in-cluster consumers use service DNS and never cross
+the gateway.
+
 ## State and upgrades
 
 Dex's only state — auth requests, refresh tokens, signing keys — lives in

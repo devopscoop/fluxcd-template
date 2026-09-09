@@ -17,6 +17,13 @@ resources:
   - envoy-proxy-global-dashboard.yaml
   - envoy-clusters-dashboard.yaml
   - envoy-gateway-global-dashboard.yaml
+  # SSO for Alertmanager and vmui through the optional dex app: an Envoy
+  # Gateway SecurityPolicy runs the OIDC flow at the gateway, same dex →
+  # workforce-IdP login as Grafana. See apps/dex/README.md.
+# >>> dex: NOT auto-enabled by deploy.sh — run ./toggle_blocks.sh --enable dex after deploying apps/dex
+#   - oidc-securitypolicy.yaml
+#   - eg-oidc-client.secrets.yaml
+# <<< dex
 configMapGenerator:
   - name: victoria-metrics-values
     files:
