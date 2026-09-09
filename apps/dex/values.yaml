@@ -1,0 +1,52 @@
+# dyff between <(yq . <(helm show values dex/dex --version 0.24.1)) <(yq eval '. * load("values.yaml")' <(helm show values dex/dex --version 0.24.1))
+# vim -O <(helm show values dex/dex --version 0.24.1) values.yaml
+
+config:
+  # The issuer URL is Dex's identity, and it is load-bearing: OIDC discovery,
+  # every consumer's issuer setting (Grafana's auth_url, a Postgres 18
+  # pg_hba issuer= option, libpq's oauth_issuer), and the tokens themselves
+  # all carry it byte-for-byte. It must match the HTTPRoute hostname, be
+  # HTTPS, and be reachable from BOTH user machines and cluster pods (token
+  # validators fetch the discovery document and JWKS from the same URL).
+  # Changing it later invalidates every consumer's config at once.
+  issuer: https://dex.project1-dev.devops.coop
+
+  # Dex's only state (auth requests, refresh tokens, signing keys) lives in
+  # CRDs in this namespace — no database. The chart's default RBAC grants
+  # exactly this.
+  storage:
+    type: kubernetes
+    config:
+      inCluster: true
+
+  # A pure federation broker: no local accounts, ever. Identity truth stays
+  # in the upstream IdP, so offboarding there offboards everywhere. The
+  # connectors block (which carries the upstream client secret) lives in
+  # helm_secrets.yaml — see the commented example there.
+  enablePasswordDB: false
+
+  oauth2:
+    # With a single connector and workforce-only clients, the extra
+    # "grant access" screen after the upstream login is pure friction.
+    skipApprovalScreen: true
+
+  # OAuth clients go here when they hold no secret (public clients, e.g. a
+  # PKCE SPA or a device-flow CLI). Confidential clients (a secret-holding
+  # web app like Grafana) belong in helm_secrets.yaml, merged over this
+  # block by Flux.
+  # staticClients:
+  #   ## Public client for PostgreSQL 18 OAuth logins: psql/libpq runs the
+  #   ## device authorization flow against this id. No secret — the device
+  #   ## grant with a public client needs none.
+  #   - id: psql
+  #     name: psql (PostgreSQL OAuth device flow)
+  #     public: true
+
+# Sized by guesswork (dex idles around 30Mi); memory req=limit, no CPU
+# limit, same shape as the other apps. Resize with krr after real usage.
+resources:
+  requests:
+    cpu: 10m
+    memory: 64Mi
+  limits:
+    memory: 64Mi
