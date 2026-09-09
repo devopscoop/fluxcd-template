@@ -134,6 +134,24 @@ grafana:
       # Public URL Grafana uses when generating absolute links (e.g. Explore
       # short links); without it they point at the default localhost:3000.
       root_url: https://grafana.project1-dev.devops.coop/
+    # SSO through the optional dex app (apps/dex) — identical block and
+    # rationale as in apps/victoria-metrics/values.yaml (the two stacks are
+    # either/or, so keep them interchangeable): login form stays as
+    # break-glass, client_secret pairs with apps/dex/helm_secrets.yaml via
+    # this app's helm_secrets.yaml, roles map from the groups claim with a
+    # Viewer fallback. Replace the placeholder group addresses.
+# >>> dex: NOT auto-enabled by deploy.sh — run ./toggle_blocks.sh --enable dex after deploying apps/dex
+#     auth.generic_oauth:
+#       enabled: true
+#       name: Dex
+#       client_id: grafana
+#       scopes: openid profile email groups
+#       auth_url: https://dex.project1-dev.devops.coop/auth
+#       token_url: https://dex.project1-dev.devops.coop/token
+#       api_url: https://dex.project1-dev.devops.coop/userinfo
+#       allow_sign_up: true
+#       role_attribute_path: contains(groups[*], 'grafana-admins@example.com') && 'Admin' || contains(groups[*], 'grafana-editors@example.com') && 'Editor' || 'Viewer'
+# <<< dex
 
   # Provision the Loki store (apps/loki) as a datasource on this Grafana so logs
   # are queryable in Explore. Loki runs single-tenant, so no auth header needed.

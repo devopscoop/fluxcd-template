@@ -19,11 +19,13 @@ yq -i '.resources = (.resources + ["dex.yaml"] | unique)' flux/flux-system/kusto
 
 The split between the two values files follows the secrets convention:
 
-- `values.yaml` — the issuer URL, CRD storage, and public OAuth clients
-  (device-flow CLIs, PKCE SPAs — clients that hold no secret).
+- `values.yaml` — the issuer URL, CRD storage, and oauth2 behavior.
 - `helm_secrets.yaml` — the `config.connectors` block (each connector
-  carries the upstream IdP's client secret) and any confidential static
-  clients. Flux deep-merges it over `values.yaml`.
+  carries the upstream IdP's client secret) and the whole
+  `config.staticClients` list: Flux merges valuesFrom like `helm -f` —
+  maps deep-merge but lists are replaced wholesale — so the client list
+  cannot be split across the two files, and confidential clients carry
+  secrets.
 
 The issuer URL is load-bearing. Consumers configure it byte-for-byte, the
 tokens embed it, and validators fetch the discovery document and JWKS from
@@ -36,11 +38,30 @@ cutover across every SSO consumer, not a rename.
 Anything that speaks OIDC: Grafana, kubectl (via OIDC auth), internal
 tools. The consumer that motivated this app is PostgreSQL 18's native
 OAuth — psql runs the device authorization flow against a public static
-client (example commented in `values.yaml`), and Postgres validates the
-resulting JWT through a validator library configured with this issuer.
+client (example commented in `helm_secrets.yaml`), and Postgres validates
+the resulting JWT through a validator library configured with this issuer.
 The server-side validator (e.g. Percona's `pg_oidc_validator`) is part of
 the database's deployment, not this app; the `pg_hba.conf` `issuer=`
 option must equal `config.issuer` exactly.
+
+### Grafana
+
+Both monitoring stacks ship a commented `dex` marker block wiring
+`auth.generic_oauth` at this issuer. To turn it on:
+
+1. Deploy this app with the upstream connector's groups support configured
+   (the Grafana role mapping reads the `groups` claim; without it everyone
+   lands as Viewer).
+2. `./toggle_blocks.sh --enable dex`, then replace the placeholder group
+   addresses in `role_attribute_path`.
+3. Generate one secret (`openssl rand -hex 24`) into both sides: the
+   `grafana` entry in this app's `helm_secrets.yaml` and
+   `auth.generic_oauth.client_secret` in the monitoring app's
+   `helm_secrets.yaml` (edit encrypted files with `sops`).
+
+The local admin login form stays enabled as break-glass for when Dex or
+the upstream IdP is down; SSO users get their role from group membership,
+falling back to Viewer.
 
 ## State and upgrades
 

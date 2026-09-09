@@ -301,6 +301,28 @@ grafana:
       # Same hostname as the kube-prometheus-stack Grafana: the two stacks are
       # either/or, so only one of them ever answers on it.
       root_url: https://grafana.project1-dev.devops.coop/
+    # SSO through the optional dex app (apps/dex), via generic_oauth against
+    # the dex issuer. The login form deliberately stays enabled: the local
+    # admin account is break-glass for when dex or the upstream IdP is down.
+    # client_secret is NOT here — it comes from helm_secrets.yaml (Flux
+    # deep-merges it in) and must equal the grafana staticClient secret in
+    # apps/dex/helm_secrets.yaml. allow_sign_up admits anyone the connector
+    # does (e.g. hostedDomains); the role comes from role_attribute_path,
+    # which reads the groups claim — emitted only when the connector's
+    # groups support is configured (see apps/dex/helm_secrets.yaml) — and
+    # falls back to Viewer. Replace the placeholder group addresses.
+# >>> dex: NOT auto-enabled by deploy.sh — run ./toggle_blocks.sh --enable dex after deploying apps/dex
+#     auth.generic_oauth:
+#       enabled: true
+#       name: Dex
+#       client_id: grafana
+#       scopes: openid profile email groups
+#       auth_url: https://dex.project1-dev.devops.coop/auth
+#       token_url: https://dex.project1-dev.devops.coop/token
+#       api_url: https://dex.project1-dev.devops.coop/userinfo
+#       allow_sign_up: true
+#       role_attribute_path: contains(groups[*], 'grafana-admins@example.com') && 'Admin' || contains(groups[*], 'grafana-editors@example.com') && 'Editor' || 'Viewer'
+# <<< dex
   # The VictoriaLogs datasource above and the "VictoriaMetrics (DS)"
   # datasource the chart provisions by default are Grafana plugins, not
   # built-in types. Grafana downloads them at startup, which needs egress to

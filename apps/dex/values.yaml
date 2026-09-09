@@ -30,17 +30,11 @@ config:
     # "grant access" screen after the upstream login is pure friction.
     skipApprovalScreen: true
 
-  # OAuth clients go here when they hold no secret (public clients, e.g. a
-  # PKCE SPA or a device-flow CLI). Confidential clients (a secret-holding
-  # web app like Grafana) belong in helm_secrets.yaml, merged over this
-  # block by Flux.
-  # staticClients:
-  #   ## Public client for PostgreSQL 18 OAuth logins: psql/libpq runs the
-  #   ## device authorization flow against this id. No secret — the device
-  #   ## grant with a public client needs none.
-  #   - id: psql
-  #     name: psql (PostgreSQL OAuth device flow)
-  #     public: true
+  # OAuth clients: the whole config.staticClients list lives in
+  # helm_secrets.yaml (examples there). Flux merges valuesFrom like
+  # `helm -f` — maps deep-merge but lists are replaced wholesale — so the
+  # list can't be split between the two files, and confidential clients
+  # (e.g. Grafana's) carry secrets.
 
 # Sized by guesswork (dex idles around 30Mi); memory req=limit, no CPU
 # limit, same shape as the other apps. Resize with krr after real usage.
