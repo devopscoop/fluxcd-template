@@ -294,6 +294,15 @@ defaultDatasources:
       url: http://tempo.tempo.svc.cluster.local:3200
 
 grafana:
+  # Grafana's dex OAuth client secret (the dex marker blocks below) arrives
+  # as the GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET env var from
+  # grafana-oidc-client.secrets.yaml — NOT as grafana.ini's client_secret:
+  # everything under grafana.ini is rendered into a world-readable ConfigMap,
+  # and the chart's assertNoLeakedSecrets check refuses a plaintext secret
+  # there. Grafana's env-var config override supplies the value instead.
+# >>> dex: NOT auto-enabled by deploy.sh — run ./toggle_blocks.sh --enable dex after deploying apps/dex
+#   envFromSecret: grafana-oidc-client-secret
+# <<< dex
   grafana.ini:
     server:
       # Public URL Grafana uses when generating absolute links (e.g. Explore
@@ -304,8 +313,8 @@ grafana:
     # SSO through the optional dex app (apps/dex), via generic_oauth against
     # the dex issuer. The login form deliberately stays enabled: the local
     # admin account is break-glass for when dex or the upstream IdP is down.
-    # client_secret is NOT here — it comes from helm_secrets.yaml (Flux
-    # deep-merges it in) and must equal the grafana staticClient secret in
+    # client_secret is NOT in grafana.ini — it arrives as an env var via
+    # envFromSecret above and must equal the grafana staticClient secret in
     # apps/dex/helm_secrets.yaml. allow_sign_up admits anyone the connector
     # does (e.g. hostedDomains); the role comes from role_attribute_path,
     # which reads the groups claim — emitted only when the connector's

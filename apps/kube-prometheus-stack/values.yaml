@@ -129,6 +129,12 @@ prometheus:
 # <<< karpenter
 
 grafana:
+  # Grafana's dex OAuth client secret arrives as an env var from
+  # grafana-oidc-client.secrets.yaml — same mechanism and rationale as in
+  # apps/victoria-metrics/values.yaml.
+# >>> dex: NOT auto-enabled by deploy.sh — run ./toggle_blocks.sh --enable dex after deploying apps/dex
+#   envFromSecret: grafana-oidc-client-secret
+# <<< dex
   grafana.ini:
     server:
       # Public URL Grafana uses when generating absolute links (e.g. Explore
@@ -138,8 +144,8 @@ grafana:
     # rationale as in apps/victoria-metrics/values.yaml (the two stacks are
     # either/or, so keep them interchangeable): login form stays as
     # break-glass, client_secret pairs with apps/dex/helm_secrets.yaml via
-    # this app's helm_secrets.yaml, roles map from the groups claim with a
-    # Viewer fallback. Replace the placeholder group addresses.
+    # grafana-oidc-client.secrets.yaml, roles map from the groups claim with
+    # a Viewer fallback. Replace the placeholder group addresses.
 # >>> dex: NOT auto-enabled by deploy.sh — run ./toggle_blocks.sh --enable dex after deploying apps/dex
 #     auth.generic_oauth:
 #       enabled: true

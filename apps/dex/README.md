@@ -60,9 +60,13 @@ Both monitoring stacks ship a commented `dex` marker block wiring
 2. `./toggle_blocks.sh --enable dex`, then replace the placeholder group
    addresses in `role_attribute_path`.
 3. Generate one secret (`openssl rand -hex 24`) into both sides: the
-   `grafana` entry in this app's `helm_secrets.yaml` and
-   `auth.generic_oauth.client_secret` in the monitoring app's
-   `helm_secrets.yaml` (edit encrypted files with `sops`).
+   `grafana` entry in this app's `helm_secrets.yaml` (edit encrypted files
+   with `sops`) and `GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET` in the monitoring
+   app's `grafana-oidc-client.secrets.yaml`. Grafana reads the secret from
+   that env var (`envFromSecret` in the monitoring app's values.yaml) rather
+   than from `grafana.ini`: the chart renders that whole section into a
+   world-readable ConfigMap, and its `assertNoLeakedSecrets` check fails the
+   render if a plaintext secret appears there.
 
 The local admin login form stays enabled as break-glass for when Dex or
 the upstream IdP is down; SSO users get their role from group membership,
