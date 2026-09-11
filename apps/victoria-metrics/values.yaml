@@ -309,6 +309,39 @@ grafana:
   plugins:
     - victoriametrics-logs-datasource
     - victoriametrics-metrics-datasource
+  # Dashboards Grafana's download-dashboards init container pulls from
+  # grafana.com at every pod start (same grafana.com/api egress as the plugins
+  # above), so upstream updates arrive on the next restart instead of being
+  # vendored here and re-synced by hand. revision "latest" tracks the newest
+  # published revision (the chart would otherwise default to revision 1, not
+  # latest). The provider tells Grafana to load whatever the init container
+  # drops in its path; the sidecar-provisioned ConfigMap dashboards (the
+  # envoy-*-dashboard.yaml files in this app) use the chart's own provider and
+  # are unaffected.
+  dashboardProviders:
+    dashboardproviders.yaml:
+      apiVersion: 1
+      providers:
+        - name: downloaded
+          orgId: 1
+          folder: ""
+          type: file
+          disableDeletion: false
+          editable: false
+          options:
+            path: /var/lib/grafana/dashboards/downloaded
+  dashboards:
+    downloaded:
+      # "OpenCost / Overview" (grafana.com 22208) -- cluster-wide cost metrics
+      # (hourly/monthly totals, cost by resource, instance type, namespace,
+      # node, and PV), fed by apps/opencost via the VMServiceScrape in
+      # apps/victoria-metrics-custom-resources/opencost-vmservicescrape.yaml.
+      # Its hidden "cluster" variable resolves empty here (this stack stamps
+      # no `cluster` external label) and PromQL {cluster=""} matches series
+      # without the label, so every query works as-is.
+      opencost-overview:
+        gnetId: 22208
+        revision: latest
   # Memory req=limit, no CPU limit. Doubled to 384Mi after OOMKills
   # (2026-08-25), then OOMKilled again on 2026-08-26 once the kubelet
   # relabelConfigs fix below un-dropped the label-heavy cadvisor series
