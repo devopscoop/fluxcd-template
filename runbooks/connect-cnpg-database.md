@@ -1,10 +1,11 @@
 # Connecting to a CNPG database
 
-Three ways to get a SQL prompt on a CloudNativePG database in this repo, in increasing order of ceremony:
+Four ways to get a SQL prompt on a CloudNativePG database in this repo, in increasing order of ceremony:
 
 1. [The `kubectl cnpg` plugin](#option-1-the-kubectl-cnpg-plugin) — one command, superuser psql on the primary. Needs the plugin installed (it's in the `Brewfile` and `pkglist.txt`).
 2. [Plain `kubectl exec`](#option-2-plain-kubectl-exec) — the same session with no plugin, anywhere `kubectl` works.
 3. [Port-forwarding](#option-3-port-forwarding-for-local-clients-dbeaver-etc) — for DBeaver or any other client running on your machine, authenticating as the application role.
+4. [OAuth developer SSO](#option-4-oauth-developer-sso-for-databases-with-the-pg-oauth-block-enabled) — for databases with the `pg-oauth` marker block enabled: psql over a port-forward, approving the login in the browser and landing in your own per-developer role.
 
 This runbook uses **goalert** / **goalert-db** throughout; for another database substitute the app name and Cluster name (`<app>`, `<app>-db`).
 
@@ -82,6 +83,36 @@ Caveats:
 - **Read-only browsing:** forward `svc/goalert-db-ro` instead to land on a replica and keep exploratory load off the primary.
 - **TLS:** the server speaks TLS and psql's default `sslmode=prefer` works, but the certificate names the in-cluster Services, not localhost — so `sslmode=verify-full` fails through a port-forward. Anything up to `sslmode=require` is fine.
 - **Privileges:** the app role owns the `goalert` database and nothing more. If a task genuinely needs superuser, use option 1 or 2 rather than trying to get superuser over TCP.
+
+## Option 4: OAuth developer SSO, for databases with the pg-oauth block enabled
+
+Databases created from `apps/templates/cnpg-database` can enable the `pg-oauth` marker block (prerequisites and rationale in the block's comments and `apps/dex/README.md`): PostgreSQL 18's native OAuth against the dex issuer, mapping each developer's email to a role named after its local part (`alice@example.com` connects as `alice`). No password and no shared credentials — you approve the login in the browser through the upstream IdP and land in your own audited role.
+
+Requirements:
+
+- psql 18 with libpq built against libcurl. Debian/Ubuntu PGDG ship it as the `libpq-oauth` package; Homebrew's builds lack it (macOS workaround below).
+- A login role named after your email local part in the Cluster's `managed.roles` (the pg-oauth block shows the shape).
+- The dex issuer reachable from your machine.
+
+Forward the read-write Service as in option 3, then:
+
+```shell
+psql "host=localhost port=15432 dbname=<app> user=<email-local-part> sslmode=require oauth_issuer=https://dex.project1-dev.devops.coop oauth_client_id=psql"
+```
+
+psql prints a verification URL and a code; approve in the browser and the prompt opens. The oauth `pg_hba` rule is `hostssl`, so the connection must use TLS — and as in option 3, the certificate names the in-cluster Services, so `sslmode=require` is the right level through a port-forward.
+
+On macOS, run a PGDG psql in a container against the port-forward (`host.docker.internal` reaches the forward listening on your machine):
+
+```shell
+docker run --rm -it debian:trixie-slim bash -c '
+  apt-get update -q >/dev/null && apt-get install -yq postgresql-common ca-certificates >/dev/null &&
+  /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y &&
+  apt-get install -yq postgresql-client-18 libpq-oauth >/dev/null &&
+  psql "host=host.docker.internal port=15432 dbname=<app> user=<email-local-part> sslmode=require oauth_issuer=https://dex.project1-dev.devops.coop oauth_client_id=psql"'
+```
+
+Privileges: the `developers` group grants `pg_read_all_data` by default — tables behind row-level security additionally need `bypassrls` on the login role, a per-app data-access decision recorded in the block's comments.
 
 ## Related
 
