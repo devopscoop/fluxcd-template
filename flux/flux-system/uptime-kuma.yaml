@@ -4,6 +4,12 @@ metadata:
   name: uptime-kuma
   namespace: flux-system
 spec:
+  # vmservicescrape.yaml/vmrule.yaml are operator.victoriametrics.com CRs —
+  # the apply fails on the missing CRDs unless victoria-metrics has landed
+  # first (the tempo/otel-collector pattern; the scrape lives in-app because
+  # its basicAuth secret must share the scrape object's namespace).
+  dependsOn:
+    - name: victoria-metrics
   interval: 10m0s
   sourceRef:
     kind: GitRepository

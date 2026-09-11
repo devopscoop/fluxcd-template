@@ -1,0 +1,73 @@
+# Alerting rules for external-dns, evaluated by this stack's vmalert over
+# the series collected by external-dns-vmservicescrape.yaml. No official
+# upstream ruleset exists; these adapt the common community shapes
+# (giantswarm/prometheus-rules external-dns.rules.yml and the
+# combostrap/kubee external-dns mixin) with deliberate fixes:
+# - Dropped Giant Swarm's provider/cluster_type matchers (labels their
+#   remote-write injects; here they'd match nothing and silence the rules)
+#   and their EC2-hostname label_replace cosmetics.
+# - The kubee error rules compare a raw counter > 0, which fires forever
+#   after the first error ever; rate() over 5m restores the intent.
+# - The kubee stale-sync rule groups by labels the metric doesn't carry
+#   (it's an unlabelled gauge); grouping removed, threshold set to 3x this
+#   repo's sync interval (values.yaml interval: 10m).
+# - No down/absent rule: the bundled TargetDown covers a dead target.
+#
+# Why these page: values.yaml runs policy:sync, so external-dns actively
+# creates AND deletes records — when it breaks, new HTTPRoutes never
+# resolve and removed ones leave dangling DNS, silently.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  name: external-dns
+spec:
+  groups:
+    - name: external-dns
+      rules:
+        - alert: ExternalDNSRegistryErrors
+          annotations:
+            summary: external-dns can't talk to the DNS provider.
+            description: >-
+              Registry errors from pod {{ $labels.pod }} for 15m. Per
+              upstream, registry errors are almost always provider-API
+              failures — network, or missing credentials/permissions (on
+              EKS, the IRSA role in apps/external-dns/values.yaml; with
+              Cloudflare, the API token). DNS records are no longer
+              tracking Services/HTTPRoutes.
+          expr: |-
+            rate(external_dns_registry_errors_total[5m]) > 0
+          for: 15m
+          labels:
+            severity: critical
+        - alert: ExternalDNSSourceErrors
+          annotations:
+            summary: external-dns can't read its Kubernetes sources.
+            description: >-
+              Source errors from pod {{ $labels.pod }} for 15m — errors
+              listing Services/Ingresses/Gateway routes from the API server,
+              usually RBAC (the gateway-httproute and gateway-tcproute
+              sources in values.yaml have the newest, most fragile RBAC) or
+              an object with a broken hostname annotation.
+          expr: |-
+            rate(external_dns_source_errors_total[5m]) > 0
+          for: 15m
+          labels:
+            severity: warning
+        # last_sync is the last SUCCESSFUL sync; last_reconcile is merely
+        # the last attempt. This catches the "process alive, loop wedged"
+        # case TargetDown can't see. 1800s = 3x the configured interval
+        # (values.yaml interval: 10m; triggerLoopOnEvent may sync sooner,
+        # never later).
+        - alert: ExternalDNSStaleSync
+          annotations:
+            summary: external-dns hasn't completed a sync in 30 minutes.
+            description: >-
+              The last successful external-dns sync was
+              {{ humanizeDuration $value }} ago (interval is 10m). Records are frozen at their last synced state; check
+              the pod's logs — a single unprocessable resource can wedge
+              the whole loop.
+          expr: |-
+            time() - external_dns_controller_last_sync_timestamp_seconds > 1800
+          for: 15m
+          labels:
+            severity: critical

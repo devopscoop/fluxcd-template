@@ -56,3 +56,9 @@ Alerts enter GoAlert through a per-service integration key:
 ## Notification channels
 
 Out of the box GoAlert only "notifies" via the web UI. Contact methods that actually page someone — Twilio SMS/voice, Slack, email — are configured after first login on the **Admin** page (stored in the database, not in this repo); only the inbound-email SMTP listener is a startup flag. See the [GoAlert docs](https://goalert.me/) for provider setup. Out of scope here.
+
+## Monitoring
+
+GoAlert serves Prometheus metrics on `:2112` (`GOALERT_LISTEN_PROMETHEUS` in values.yaml), scraped by `vmpodscrape.yaml`; `vmrule.yaml` pages when the engine stops cycling, notifications stop leaving, or the webhook endpoint errors. The database is covered by the fleet-wide cnpg-instances scrape (see db-cluster.yaml's monitoring note).
+
+The caveat: those rules route *through* GoAlert, so when they fire, only the Slack half of the combined Alertmanager receiver is guaranteed to deliver. The genuinely external check is still open: point an Uptime Kuma `push` monitor at the Watchdog alert (which is currently blackholed — apps/victoria-metrics/README.md → "Alert routing") so something outside the stack notices the stack going quiet.

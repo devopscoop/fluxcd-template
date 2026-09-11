@@ -9,6 +9,18 @@
 
 # Memory req=limit, no CPU limit, same rationale as apps/cnpg; the plugin
 # controller just reconciles ObjectStore CRs and serves gRPC to the operator.
+#
+# Deliberately not scraped: the controller's metrics endpoint ships disabled
+# (metrics-bind-address defaults to "0" and the chart offers no toggle), it
+# would only serve generic controller-runtime series, and everything that
+# matters — backup freshness, failed backups, the recovery window — the
+# plugin's instance-pod sidecar already feeds into each database's :9187
+# exporter as barman_cloud_cloudnative_pg_io_* gauges, which the fleet-wide
+# cnpg-instances scrape collects and the CNPGBackup*/CNPGRecoveryWindow*
+# rules in apps/victoria-metrics-custom-resources/cnpg-vmrule.yaml page on.
+# (The in-core cnpg_collector_first_recoverability_point twins are
+# deprecated and stay zero on plugin-based clusters like these.) Controller
+# liveness is covered by the bundled KubeDeploymentReplicasMismatch.
 resources:
   limits:
     memory: 128Mi

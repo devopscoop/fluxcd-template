@@ -1,0 +1,30 @@
+# Scrape every RabbitMQ broker instance — queue/connection/channel gauges,
+# message rates, alarm flags — fleet-wide: the cluster-operator stamps
+# app.kubernetes.io/component=rabbitmq + part-of=rabbitmq on every
+# RabbitmqCluster pod in any namespace, and the rabbitmq_prometheus plugin
+# (:15692, the container port named "prometheus") is an always-on essential
+# plugin. Same fleet-wide pattern as cnpg-vmpodscrape.yaml: one scrape
+# covers every broker ever scaffolded from apps/templates/rabbitmq with no
+# per-app config. Selector and port verified against cluster-operator
+# v2.19.0 (internal/metadata/label.go, internal/resource/statefulset.go).
+#
+# NOT registered in kustomization.yaml by default: no RabbitmqCluster ships
+# in this repo, and an empty scrape pool trips the bundled
+# ScrapePoolHasNoTargets alert. Uncomment its entry there when the first
+# broker lands. If per-queue detail is ever needed, upstream's
+# ServiceMonitor adds a second scrape of the same port at /metrics/detailed
+# with params {family: [queue_coarse_metrics, queue_metrics]} — deliberate
+# opt-in, its cardinality scales with queue count.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMPodScrape
+metadata:
+  name: rabbitmq-instances
+spec:
+  namespaceSelector:
+    any: true
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: rabbitmq
+      app.kubernetes.io/part-of: rabbitmq
+  podMetricsEndpoints:
+    - port: prometheus

@@ -12,6 +12,11 @@ resources:
   - helmrepo.yaml
   - release.yaml
   - vmui-httproute.yaml
+  # VictoriaLogs self-monitoring: the official vlogs alerts and dashboard,
+  # which the sibling victoria-metrics stack does NOT bundle for a
+  # separate victoria-logs release like this one (see vmrule.yaml).
+  - vmrule.yaml
+  - dashboard.yaml
 configMapGenerator:
   - name: victoria-logs-values
     files:

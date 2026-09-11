@@ -1,0 +1,44 @@
+# Scrape the Flux controllers' own metrics — reconcile-duration histograms
+# (gotk_reconcile_duration_seconds), controller-runtime reconcile/workqueue
+# internals, client-go request rates — from the :8080 container port named
+# "http-prom" that every controller the FluxInstance renders exposes, plain
+# HTTP /metrics with no auth (verified in the flux-operator v0.60.0
+# per-version manifests for distribution 2.9.1, matching
+# flux/flux-system/flux-instance.yaml's pin). The rendered "allow-scraping"
+# NetworkPolicy in flux-system admits ingress from every namespace on 8080
+# only, so vmagent reaches these without any policy change.
+#
+# The selector is the app.kubernetes.io/part-of=flux label the operator
+# stamps on every controller pod, rather than the hand-maintained per-name
+# app label list fluxcd/flux2-monitoring-example's PodMonitor uses — that
+# list omits source-watcher, which this FluxInstance runs. Same shape as
+# upstream's own scrape object
+# (flux-operator config/monitoring/flux-controllers.yaml). Do not select on
+# app.kubernetes.io/instance: the flux CLI's install.yaml sets it but the
+# operator rendering used here does not.
+#
+# Note the controllers no longer export gotk_reconcile_condition (dropped
+# upstream; flux ≥2.1) — per-resource readiness comes from the flux-operator's
+# flux_resource_info instead (flux-operator-vmpodscrape.yaml), which is what
+# flux-vmrule.yaml alerts on. This scrape also arms the bundled TargetDown /
+# KubeDeploymentReplicasMismatch alerts for the controllers themselves, so
+# there is no bespoke "controller down" rule.
+#
+# gotk_reconcile_duration_seconds carries its own "namespace" label (the
+# reconciled resource's); vmagent keeps the target's label on conflicts, so
+# in the TSDB the pod namespace stays "namespace" (flux-system) and the
+# resource's becomes "exported_namespace" — exactly what the vendored Flux
+# dashboards in apps/victoria-metrics expect.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMPodScrape
+metadata:
+  name: flux-controllers
+spec:
+  namespaceSelector:
+    matchNames:
+      - flux-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/part-of: flux
+  podMetricsEndpoints:
+    - port: http-prom

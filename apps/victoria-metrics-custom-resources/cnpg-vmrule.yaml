@@ -1,0 +1,286 @@
+# Alerting rules for every CloudNativePG database, evaluated by this
+# stack's vmalert over the series collected by cnpg-vmpodscrape.yaml (all
+# instances, fleet-wide) and cnpg-operator-vmpodscrape.yaml. Remember the
+# routing model (apps/victoria-metrics/README.md → "Alert routing"): every
+# alert pages GoAlert and Slack; severity is a label, not a filter.
+#
+# The upstream rules are adapted from the CNPG "cluster" chart
+# (https://github.com/cloudnative-pg/charts/tree/cluster-v0.8.1/charts/cluster/prometheus_rules,
+# re-check when bumping apps/cnpg), with deliberate deviations:
+# - Fleet-wide instead of per-cluster: upstream templates one PrometheusRule
+#   per database, keyed on its scrape job and a pod-name regex. Here one
+#   scrape covers the fleet, so rules group by (namespace, cnpg_cluster) —
+#   the label cnpg-vmpodscrape.yaml lifts from the cnpg.io/cluster pod
+#   label — and one VMRule covers goalert-db plus every future database
+#   scaffolded from apps/templates/cnpg-database with no per-app config.
+# - Dropped the logical-replication rules (6 of upstream's 19): they read
+#   cnpg_pg_stat_subscription_*, which needs a subscription instrumentation
+#   toggle nothing in this repo enables — permanently-absent exprs.
+# - Dropped the zone-spread rule: on EKS the instances are deliberately
+#   pinned to a managed node group (the karpenter marker block in
+#   db-cluster.yaml), so it would fire forever on a single-AZ group.
+# - Dropped the disk-space rules: the bundled kubernetes-storage group
+#   (KubePersistentVolumeFillingUp) already covers every PVC including the
+#   -wal volumes. Upstream's WAL arm is also broken as shipped — its pod
+#   regex ends in "$" before appending "-wal", which RE2 can never match.
+# - Dropped instance-metrics-absent and cluster-offline: the bundled
+#   TargetDown covers a dead exporter (same reasoning as the deliberately
+#   missing controller-down rule in flux-vmrule.yaml); the fleet-wide
+#   CNPGFleetMetricsAbsent below keeps the one absence that is
+#   unconditionally wrong on this template (goalert-db is a core app, so
+#   zero cnpg series cluster-wide means collection itself broke).
+# - Added the WAL-archiving and backup rules at the bottom — upstream ships
+#   nothing for either, and they encode this repo's own incident history
+#   (the 2026-09-05 WAL-burst and the barman sidecar OOM documented in
+#   apps/goalert/db-cluster.yaml and apps/templates/cnpg-database).
+#   The barman_cloud_cloudnative_pg_io_* metrics come from the Barman
+#   Cloud Plugin sidecar via the instance exporter (the in-core
+#   cnpg_collector_first_recoverability_point twins are deprecated and stay
+#   zero on plugin-based clusters like these).
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  name: cnpg
+spec:
+  groups:
+    - name: cnpg
+      rules:
+        # The two HA rules assume instances: 3, which db-cluster.yaml
+        # documents as the repo floor (the replica PDB only releases a
+        # replica at 3+). A deliberately 2-instance database would hold
+        # HAWarning firing forever — resize it to 3 or override the rule.
+        - alert: CNPGClusterHACritical
+          annotations:
+            summary: A CNPG cluster has no streaming standby left.
+            description: >-
+              Cluster {{ $labels.namespace }}/{{ $labels.cnpg_cluster }}
+              has no healthy standby receiving WAL — the next instance
+              failure loses data back to the last archived WAL segment, and
+              there is nothing to fail over to. Check `kubectl cnpg status
+              {{ $labels.cnpg_cluster }} -n {{ $labels.namespace }}`
+              (runbooks/connect-cnpg-database.md).
+          expr: |-
+            max by (namespace, cnpg_cluster) (
+              cnpg_pg_replication_streaming_replicas - cnpg_pg_replication_is_wal_receiver_up
+            ) < 1
+          for: 5m
+          labels:
+            severity: critical
+        - alert: CNPGClusterHAWarning
+          annotations:
+            summary: A CNPG cluster is down to one streaming standby.
+            description: >-
+              Cluster {{ $labels.namespace }}/{{ $labels.cnpg_cluster }}
+              has fewer than two streaming standbys for 5m — one more
+              failure and CNPGClusterHACritical applies. Normal during a
+              rolling update or single-pod rebuild; sustained, it means a
+              replica can't start or can't catch up.
+          expr: |-
+            max by (namespace, cnpg_cluster) (
+              cnpg_pg_replication_streaming_replicas - cnpg_pg_replication_is_wal_receiver_up
+            ) < 2
+          for: 5m
+          labels:
+            severity: warning
+        - alert: CNPGClusterHighConnectionsCritical
+          annotations:
+            summary: A CNPG instance is nearly out of connections.
+            description: >-
+              Instance {{ $labels.pod }} is using
+              {{ printf "%.0f" $value }}% of max_connections. At 100% the
+              application gets "too many clients" errors — find the leak or
+              raise max_connections via the Cluster's postgresql.parameters.
+          expr: |-
+            sum by (namespace, cnpg_cluster, pod) (cnpg_backends_total)
+            /
+            max by (namespace, cnpg_cluster, pod) (
+              cnpg_pg_settings_setting{name="max_connections"}
+            ) * 100 > 95
+          for: 5m
+          labels:
+            severity: critical
+        - alert: CNPGClusterHighConnectionsWarning
+          annotations:
+            summary: A CNPG instance is approaching its connection limit.
+            description: >-
+              Instance {{ $labels.pod }} is using
+              {{ printf "%.0f" $value }}% of max_connections (threshold
+              80%).
+          expr: |-
+            sum by (namespace, cnpg_cluster, pod) (cnpg_backends_total)
+            /
+            max by (namespace, cnpg_cluster, pod) (
+              cnpg_pg_settings_setting{name="max_connections"}
+            ) * 100 > 80
+          for: 5m
+          labels:
+            severity: warning
+        - alert: CNPGClusterPhysicalReplicationLagCritical
+          annotations:
+            summary: CNPG replication lag is over 15 seconds.
+            description: >-
+              Replication lag on cluster
+              {{ $labels.namespace }}/{{ $labels.cnpg_cluster }} is
+              {{ printf "%.0f" $value }}s. A failover now loses that much
+              committed data; read replicas serve equally stale reads.
+          expr: |-
+            max by (namespace, cnpg_cluster) (cnpg_pg_replication_lag) > 15
+          for: 5m
+          labels:
+            severity: critical
+        - alert: CNPGClusterPhysicalReplicationLagWarning
+          annotations:
+            summary: CNPG replication lag is over 1 second.
+            description: >-
+              Replication lag on cluster
+              {{ $labels.namespace }}/{{ $labels.cnpg_cluster }} has been
+              {{ printf "%.1f" $value }}s for 5m — the standbys aren't
+              keeping up with the primary's WAL rate.
+          expr: |-
+            max by (namespace, cnpg_cluster) (cnpg_pg_replication_lag) > 1
+          for: 5m
+          labels:
+            severity: warning
+        # kube_pod_info knows nodes but not CNPG clusters (kube-state-metrics
+        # exports no pod labels here), so join it against a series the
+        # instance exporter emits for exactly the pods we care about.
+        - alert: CNPGClusterInstancesOnSameNode
+          annotations:
+            summary: Multiple CNPG instances share a node.
+            description: >-
+              {{ printf "%.0f" $value }} instances of cluster
+              {{ $labels.namespace }}/{{ $labels.cnpg_cluster }} are on node
+              {{ $labels.node }} — that node failing takes them all,
+              defeating the replica count. CNPG spreads by
+              anti-affinity when it can; sustained co-location means the
+              cluster is short on schedulable nodes.
+          expr: |-
+            count by (namespace, cnpg_cluster, node) (
+              max by (namespace, pod, cnpg_cluster) (cnpg_collector_up)
+              * on (namespace, pod) group_left (node)
+              max by (namespace, pod, node) (kube_pod_info)
+            ) > 1
+          for: 5m
+          labels:
+            severity: warning
+        - alert: CNPGFleetMetricsAbsent
+          annotations:
+            summary: No CNPG instance metrics exist cluster-wide.
+            description: >-
+              Not a single cnpg_collector_up series is being collected. On
+              this template that is unconditionally wrong — goalert-db is a
+              core app — so either every database is down or the
+              cnpg-instances scrape broke (see cnpg-vmpodscrape.yaml; its
+              selector rotting is exactly how the operator scrape once sat
+              empty). Every other rule in this group is blind while this
+              fires.
+          expr: |-
+            absent(cnpg_collector_up) == 1
+          for: 10m
+          labels:
+            severity: critical
+        # ---- Incident-derived rules (no upstream equivalent) ----
+        # WAL that isn't archived can't be recycled, so a growing
+        # archive_status backlog is the leading indicator of the WAL volume
+        # filling — the 2026-09-05 failure mode db-cluster.yaml documents
+        # (nightly batch out-wrote the archiver; volume filled; PANIC;
+        # failover). The PVC-level backstop is the bundled
+        # KubePersistentVolumeFillingUp.
+        - alert: CNPGWALArchiveBacklog
+          annotations:
+            summary: CNPG WAL archiving is falling behind.
+            description: >-
+              {{ printf "%.0f" $value }} WAL segments on instance
+              {{ $labels.pod }} ({{ $labels.namespace }}/{{
+              $labels.cnpg_cluster }}) are waiting to be archived to S3.
+              The WAL volume fills while this backlog grows. Check the
+              plugin-barman-cloud sidecar's logs and S3 reachability;
+              maxParallel is tuned in the Cluster's WAL archiving config
+              (db-cluster.yaml).
+          expr: |-
+            cnpg_collector_pg_wal_archive_status{value="ready"} > 30
+          for: 15m
+          labels:
+            severity: warning
+        # ScheduledBackup is nightly (04:00 UTC in db-cluster.yaml), so 26h
+        # without a completed backup means one was missed, not jitter. The
+        # "> 0" guard skips clusters that have never completed a backup, so
+        # a fresh bootstrap doesn't page.
+        - alert: CNPGBackupStale
+          annotations:
+            summary: A CNPG database's last backup is over 26 hours old.
+            description: >-
+              The newest completed base backup for
+              {{ $labels.namespace }}/{{ $labels.cnpg_cluster }} is
+              {{ humanizeDuration $value }} old — last night's
+              ScheduledBackup failed or never ran. `kubectl get backups -n
+              {{ $labels.namespace }}` shows the failure; a multi-GB
+              database OOMKilling the barman sidecar mid-stream is the
+              known culprit (see the sidecar resources note in
+              db-cluster.yaml, and CNPGBarmanSidecarOOMKilled).
+          expr: |-
+            (
+              time() - barman_cloud_cloudnative_pg_io_last_available_backup_timestamp
+            ) > 26 * 3600
+            and barman_cloud_cloudnative_pg_io_last_available_backup_timestamp > 0
+          for: 1h
+          labels:
+            severity: critical
+        - alert: CNPGBackupFailed
+          annotations:
+            summary: A CNPG backup failed more recently than any succeeded.
+            description: >-
+              The most recent backup attempt for
+              {{ $labels.namespace }}/{{ $labels.cnpg_cluster }} failed
+              (and no success has landed since) — catching it now beats
+              waiting 26h for CNPGBackupStale. The classic signature is
+              the barman sidecar OOMKilled mid-stream, surfacing as "rpc
+              error ... EOF" on the Backup object.
+          expr: |-
+            barman_cloud_cloudnative_pg_io_last_failed_backup_timestamp
+            > barman_cloud_cloudnative_pg_io_last_available_backup_timestamp
+          for: 15m
+          labels:
+            severity: warning
+        # retentionPolicy is 30d; if the oldest recoverable point is
+        # suddenly younger than 2 days on a cluster that had backups 2 days
+        # ago, the recovery window collapsed (retention misfire, or the
+        # object-store history was lost). The offset guard keeps new
+        # databases from paging during their first days of life.
+        - alert: CNPGRecoveryWindowShrunk
+          annotations:
+            summary: A CNPG database's PITR window collapsed.
+            description: >-
+              Point-in-time recovery for
+              {{ $labels.namespace }}/{{ $labels.cnpg_cluster }} now only
+              reaches back only {{ humanizeDuration $value }},
+              on a cluster whose retention should hold 30 — check the
+              ObjectStore and the S3 bucket
+              (runbooks/restore-cnpg-database.md documents the layout).
+          expr: |-
+            (
+              time() - barman_cloud_cloudnative_pg_io_first_recoverability_point < 2 * 86400
+            )
+            and barman_cloud_cloudnative_pg_io_first_recoverability_point > 0
+            and barman_cloud_cloudnative_pg_io_first_recoverability_point offset 2d > 0
+          for: 1h
+          labels:
+            severity: warning
+        - alert: CNPGBarmanSidecarOOMKilled
+          annotations:
+            summary: A barman-cloud sidecar was OOMKilled.
+            description: >-
+              The plugin-barman-cloud sidecar in pod
+              {{ $labels.namespace }}/{{ $labels.pod }} restarted after an
+              OOM kill in the last hour. Base backups of a grown dataset
+              are the known trigger — raise the sidecar's memory in that
+              Cluster's plugin resources (the 128Mi default suits small
+              datasets; the first real fork database needed 512Mi, per
+              db-cluster.yaml).
+          expr: |-
+            increase(kube_pod_container_status_restarts_total{container="plugin-barman-cloud"}[1h]) > 0
+            and on (namespace, pod, container)
+            kube_pod_container_status_last_terminated_reason{container="plugin-barman-cloud", reason="OOMKilled"} == 1
+          for: 5m
+          labels:
+            severity: warning

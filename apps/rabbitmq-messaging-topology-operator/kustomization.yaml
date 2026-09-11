@@ -6,3 +6,25 @@ resources:
   # https://www.rabbitmq.com/kubernetes/operator/install-topology-operator
   # https://github.com/rabbitmq/messaging-topology-operator/releases
   - https://github.com/rabbitmq/messaging-topology-operator/releases/download/v1.18.2/messaging-topology-operator-with-certmanager.yaml
+
+patches:
+  # The operator serves controller-runtime metrics on :8080 (its
+  # metrics-bind-address default), but upstream's Deployment declares only
+  # the :9443 webhook containerPort — and VMPodScrape can only select
+  # declared ports (the VictoriaMetrics operator generates a keep filter on
+  # the pod's declared container ports; an undeclared port yields zero
+  # targets). Declare it, named "metrics" to match the cluster-operator's
+  # own shape, so the rabbitmq-operators scrape in
+  # apps/victoria-metrics-custom-resources can find it. A containerPort
+  # declaration is purely informational to the kubelet, so this changes
+  # nothing about the workload itself.
+  - target:
+      kind: Deployment
+      name: messaging-topology-operator
+    patch: |
+      - op: add
+        path: /spec/template/spec/containers/0/ports/-
+        value:
+          containerPort: 8080
+          name: metrics
+          protocol: TCP

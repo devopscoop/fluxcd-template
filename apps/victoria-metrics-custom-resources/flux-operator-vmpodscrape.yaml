@@ -1,0 +1,35 @@
+# Scrape the flux-operator itself (installed by deploy.sh's `flux-operator
+# install`, not part of any app) — most importantly its Prometheus exporter:
+# flux_resource_info, one always-refreshed series per Flux resource with
+# ready/suspended/kind/name labels, plus flux_instance_info and
+# flux_operator_info. These are what flux-vmrule.yaml alerts on, and what the
+# Flux Performance dashboard's resource panels read; the controllers
+# themselves stopped exporting per-resource readiness
+# (gotk_reconcile_condition) upstream. Served on :8080 /metrics, plain HTTP,
+# alongside its controller-runtime metrics — the container port named
+# "http-metrics" (verified in flux-operator v0.60.0 install.yaml; note
+# `flux-operator install` self-updates the operator, so re-verify the port
+# name if a future version renames it).
+#
+# A separate object from flux-controllers-vmpodscrape.yaml because the
+# operator pod carries only app.kubernetes.io/name=flux-operator — it is not
+# part-of=flux. A pod scrape rather than mirroring upstream's ServiceMonitor
+# because the flux-operator Service names the 8080 port just "http" (upstream
+# dodges that with targetPort), while the container port name is specific.
+#
+# The pod's prometheus.io/scrape annotations do nothing in this stack —
+# vmagent runs no annotation-based discovery — so an explicit scrape object
+# is required.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMPodScrape
+metadata:
+  name: flux-operator
+spec:
+  namespaceSelector:
+    matchNames:
+      - flux-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: flux-operator
+  podMetricsEndpoints:
+    - port: http-metrics

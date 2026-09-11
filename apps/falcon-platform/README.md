@@ -126,3 +126,9 @@ semantically.
 - Chart 1.5.1 raised the falcon-kac default memory request and limit from
   384Mi to 512Mi. `values.yaml` does not override them, so the upgrade
   increases the KAC pod's footprint.
+
+## Observability (deliberately none in-cluster)
+
+Chart 1.5.1 exposes no Prometheus endpoint on any component — verified by rendering the full chart: the node sensor declares no ports, falcon-kac's :4080 serves only `/livez`/`/startz` probes (:4443 is the admission webhook), and the image analyzer's :8001 is its agent API. Security telemetry goes to the Falcon cloud by design, so detections, sensor health, and coverage live in the Falcon console, not in Grafana. Re-check on chart bumps — a metrics endpoint is the kind of thing a vendor adds without fanfare.
+
+Cluster-side liveness is already covered by the stack's bundled rules: `KubeDaemonSetNotScheduled`/`KubeDaemonSetRolloutStuck` on the sensor DaemonSet (which is also what catches "this node runs without endpoint security"), and the Deployment/pod rules for KAC and the image analyzer. One alerting interaction to know about: the chart ships a 2-pod ResourceQuota for falcon-kac, and a KAC pod replacement briefly filling it is exactly the `KubeQuotaFullyUsed`/InfoInhibitor incident documented in apps/victoria-metrics/README.md → "Inhibit rules".

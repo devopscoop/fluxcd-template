@@ -21,6 +21,25 @@ metadata:
   name: eg-public
 spec:
   ipFamily: IPv6
+  # Tag-extraction rules for the coraza WAF's wasm counters — same block as
+  # envoyproxy-private.yaml, where the full rationale lives: without these,
+  # each (rule, phase) pair becomes a distinct metric NAME. Both fleets run
+  # the same EnvoyExtensionPolicy (apps/coraza), so both need the tags.
+  bootstrap:
+    type: Merge
+    value: |
+      stats_config:
+        stats_tags:
+          - tag_name: phase
+            regex: "(_phase=([a-z_]+))"
+          - tag_name: rule_id
+            regex: "(_ruleid=([0-9]+))"
+          - tag_name: identifier
+            regex: "(_identifier=([0-9a-z.:]+))"
+          - tag_name: owner
+            regex: "(_owner=([0-9a-z.:]+))"
+          - tag_name: authority
+            regex: "(_authority=([0-9a-z.:]+))"
   provider:
     type: Kubernetes
     kubernetes:

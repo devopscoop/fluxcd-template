@@ -1,0 +1,70 @@
+# Alerting rules for the coraza WAF (apps/coraza — a wasm filter inside the
+# Envoy proxies, not a workload), evaluated over series the existing envoy
+# scrapes already collect: waf_filter_* comes from the proxy pods
+# (envoy-vmpodscrape.yaml — the coraza plugin's counters, made queryable by
+# the stats_tags bootstrap block in apps/eg-custom-resources/envoyproxy-*.yaml),
+# and wasm_remote_fetch_total from the Envoy Gateway controller
+# (envoy-gateway-vmservicescrape.yaml). No public ruleset exists for
+# coraza-proxy-wasm; both rules are our own, in envoy-vmrule.yaml's
+# ratio-plus-absolute-guard house style.
+#
+# Opt-in — gated by the coraza marker block in kustomization.yaml: run
+# ./toggle_blocks.sh --enable coraza when enabling the app.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  name: coraza
+spec:
+  groups:
+    - name: coraza
+      rules:
+        # The fail-closed trigger: coraza ships failOpen: false, so a proxy
+        # replica that (re)starts while the wasm module can't be fetched
+        # comes up rejecting everything. The probe patch in
+        # apps/eg-custom-resources/envoyproxy-private.yaml self-heals the
+        # replica, but the fetch failing at all is worth a page BEFORE it
+        # becomes a 5xx storm — this fires off the controller's fetch
+        # counter, upstream of any proxy restart.
+        - alert: CorazaWasmFetchFailures
+          annotations:
+            summary: Envoy Gateway can't fetch the coraza wasm module.
+            description: >-
+              {{ printf "%.0f" $value }} failed wasm remote fetches
+              (status {{ $labels.status }}) in the last 10m. With coraza
+              fail-closed, any proxy replica that starts during this
+              outage serves nothing. Check the controller's egress to
+              ghcr.io and the image pin in
+              apps/coraza/envoyextensionpolicy.yaml.
+          expr: |-
+            sum by (status) (increase(wasm_remote_fetch_total{status!="success"}[10m])) > 0
+          for: 10m
+          labels:
+            severity: warning
+        # A WAF blocking bot probes is business as usual — the ratio guard
+        # is set where it means "a CRS bump or an app change is 403ing real
+        # traffic" (the incident class apps/coraza/README.md's eight
+        # hard-won rule exclusions came from). Tune on real traffic, like
+        # the envoy 4xx/5xx rules. Top offending rules:
+        # sum by (rule_id) (increase(waf_filter_tx_interruptions[1h])).
+        - alert: CorazaHighBlockRate
+          annotations:
+            summary: The WAF is blocking over 25% of gateway traffic.
+            description: >-
+              coraza on gateway {{ $labels.gateway }} has blocked
+              {{ printf "%.1f" $value }}% of transactions over the last 5m,
+              sustained for 15m. Check the per-rule split (the WAF dashboard
+              or `sum by (rule_id)
+              (increase(waf_filter_tx_interruptions[1h]))`) — a single
+              rule_id dominating means a new false-positive to exclude in
+              apps/coraza/envoyextensionpolicy.yaml.
+          expr: |-
+            (
+              sum by (gateway) (rate(waf_filter_tx_interruptions[5m]))
+              /
+              sum by (gateway) (rate(waf_filter_tx_total[5m]))
+            ) * 100 > 25
+            and
+            sum by (gateway) (rate(waf_filter_tx_interruptions[5m])) > 1
+          for: 15m
+          labels:
+            severity: warning

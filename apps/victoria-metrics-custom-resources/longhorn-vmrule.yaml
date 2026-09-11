@@ -1,0 +1,132 @@
+# Alerting rules for Longhorn, evaluated by this stack's vmalert over the
+# series collected by longhorn-vmservicescrape.yaml. Copied from the alert
+# examples in the Longhorn docs matching apps/longhorn's chart pin
+# (https://longhorn.io/docs/1.10.0/monitoring/alert-rules-example/ — re-sync
+# when bumping the chart), with deliberate deviations:
+# - Dropped each rule's templated "issue" label: a per-firing label value
+#   fragments Alertmanager groups under this repo's
+#   group_by [alertname, namespace]; the same text lives in the description.
+# - LonghornVolumeStatusWarning (robustness == 2, i.e. degraded): "for"
+#   raised 5m -> 15m. A volume goes degraded on every replica rebuild — node
+#   reboot, eviction — and this repo pages on warnings
+#   (apps/victoria-metrics/README.md → "Alert routing"), so only rebuilds
+#   that fail to converge should page.
+# Metric values worth knowing when one of these fires:
+# longhorn_volume_robustness 0=unknown 1=healthy 2=degraded 3=faulted.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  name: longhorn
+spec:
+  groups:
+    - name: longhorn
+      rules:
+        - alert: LonghornVolumeStatusCritical
+          annotations:
+            summary: A Longhorn volume is faulted.
+            description: >-
+              Volume {{ $labels.volume }} (PVC
+              {{ $labels.pvc_namespace }}/{{ $labels.pvc }}, node
+              {{ $labels.node }}) is Fault — every replica is failed and the
+              volume is unusable. Check `kubectl -n longhorn-system get
+              volumes.longhorn.io` and the Longhorn UI; recovery may need a
+              backup restore.
+          expr: |-
+            longhorn_volume_robustness == 3
+          for: 5m
+          labels:
+            severity: critical
+        - alert: LonghornVolumeStatusWarning
+          annotations:
+            summary: A Longhorn volume has been degraded for 15 minutes.
+            description: >-
+              Volume {{ $labels.volume }} (PVC
+              {{ $labels.pvc_namespace }}/{{ $labels.pvc }}, node
+              {{ $labels.node }}) is Degraded — running with fewer than its
+              configured replicas. A rebuild normally clears this in
+              minutes; 15m degraded means the rebuild is stuck or there is
+              no node with space for the replacement replica.
+          expr: |-
+            longhorn_volume_robustness == 2
+          for: 15m
+          labels:
+            severity: warning
+        - alert: LonghornVolumeActualSpaceUsedWarning
+          annotations:
+            summary: A Longhorn volume's actual space usage is over 90%.
+            description: >-
+              Actual on-disk usage of volume {{ $labels.volume }} (node
+              {{ $labels.node }}) has been over 90% of its capacity for 5m
+              ({{ printf "%.0f" $value }}%). Snapshot history counts toward
+              this — consider trimming snapshots before growing the volume.
+          expr: |-
+            (longhorn_volume_actual_size_bytes / longhorn_volume_capacity_bytes) * 100 > 90
+          for: 5m
+          labels:
+            severity: warning
+        - alert: LonghornNodeStorageWarning
+          annotations:
+            summary: A Longhorn node's storage is over 70% used.
+            description: >-
+              Storage on node {{ $labels.node }} is
+              {{ printf "%.0f" $value }}% used. Longhorn stops scheduling
+              new replicas to a node well before 100% (storage reserved +
+              over-provisioning settings), so plan disk or node growth now.
+          expr: |-
+            (longhorn_node_storage_usage_bytes / longhorn_node_storage_capacity_bytes) * 100 > 70
+          for: 5m
+          labels:
+            severity: warning
+        - alert: LonghornDiskStorageWarning
+          annotations:
+            summary: A Longhorn disk is over 70% used.
+            description: >-
+              Disk {{ $labels.disk }} ({{ $labels.disk_path }}) on node
+              {{ $labels.node }} is {{ printf "%.0f" $value }}% used — same
+              growth planning as LonghornNodeStorageWarning, scoped to one
+              disk.
+          expr: |-
+            (longhorn_disk_usage_bytes / longhorn_disk_capacity_bytes) * 100 > 70
+          for: 5m
+          labels:
+            severity: warning
+        - alert: LonghornNodeDown
+          annotations:
+            summary: A Longhorn node is offline.
+            description: >-
+              {{ printf "%.0f" $value }} Longhorn node(s) are not Ready.
+              Volumes with replicas there are running degraded and
+              rebuilding onto the surviving nodes — capacity permitting; see
+              LonghornNodeStorageWarning.
+          expr: |-
+            (avg(longhorn_node_count_total) or on() vector(0)) - (count(longhorn_node_status{condition="ready"} == 1) or on() vector(0)) > 0
+          for: 5m
+          labels:
+            severity: critical
+        - alert: LonghornInstanceManagerCPUUsageWarning
+          annotations:
+            summary: A Longhorn instance manager is far over its CPU request.
+            description: >-
+              Instance manager {{ $labels.instance_manager }} on node
+              {{ $labels.node }} has used {{ printf "%.0f" $value }}% of its
+              CPU request for 5m (threshold 300%). Replication IO is
+              CPU-bound in the instance managers — raise the guaranteed
+              instance-manager CPU setting if this is steady-state.
+          expr: |-
+            (longhorn_instance_manager_cpu_usage_millicpu / longhorn_instance_manager_cpu_requests_millicpu) * 100 > 300
+          for: 5m
+          labels:
+            severity: warning
+        - alert: LonghornNodeCPUUsageWarning
+          annotations:
+            summary: A Longhorn node's CPU has been over 90% for 5 minutes.
+            description: >-
+              Node {{ $labels.node }} is at
+              {{ printf "%.0f" $value }}% CPU. Sustained CPU saturation on a
+              storage node degrades replication latency for every volume
+              with a replica there.
+          expr: |-
+            (longhorn_node_cpu_usage_millicpu / longhorn_node_cpu_capacity_millicpu) * 100 > 90
+          for: 5m
+          labels:
+            severity: warning

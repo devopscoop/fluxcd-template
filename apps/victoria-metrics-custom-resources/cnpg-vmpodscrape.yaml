@@ -28,3 +28,14 @@ spec:
       cnpg.io/podRole: instance
   podMetricsEndpoints:
     - port: metrics
+      relabelConfigs:
+        # One fleet-wide scrape means one job label for every database, so
+        # nothing separates goalert-db's series from a future app's. Lift
+        # the operator's owning-cluster pod label onto every series as
+        # "cnpg_cluster" so cnpg-vmrule.yaml can group per Cluster — the
+        # exporter itself stamps a "cluster" label on only two metrics
+        # (cnpg_collector_up, cnpg_collector_postgres_version). Same
+        # pattern as the gateway label in envoy-vmpodscrape.yaml.
+        - sourceLabels:
+            - __meta_kubernetes_pod_label_cnpg_io_cluster
+          targetLabel: cnpg_cluster

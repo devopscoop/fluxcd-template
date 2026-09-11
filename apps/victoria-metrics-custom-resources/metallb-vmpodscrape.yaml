@@ -1,0 +1,34 @@
+# Scrape MetalLB — address-pool allocation gauges, config loaded/stale
+# flags, and the speakers' layer-2 announcement counters — from the
+# controller Deployment and speaker DaemonSet pods. Every metrics container
+# port in chart 0.15.2 (apps/metallb's pin, verified by rendering) is named
+# "monitoring": controller :7472, speaker :7472, and the speaker's
+# frr-metrics sidecar :7473 — one endpoint entry picks up all three, which
+# matches the two-endpoint ServiceMonitor the chart's
+# prometheus.serviceMonitor.enabled would create (unusable here for the
+# CRD-ownership reason in cnpg-vmpodscrape.yaml; it is also the only thing
+# that renders metrics Services, so a pod scrape is the only option under
+# the default values). Plain HTTP /metrics, no auth.
+#
+# jobLabel makes job="metallb" for every target: the upstream rules in
+# metallb-vmrule.yaml match job=~"metallb.*" (anchored), which the pod-scrape
+# default of "victoria-metrics/metallb" would never satisfy.
+#
+# Non-EKS only, like the app (metallb replaces the AWS NLB on k0s/talos) —
+# this file is referenced from kustomization.yaml inside a metallb marker
+# block, which deploy.sh enables on non-EKS platforms alongside the app.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMPodScrape
+metadata:
+  name: metallb
+spec:
+  jobLabel: app.kubernetes.io/name
+  namespaceSelector:
+    matchNames:
+      - metallb
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: metallb
+      app.kubernetes.io/instance: metallb
+  podMetricsEndpoints:
+    - port: monitoring

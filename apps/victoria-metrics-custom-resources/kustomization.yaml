@@ -15,6 +15,15 @@ kind: Kustomization
 #
 # Dashboards stay in apps/victoria-metrics: they're plain ConfigMaps picked
 # up by Grafana's sidecar, no CRD involved.
+#
+# Scrapes and rules for apps that are NOT always deployed sit in marker
+# blocks below, enabled together with their app: a scrape whose selector
+# matches nothing leaves an empty scrape pool and pages via the bundled
+# ScrapePoolHasNoTargets (the failure documented in
+# cnpg-operator-vmpodscrape.yaml), and absence-style rules would false-fire.
+# deploy.sh enables the eks block (and the metallb block on non-EKS
+# platforms) automatically; opt-in apps' blocks are enabled by hand when the
+# app is (./toggle_blocks.sh --enable <marker>, marker named after the app).
 namespace: victoria-metrics
 
 resources:
@@ -23,3 +32,42 @@ resources:
   - envoy-vmrule.yaml
   - cnpg-vmpodscrape.yaml
   - cnpg-operator-vmpodscrape.yaml
+  - cnpg-vmrule.yaml
+  # The Flux control plane itself (flux-operator + the FluxInstance's
+  # controllers) — always present by definition.
+  - flux-operator-vmpodscrape.yaml
+  - flux-controllers-vmpodscrape.yaml
+  - flux-vmrule.yaml
+  - cert-manager-vmservicescrape.yaml
+  - cert-manager-vmrule.yaml
+  - external-dns-vmservicescrape.yaml
+  - external-dns-vmrule.yaml
+# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
+#   - karpenter-vmservicescrape.yaml
+#   - karpenter-vmrule.yaml
+#   - aws-load-balancer-controller-vmpodscrape.yaml
+#   - aws-load-balancer-controller-vmrule.yaml
+#   - metrics-server-vmservicescrape.yaml
+# <<< eks
+# >>> metallb: deploy.sh uncomments this block when k8s_platform is not eks
+#   - metallb-vmpodscrape.yaml
+#   - metallb-vmrule.yaml
+# <<< metallb
+# >>> longhorn: ./toggle_blocks.sh --enable longhorn when enabling apps/longhorn
+#   - longhorn-vmservicescrape.yaml
+#   - longhorn-vmrule.yaml
+# <<< longhorn
+# >>> rook-ceph: ./toggle_blocks.sh --enable rook-ceph when enabling apps/rook-ceph
+#   - rook-ceph-mgr-vmservicescrape.yaml
+#   - rook-ceph-exporter-vmservicescrape.yaml
+#   - rook-ceph-vmrule.yaml
+# <<< rook-ceph
+# >>> rabbitmq: ./toggle_blocks.sh --enable rabbitmq when enabling the rabbitmq operator apps
+#   - rabbitmq-operators-vmpodscrape.yaml
+#   - rabbitmq-operators-vmrule.yaml
+## rabbitmq-instances-vmpodscrape.yaml stays out until the first
+## RabbitmqCluster ships — see that file's header. Add it here then.
+# <<< rabbitmq
+# >>> coraza: ./toggle_blocks.sh --enable coraza when enabling apps/coraza
+#   - coraza-vmrule.yaml
+# <<< coraza

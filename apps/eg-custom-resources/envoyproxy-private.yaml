@@ -69,6 +69,36 @@ metadata:
   name: eg-private
 spec:
   ipFamily: IPv6
+  # Tag-extraction rules for the coraza WAF's wasm counters (apps/coraza).
+  # The plugin encodes its labels INTO the stat name
+  # (waf_filter.tx.interruptions_ruleid=920350_phase=http_request_headers...);
+  # without these bootstrap stats_tags regexes carving them back out, every
+  # (rule, phase) pair becomes a distinct metric NAME — unqueryable, and the
+  # worst kind of cardinality. With them, the proxies expose
+  # waf_filter_tx_interruptions{rule_id=,phase=,...} and waf_filter_tx_total,
+  # which coraza-vmrule.yaml and the WAF dashboard read, and
+  # `sum by (rule_id) (increase(waf_filter_tx_interruptions[24h]))` replaces
+  # the log-grep loop apps/coraza/README.md prescribes for rule tuning.
+  # Regexes are upstream's own (coraza-proxy-wasm 0.6.0
+  # example/envoy/envoy-config.yaml — re-check when bumping apps/coraza).
+  # type Merge APPENDS to the bootstrap's existing stats_tags list (Envoy
+  # Gateway's template ships four tags of its own) rather than replacing it;
+  # harmless when coraza is disabled, since the regexes then match nothing.
+  bootstrap:
+    type: Merge
+    value: |
+      stats_config:
+        stats_tags:
+          - tag_name: phase
+            regex: "(_phase=([a-z_]+))"
+          - tag_name: rule_id
+            regex: "(_ruleid=([0-9]+))"
+          - tag_name: identifier
+            regex: "(_identifier=([0-9a-z.:]+))"
+          - tag_name: owner
+            regex: "(_owner=([0-9a-z.:]+))"
+          - tag_name: authority
+            regex: "(_authority=([0-9a-z.:]+))"
   provider:
     type: Kubernetes
     kubernetes:

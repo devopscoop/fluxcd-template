@@ -163,12 +163,34 @@ resultsCache:
 # Scrape Loki's own metrics (ingest rate, stream count, query latency, cache
 # hits, ...). The Prometheus CR only selects ServiceMonitors carrying its Helm
 # release name as a label — without it, kube-prometheus-stack silently ignores
-# the ServiceMonitor.
+# the ServiceMonitor. The same label requirement applies to the
+# PrometheusRules below. All of these templates are CRD-guarded upstream
+# (Capabilities.APIVersions), and this app's flux Kustomization dependsOn
+# kube-prometheus-stack, so ordering is covered.
 monitoring:
   serviceMonitor:
     enabled: true
     labels:
       release: kube-prometheus-stack
+  # The loki-mixin recording rules (which the bundled dashboards' latency
+  # panels read) and alerts (LokiRequestErrors, LokiRequestPanics,
+  # LokiRequestLatency, ...). Enable rules and dashboards together — the
+  # dashboards chart ships assumes the recording rules exist.
+  rules:
+    enabled: true
+    alerting: true
+    labels:
+      release: kube-prometheus-stack
+    configs:
+      # Watches loki-canary latency; lokiCanary.enabled is false below, so
+      # without this the alert's series never exist.
+      LokiCanaryLatency:
+        enabled: false
+  # The 10 loki-mixin dashboards, as ConfigMaps already labeled
+  # grafana_dashboard "1" for the KPS Grafana sidecar. The mixin groups by a
+  # "cluster" label, which the ServiceMonitor's relabelings stamp as "loki".
+  dashboards:
+    enabled: true
 
 # Extra components we don't need for a basic logging store.
 lokiCanary:

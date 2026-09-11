@@ -1,0 +1,62 @@
+# Alerting rules for what Uptime Kuma watches, evaluated by this stack's
+# vmalert over the series collected by vmservicescrape.yaml. Uptime Kuma
+# has its own notification system, but the monitors/ definitions in this
+# repo configure none — routing its findings through the same
+# Alertmanager -> GoAlert+Slack pipeline as everything else keeps one
+# paging path (apps/victoria-metrics/README.md → "Alert routing").
+#
+# No down/absent rule for Uptime Kuma itself: the bundled TargetDown covers
+# a dead scrape target (same reasoning as flux-vmrule.yaml).
+# monitor_status values: 1=UP 0=DOWN 2=PENDING 3=MAINTENANCE.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  name: uptime-kuma
+spec:
+  groups:
+    - name: uptime-kuma
+      rules:
+        # Uptime Kuma already retries per its monitor config before marking
+        # DOWN, so this is a confirmed outage, not a blip — and unlike the
+        # in-cluster envoy alerts, it sees what a black-box probe sees.
+        - alert: UptimeKumaMonitorDown
+          annotations:
+            summary: An Uptime Kuma monitor is DOWN.
+            description: >-
+              Monitor "{{ $labels.monitor_name }}"
+              ({{ $labels.monitor_url }}) has been DOWN for 5m as observed
+              by Uptime Kuma's active probe. Monitor definitions live in
+              apps/uptime-kuma/monitors/.
+          expr: |-
+            monitor_status == 0
+          for: 5m
+          labels:
+            severity: critical
+        # Same threshold and reasoning as EnvoyTlsCertExpiringSoon
+        # (envoy-vmrule.yaml): cert-manager renews 30d ahead where it owns
+        # the cert, so 14d left means renewal is stuck — but seen from
+        # outside, covering certs cert-manager does NOT own too.
+        - alert: UptimeKumaCertExpiringSoon
+          annotations:
+            summary: A probed TLS cert expires in under 14 days.
+            description: >-
+              The certificate served at {{ $labels.monitor_url }} (monitor
+              "{{ $labels.monitor_name }}") expires in
+              {{ printf "%.0f" $value }} days.
+          expr: |-
+            monitor_cert_days_remaining < 14 and monitor_cert_is_valid == 1
+          for: 1h
+          labels:
+            severity: warning
+        - alert: UptimeKumaCertInvalid
+          annotations:
+            summary: A probed TLS cert is invalid.
+            description: >-
+              The certificate served at {{ $labels.monitor_url }} (monitor
+              "{{ $labels.monitor_name }}") fails validation — expired,
+              wrong hostname, or a broken chain.
+          expr: |-
+            monitor_cert_is_valid == 0
+          for: 15m
+          labels:
+            severity: warning

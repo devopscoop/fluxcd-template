@@ -1,0 +1,42 @@
+# Scrape the Ceph mgr's prometheus module — cluster health, capacity, pool
+# and OSD state, the ceph_health_detail series most of
+# rook-ceph-vmrule.yaml reads — from the rook-ceph-mgr Service's
+# "http-metrics" port (:9283). Rook creates that Service unconditionally
+# (verified in rook v1.17.5, apps/rook-ceph-cluster's pin:
+# pkg/operator/ceph/cluster/mgr reconcileServices), so no chart change is
+# needed; keep the chart's monitoring.enabled OFF — all it adds is
+# prometheus-operator objects, and with the monitoring.coreos.com CRDs
+# absent (see cnpg-vmpodscrape.yaml) enabling it makes rook's
+# exporter reconcile fail outright.
+#
+# The Service's own selector carries mgr_role=active, so with two mgrs only
+# the active one is ever a target — failover moves the target instead of
+# double-counting. Pinning the port name matters: the sibling
+# rook-ceph-mgr-dashboard Service carries the same app labels with an
+# https-dashboard port.
+#
+# honorLabels keeps the mgr module's own "instance" label (ceph daemon
+# identity): the ceph dashboards join series on it, and the default
+# displacement to exported_instance would break those joins.
+#
+# job="rook-ceph-mgr" (the Service name) is load-bearing: the vendored
+# ceph rule set's PrometheusJobMissing alert is absent(up{job="rook-ceph-mgr"}).
+#
+# Opt-in, like apps/rook-ceph itself — referenced from kustomization.yaml
+# inside a rook-ceph marker block; run
+# ./toggle_blocks.sh --enable rook-ceph when enabling the app.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMServiceScrape
+metadata:
+  name: rook-ceph-mgr
+spec:
+  namespaceSelector:
+    matchNames:
+      - rook-ceph
+  selector:
+    matchLabels:
+      app: rook-ceph-mgr
+      rook_cluster: rook-ceph
+  endpoints:
+    - port: http-metrics
+      honorLabels: true

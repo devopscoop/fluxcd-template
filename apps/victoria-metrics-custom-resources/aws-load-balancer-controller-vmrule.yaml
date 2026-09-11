@@ -1,0 +1,100 @@
+# Alerting rules for the AWS Load Balancer Controller, evaluated by this
+# stack's vmalert over the series collected by
+# aws-load-balancer-controller-vmpodscrape.yaml. When this controller
+# breaks, existing ALBs/NLBs keep serving but new or changed
+# Ingresses/Services silently do nothing — a failure the bundled TargetDown
+# can't see, hence no down/absent rule here.
+#
+# Only the reconcile-errors rule has upstream provenance
+# (giantswarm/prometheus-rules aws-load-balancer-controller.rules.yml, with
+# their installation-specific matchers stripped: cluster_type/provider are
+# labels their remote-write injects, and service= assumed a ServiceMonitor
+# scrape — job= is this repo's equivalent). The rest are derived from the
+# metric definitions in kubernetes-sigs/aws-load-balancer-controller
+# v3.3.0 pkg/metrics/{aws,lbc}/instruments.go — note the upstream docs
+# table misspells several of these names; the source is authoritative.
+# EKS-only, gated by the same eks marker block as the scrape.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  name: aws-load-balancer-controller
+spec:
+  groups:
+    - name: aws-load-balancer-controller
+      rules:
+        - alert: AWSLoadBalancerControllerReconcileErrors
+          annotations:
+            summary: The AWS LB controller's reconciles are erroring.
+            description: >-
+              The {{ $labels.controller }} controller has been failing
+              reconciles for 40m ({{ $labels.error_category }}). Load
+              balancer and target-group state is drifting from the cluster's
+              Ingresses/Services/TargetGroupBindings.
+          expr: |-
+            sum by (controller, error_category) (
+              increase(awslbc_controller_reconcile_errors_total{job="aws-load-balancer-controller"}[20m])
+            ) > 0
+          for: 40m
+          labels:
+            severity: warning
+        - alert: AWSLoadBalancerControllerIAMPermissionErrors
+          annotations:
+            summary: The AWS LB controller is getting IAM permission errors.
+            description: >-
+              {{ $labels.service }} {{ $labels.operation }} calls are being
+              denied. This is the IRSA failure mode — check the role-arn
+              annotation in apps/aws-load-balancer-controller/values.yaml
+              (it ships as a placeholder that must be substituted at
+              bootstrap) and the role's attached policy.
+          expr: |-
+            sum by (service, operation) (
+              rate(aws_api_call_permission_errors_total{job="aws-load-balancer-controller"}[5m])
+            ) > 0
+          for: 10m
+          labels:
+            severity: critical
+        - alert: AWSLoadBalancerControllerAPIThrottled
+          annotations:
+            summary: The AWS LB controller is being throttled by AWS.
+            description: >-
+              {{ $labels.service }} {{ $labels.operation }} calls have been
+              throttled for 15m. Reconciles fall behind quietly; if this is
+              chronic, request an ELBv2 API rate-limit raise or reduce
+              reconcile churn.
+          expr: |-
+            sum by (service, operation) (
+              rate(aws_api_call_throttled_errors_total{job="aws-load-balancer-controller"}[5m])
+            ) > 0
+          for: 15m
+          labels:
+            severity: warning
+        - alert: AWSLoadBalancerControllerServiceLimitExceeded
+          annotations:
+            summary: An AWS service limit is blocking the LB controller.
+            description: >-
+              {{ $labels.service }} {{ $labels.operation }} hit a service
+              limit (LBs per region, targets per group, ...). Unfixable
+              without a quota raise, so it pages early.
+          expr: |-
+            sum by (service, operation) (
+              increase(aws_api_call_service_limit_exceeded_errors_total{job="aws-load-balancer-controller"}[15m])
+            ) > 0
+          for: 15m
+          labels:
+            severity: critical
+        # The chart installs validating AND mutating webhooks (the service
+        # mutator is on by default), so sustained webhook failures block
+        # Service/Ingress writes cluster-wide.
+        - alert: AWSLoadBalancerControllerWebhookFailures
+          annotations:
+            summary: The AWS LB controller's webhooks are failing.
+            description: >-
+              Webhook {{ $labels.webhook_name }} has been failing
+              ({{ $labels.error_category }}) for 10m.
+          expr: |-
+            sum by (webhook_name, error_category) (
+              rate({__name__=~"awslbc_webhook_(validation|mutation)_failure_total", job="aws-load-balancer-controller"}[5m])
+            ) > 0
+          for: 10m
+          labels:
+            severity: warning

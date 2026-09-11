@@ -9,10 +9,14 @@ spec:
   # bootstrap cnpg must land first. The ObjectStore in db-cluster.yaml is
   # likewise a CR whose CRD ships with the barman plugin, and the plugin must
   # be registered with the operator before the Cluster references it for WAL
-  # archiving.
+  # archiving. vmpodscrape.yaml/vmrule.yaml are operator.victoriametrics.com
+  # CRs, so victoria-metrics (which installs those CRDs) must land first too
+  # — same reasoning as tempo/otel-collector; fine, since GoAlert only ships
+  # as part of this stack.
   dependsOn:
     - name: cnpg
     - name: cnpg-barman-plugin
+    - name: victoria-metrics
   interval: 10m0s
   sourceRef:
     kind: GitRepository

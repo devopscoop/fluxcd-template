@@ -1,0 +1,351 @@
+# "Coraza WAF" — block rate/ratio per gateway fleet, the per-rule_id tuning
+# view, and the Envoy Gateway controller's wasm module fetch health — fed by
+# the existing envoy scrapes (the coraza wasm filter runs inside the proxy
+# pods; see apps/victoria-metrics-custom-resources/coraza-vmrule.yaml for the
+# data path and the stats_tags prerequisite in
+# apps/eg-custom-resources/envoyproxy-*.yaml). Hand-built: coraza-proxy-wasm
+# publishes no dashboard, and it only emits two counters. The gateway label
+# comes from the pod scrape's relabeling, so panels group per fleet
+# (eg-private / eg-public) like the envoy dashboards.
+#
+# Opt-in like apps/coraza — registered in kustomization.yaml inside the
+# coraza marker block.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coraza-dashboard
+  labels:
+    grafana_dashboard: "1"
+data:
+  coraza.json: |
+    {
+      "annotations": {
+        "list": []
+      },
+      "editable": true,
+      "graphTooltip": 1,
+      "panels": [
+        {
+          "id": 1,
+          "type": "timeseries",
+          "title": "WAF transactions /s by gateway",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 0
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "fillOpacity": 10,
+                "showPoints": "never",
+                "lineWidth": 1
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "sum by (gateway) (rate(waf_filter_tx_total[$__rate_interval]))",
+              "refId": "A",
+              "legendFormat": "{{gateway}}"
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "type": "timeseries",
+          "title": "WAF blocks /s by gateway",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 0
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "fillOpacity": 10,
+                "showPoints": "never",
+                "lineWidth": 1
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "sum by (gateway) (rate(waf_filter_tx_interruptions[$__rate_interval]))",
+              "refId": "A",
+              "legendFormat": "{{gateway}}"
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "type": "timeseries",
+          "title": "Block ratio by gateway",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 8
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percentunit",
+              "custom": {
+                "fillOpacity": 10,
+                "showPoints": "never",
+                "lineWidth": 1
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "sum by (gateway) (rate(waf_filter_tx_interruptions[$__rate_interval])) / sum by (gateway) (rate(waf_filter_tx_total[$__rate_interval]))",
+              "refId": "A",
+              "legendFormat": "{{gateway}}"
+            }
+          ],
+          "description": "Sustained over 25% pages via CorazaHighBlockRate \u2014 usually a new false-positive rule to exclude in apps/coraza/envoyextensionpolicy.yaml."
+        },
+        {
+          "id": 4,
+          "type": "timeseries",
+          "title": "Blocks by rule_id (the tuning view)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 8
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "fillOpacity": 10,
+                "showPoints": "never",
+                "lineWidth": 1
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "sum by (rule_id) (rate(waf_filter_tx_interruptions[$__rate_interval]))",
+              "refId": "A",
+              "legendFormat": "rule {{rule_id}}"
+            }
+          ],
+          "description": "One rule_id dominating = a false positive. This replaces the log-grep loop in apps/coraza/README.md."
+        },
+        {
+          "id": 5,
+          "type": "timeseries",
+          "title": "Blocks by phase",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 16
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "fillOpacity": 10,
+                "showPoints": "never",
+                "lineWidth": 1
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "sum by (phase) (rate(waf_filter_tx_interruptions[$__rate_interval]))",
+              "refId": "A",
+              "legendFormat": "{{phase}}"
+            }
+          ]
+        },
+        {
+          "id": 6,
+          "type": "timeseries",
+          "title": "Wasm module fetches by status (Envoy Gateway controller)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 16
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "fillOpacity": 10,
+                "showPoints": "never",
+                "lineWidth": 1
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "sum by (status) (rate(wasm_remote_fetch_total[$__rate_interval]))",
+              "refId": "A",
+              "legendFormat": "{{status}}"
+            }
+          ],
+          "description": "Non-success fetches page via CorazaWasmFetchFailures \u2014 with failOpen: false, a proxy that boots during a fetch outage serves nothing."
+        }
+      ],
+      "refresh": "1m",
+      "schemaVersion": 39,
+      "tags": [
+        "coraza",
+        "waf",
+        "envoy"
+      ],
+      "templating": {
+        "list": [
+          {
+            "current": {},
+            "hide": 0,
+            "includeAll": false,
+            "label": "Data source",
+            "name": "datasource",
+            "options": [],
+            "query": "prometheus",
+            "refresh": 1,
+            "regex": "",
+            "type": "datasource"
+          }
+        ]
+      },
+      "time": {
+        "from": "now-6h",
+        "to": "now"
+      },
+      "timezone": "",
+      "title": "Coraza WAF",
+      "uid": "coraza-waf",
+      "version": 1
+    }

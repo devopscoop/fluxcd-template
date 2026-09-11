@@ -1,0 +1,195 @@
+# Alerting rules for Tempo, evaluated by this stack's vmalert over the
+# series collected by vmservicescrape.yaml. The storage/ingest rules are
+# adapted from the tempo mixin at the tag matching this chart pin's
+# appVersion
+# (https://github.com/grafana/tempo/blob/v2.10.8/operations/tempo-mixin-compiled/alerts.yaml
+# — re-sync when bumping the chart), with deliberate deviations for this
+# repo's MONOLITHIC single-binary deployment:
+# - Dropped the multi-cluster "cluster" grouping label (no such external
+#   label here; envoy-vmrule.yaml precedent) and rewrote the mixin's
+#   container="compactor" / job="<ns>/<component>" matchers — every
+#   component runs in the one "tempo" container under one job.
+# - Dropped alerts that cannot apply: the ring-health quartet (all rings
+#   are in-memory singletons here), the Kafka partition-lag set and
+#   live-store/block-builder/backend-scheduler alerts (distributed-mode
+#   features), TempoUserConfigurableOverridesReloadFailing (feature off),
+#   TempoVultureHighErrorRate (vulture not deployed), and
+#   TempoBlockListRisingQuickly (upstream expr has a misplaced `by` and a
+#   compactor-container matcher).
+# - Skipped the mixin's recording rules: nothing here consumes them, and
+#   always-empty recording rules trip vmalert's RecordingRulesNoData (the
+#   count:up0 lesson in apps/victoria-metrics/values.yaml).
+# The metrics-generator group at the bottom is our own — the mixin ships
+# nothing for remote-write health, and the generator remote-writing into
+# vmsingle is exactly the pipeline this repo depends on for span metrics.
+# Those prometheus_remote_storage_* series come from Tempo's embedded
+# Prometheus agent and carry namespace="tempo" from the scrape.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  name: tempo
+spec:
+  groups:
+    - name: tempo
+      rules:
+        - alert: TempoCompactionsFailing
+          annotations:
+            summary: Tempo compactions are failing.
+            description: >-
+              More than two compaction failures in the last hour and at
+              least one in the last 5m. Left alone the blocklist grows
+              until queries slow down and the backend bloats; check the
+              tempo pod's logs and S3 health.
+          expr: |-
+            increase(tempodb_compaction_errors_total[1h]) > 2
+            and
+            increase(tempodb_compaction_errors_total[5m]) > 0
+          for: 5m
+          labels:
+            severity: critical
+        - alert: TempoIngesterFlushesUnhealthy
+          annotations:
+            summary: Tempo ingester block flushes are retrying.
+            description: >-
+              More than two failed block flushes in the last hour — flushes
+              are retrying. Sustained failures back WAL up on the pod's
+              PVC.
+          expr: |-
+            increase(tempo_ingester_failed_flushes_total[1h]) > 2
+            and
+            increase(tempo_ingester_failed_flushes_total[5m]) > 0
+          for: 5m
+          labels:
+            severity: warning
+        - alert: TempoIngesterFlushesFailing
+          annotations:
+            summary: Tempo ingester flush retries are failing.
+            description: >-
+              Flush RETRIES are failing — past the transient stage; trace
+              blocks can't reach S3 and will be lost if the WAL volume
+              fills or the pod is lost.
+          expr: |-
+            increase(tempo_ingester_flush_failed_retries_total[1h]) > 2
+            and
+            increase(tempo_ingester_flush_failed_retries_total[5m]) > 0
+          for: 5m
+          labels:
+            severity: critical
+        - alert: TempoIngesterReplayErrors
+          annotations:
+            summary: Tempo hit errors replaying its WAL.
+            description: >-
+              WAL replay errors after a restart — with a single replica and
+              one PVC, replay errors mean recently-ingested traces are
+              being dropped during recovery.
+          expr: |-
+            increase(tempo_ingester_replay_errors_total[5m]) > 0
+          for: 5m
+          labels:
+            severity: critical
+        - alert: TempoPollsFailing
+          annotations:
+            summary: Tempo blocklist polls are failing.
+            description: >-
+              Backend blocklist polls are erroring — queries serve from an
+              increasingly stale view of what blocks exist. Almost always
+              S3 connectivity/permissions.
+          expr: |-
+            increase(tempodb_blocklist_poll_errors_total[1h]) > 2
+            and
+            increase(tempodb_blocklist_poll_errors_total[5m]) > 0
+          for: 5m
+          labels:
+            severity: critical
+        - alert: TempoTenantIndexFailures
+          annotations:
+            summary: Tempo can't build its tenant index.
+            description: >-
+              Tenant index build errors — like TempoPollsFailing, the query
+              path's view of the backend is going stale.
+          expr: |-
+            increase(tempodb_blocklist_tenant_index_errors_total[1h]) > 2
+            and
+            increase(tempodb_blocklist_tenant_index_errors_total[5m]) > 0
+          for: 5m
+          labels:
+            severity: critical
+        - alert: TempoTenantIndexTooOld
+          annotations:
+            summary: Tempo's tenant index is stale.
+            description: >-
+              The tenant index is over 10 minutes old — the single binary's
+              compactor (its builder) has stopped refreshing it.
+          expr: |-
+            max by (tenant) (tempodb_blocklist_tenant_index_age_seconds) > 600
+          for: 5m
+          labels:
+            severity: critical
+        - alert: TempoBadOverrides
+          annotations:
+            summary: Tempo failed to reload its runtime overrides.
+            description: >-
+              The last runtime-config reload failed — Tempo keeps running
+              on the previous limits. Check the overrides block in
+              values.yaml against the tempo pod's logs.
+          expr: |-
+            tempo_runtime_config_last_reload_successful == 0
+          for: 15m
+          labels:
+            severity: warning
+    - name: tempo-metrics-generator
+      rules:
+        - alert: TempoGeneratorRemoteWriteFailing
+          annotations:
+            summary: Tempo's span metrics aren't reaching vmsingle.
+            description: >-
+              The metrics-generator's remote-write to vmsingle has been
+              permanently failing samples for 10m — service-graph and
+              span-metrics series are being lost. 4xx from vmsingle means
+              bad samples/config; check both pods' logs.
+          expr: |-
+            rate(prometheus_remote_storage_samples_failed_total{namespace="tempo"}[5m]) > 0
+          for: 10m
+          labels:
+            severity: critical
+        - alert: TempoGeneratorRemoteWriteLagging
+          annotations:
+            summary: Tempo's span-metrics remote-write is falling behind.
+            description: >-
+              The generator's remote-write queue is over 2 minutes behind
+              what it has ingested — vmsingle is slow or unreachable and
+              the queue is backing up (retries also land here before
+              TempoGeneratorRemoteWriteFailing does).
+          expr: |-
+            (
+              prometheus_remote_storage_highest_timestamp_in_seconds{namespace="tempo"}
+              - ignoring (remote_name, url)
+              prometheus_remote_storage_queue_highest_sent_timestamp_seconds{namespace="tempo"}
+            ) > 120
+          for: 10m
+          labels:
+            severity: warning
+        - alert: TempoGeneratorNotReceivingSpans
+          annotations:
+            summary: Spans aren't reaching Tempo's metrics-generator.
+            description: >-
+              The distributor's pushes to the metrics-generator are
+              failing — traces still store, but the span-metrics and
+              service-graph series silently stop updating.
+          expr: |-
+            rate(tempo_distributor_metrics_generator_pushes_failures_total[5m]) > 0
+          for: 10m
+          labels:
+            severity: warning
+        - alert: TempoGeneratorDiscardingSpans
+          annotations:
+            summary: Tempo's metrics-generator is discarding spans.
+            description: >-
+              The generator has been discarding spans for 10m (commonly:
+              outside its ingestion time window, or over the active-series
+              limit) — span metrics are undercounting.
+          expr: |-
+            rate(tempo_metrics_generator_spans_discarded_total[5m]) > 0
+          for: 10m
+          labels:
+            severity: warning

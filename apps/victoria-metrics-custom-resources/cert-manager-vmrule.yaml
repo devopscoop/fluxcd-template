@@ -1,0 +1,96 @@
+# Alerting rules for cert-manager, evaluated by this stack's vmalert over
+# the series collected by cert-manager-vmservicescrape.yaml. Adapted from
+# the cert-manager mixin the upstream docs link to
+# (https://github.com/imusmanmalik/cert-manager-mixin, v1.6.0 — jsonnet
+# only, hand-rendered here with its default config), with deliberate
+# deviations:
+# - Dropped CertManagerAbsent (absent(up{job="cert-manager"})): the bundled
+#   TargetDown alert already pages for a dead scrape target, and under the
+#   combined Slack+GoAlert receiver a duplicate is a duplicate page.
+# - Dropped the mixin's dashboard_url annotation (it points at a dashboard
+#   uid this repo doesn't vendor; see cert-manager-dashboard.yaml in
+#   apps/victoria-metrics).
+# "exported_namespace" below is the Certificate's own namespace — the
+# metrics carry it as "namespace", which the scrape's target label displaces
+# (see the honorLabels note in cert-manager-vmservicescrape.yaml).
+#
+# The blast radius worth remembering: this repo's ClusterIssuer issues the
+# wildcard certs the Gateways serve
+# (apps/cert-manager-custom-resources/clusterissuer.yaml), so one
+# not-ready Certificate can take every hostname down at expiry. The last
+# line of defense after these is envoy-vmrule.yaml's
+# EnvoyTlsCertExpiringSoon, which watches the certs actually loaded in the
+# proxies.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  name: cert-manager
+spec:
+  groups:
+    - name: cert-manager
+      rules:
+        - alert: CertManagerCertNotReady
+          annotations:
+            summary: A Certificate is not ready.
+            description: >-
+              Certificate {{ $labels.exported_namespace }}/{{ $labels.name
+              }} has been Ready={{ $labels.condition }} for 10m — new
+              issuance or renewal is failing. `kubectl describe certificate
+              {{ $labels.name }} -n {{ $labels.exported_namespace }}` and
+              the CertificateRequest/Order/Challenge chain under it say why
+              (commonly a DNS-01 solver failure — check the Cloudflare API
+              token in apps/cert-manager-custom-resources).
+          expr: |-
+            max by (name, exported_namespace, namespace, condition) (
+              certmanager_certificate_ready_status{condition!="True"} == 1
+            )
+          for: 10m
+          labels:
+            severity: critical
+        # Fires once 30% of the renewal window has elapsed without a renewal
+        # landing: cert-manager renews 30d before expiry, so this pages with
+        # roughly three weeks of validity still left — while renewal is
+        # merely late, not yet an outage. The ready_status guard keeps it
+        # from double-paging alongside CertManagerCertNotReady on a cert
+        # that is already broken.
+        - alert: CertManagerCertExpirySoon
+          annotations:
+            summary: A Certificate is burning through its renewal window.
+            description: >-
+              Certificate {{ $labels.exported_namespace }}/{{ $labels.name
+              }} expires in {{ humanizeDuration $value }} and
+              has not renewed despite being past its renewal time — the
+              renewal is silently failing while the old cert still serves.
+              Debug it now, before EnvoyTlsCertExpiringSoon (14d left) and
+              then browsers get involved.
+          expr: |-
+            avg by (exported_namespace, namespace, name) (
+              (certmanager_certificate_expiration_timestamp_seconds - time())
+              and on (exported_namespace, namespace, name)
+              (certmanager_certificate_ready_status{condition="True"} == 1)
+            )
+            <
+            avg by (exported_namespace, namespace, name) (
+              certmanager_certificate_expiration_timestamp_seconds
+              - certmanager_certificate_renewal_timestamp_seconds
+            ) * 0.7
+          for: 1h
+          labels:
+            severity: warning
+        - alert: CertManagerHittingRateLimits
+          annotations:
+            summary: cert-manager is being rate-limited by the ACME host.
+            description: >-
+              {{ $labels.host }} has answered HTTP 429 to cert-manager for
+              5m. Let's Encrypt production limits are per registered domain
+              and can take up to a week to clear — stop whatever is
+              re-issuing certs in a loop (a re-bootstrap gone wrong, a
+              flapping Certificate) before the account digs deeper into the
+              limit.
+          expr: |-
+            sum by (host) (
+              rate(certmanager_http_acme_client_request_count{status="429"}[5m])
+            ) > 0
+          for: 5m
+          labels:
+            severity: critical

@@ -1,0 +1,29 @@
+# Scrape the per-node ceph-exporter — per-daemon performance counters and
+# ceph_daemon_health_metrics (the SLOW_OPS series behind
+# rook-ceph-vmrule.yaml's CephDaemonSlowOps) — from the rook-ceph-exporter
+# Service's "ceph-exporter-http-metrics" port (:9926). Rook creates the
+# exporter and its Service whenever metrics aren't disabled (verified in
+# rook v1.17.5: pkg/operator/ceph/cluster/nodedaemon), so like the mgr
+# scrape this needs no chart change — and the same warning applies: leave
+# the chart's monitoring.enabled off.
+#
+# honorLabels for the same join reason as rook-ceph-mgr-vmservicescrape.yaml;
+# job="rook-ceph-exporter" (the Service name) satisfies the rule set's
+# PrometheusJobExporterMissing.
+#
+# Opt-in — gated by the same rook-ceph marker block as the mgr scrape.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMServiceScrape
+metadata:
+  name: rook-ceph-exporter
+spec:
+  namespaceSelector:
+    matchNames:
+      - rook-ceph
+  selector:
+    matchLabels:
+      app: rook-ceph-exporter
+      rook_cluster: rook-ceph
+  endpoints:
+    - port: ceph-exporter-http-metrics
+      honorLabels: true

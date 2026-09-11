@@ -1,0 +1,29 @@
+# Scrape GoAlert's own metrics — engine cycle counters (the "are pages
+# actually going out" signal vmrule.yaml alerts on), notification/alert
+# counters, HTTP server/client stats — from the :2112 listener that
+# values.yaml's GOALERT_LISTEN_PROMETHEUS enables.
+#
+# A pod scrape by port NUMBER, because the app chart hardcodes exactly one
+# named containerPort and one Service port (the :8081 UI/API), so :2112 is
+# neither named nor on the Service — portNumber is the only selector that
+# reaches it. In-app rather than in victoria-metrics-custom-resources
+# because GoAlert only ships as part of the VictoriaMetrics stack (same
+# reasoning as apps/tempo/vmservicescrape.yaml); the flux Kustomization's
+# dependsOn victoria-metrics provides the CRD ordering.
+#
+# The database is deliberately NOT scraped here — the fleet-wide
+# cnpg-instances VMPodScrape covers it (see the monitoring note in
+# db-cluster.yaml).
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMPodScrape
+metadata:
+  name: goalert
+spec:
+  selector:
+    matchLabels:
+      # app.kubernetes.io/name carries the CHART's name ("app" — the
+      # generic devopscoop app chart); instance is what identifies GoAlert.
+      app.kubernetes.io/name: app
+      app.kubernetes.io/instance: goalert
+  podMetricsEndpoints:
+    - portNumber: 2112

@@ -17,6 +17,10 @@ resources:
   # beyond cnpg itself and cnpg-barman-plugin. New databases start from the
   # reusable copy in apps/templates/cnpg-database.
   - db-cluster.yaml
+  # Self-monitoring for the paging system (operator.victoriametrics.com CRs;
+  # the flux Kustomization's dependsOn victoria-metrics provides the CRDs).
+  - vmpodscrape.yaml
+  - vmrule.yaml
 configMapGenerator:
   - name: goalert-values
     files:

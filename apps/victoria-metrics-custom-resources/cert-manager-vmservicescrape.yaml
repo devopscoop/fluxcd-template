@@ -1,0 +1,35 @@
+# Scrape all three cert-manager components — the controller (certificate
+# ready/expiry/renewal gauges, ACME client request counters, sync counters),
+# the webhook (a failing webhook blocks every cert-manager API write), and
+# cainjector (controller-runtime internals only) — each on :9402 /metrics,
+# plain HTTP (no metricsTLSConfig in apps/cert-manager/values.yaml). Mirrors
+# what the chart's prometheus.servicemonitor.enabled would create, which is
+# unusable here for the CRD-ownership reason in cnpg-vmpodscrape.yaml.
+#
+# One scrape object, three endpoints: the chart names the metrics port
+# differently on each Service (verified by rendering chart v1.20.0,
+# apps/cert-manager's pin), and an endpoint whose port name a Service lacks
+# simply yields no target, so the three coexist. The job label comes from
+# each Service name: cert-manager, cert-manager-webhook,
+# cert-manager-cainjector — job="cert-manager" is what the cert-manager
+# mixin's rules expect.
+#
+# honorLabels stays false (the default) on purpose: certificate metrics
+# carry their Certificate's namespace in a "namespace" label, which the
+# scrape's target namespace label displaces to "exported_namespace" — the
+# name cert-manager-vmrule.yaml and the vendored dashboard group on.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMServiceScrape
+metadata:
+  name: cert-manager
+spec:
+  namespaceSelector:
+    matchNames:
+      - cert-manager
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: cert-manager
+  endpoints:
+    - port: tcp-prometheus-servicemonitor
+    - port: metrics
+    - port: http-metrics
