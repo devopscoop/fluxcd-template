@@ -133,10 +133,17 @@ if ! $docker; then
   fi
 fi
 
-kubectl -n "$ns" port-forward "svc/${cluster}-rw" "${port}:5432" >/dev/null &
+# kubectl's stderr goes to a temp file, not the terminal: on every exit the
+# torn-down client connection makes port-forward print "connection reset by
+# peer ... lost connection to pod", which is pure teardown noise — but the
+# same stream carries the real reason when the forward fails to start, so
+# the failure branch below replays it.
+pf_err="$(mktemp "${TMPDIR:-/tmp}/psql-oauth.XXXXXX")"
+kubectl -n "$ns" port-forward "svc/${cluster}-rw" "${port}:5432" >/dev/null 2>"$pf_err" &
 pf_pid=$!
 cleanup() {
   kill "$pf_pid" 2>/dev/null || true
+  rm -f "$pf_err"
   if [[ -n "${container:-}" ]]; then
     docker kill "$container" >/dev/null 2>&1 || true
   fi
@@ -151,6 +158,7 @@ for _ in {1..50}; do
   if (exec 3<>"/dev/tcp/127.0.0.1/${port}") 2>/dev/null; then up=true; break; fi
   if ! kill -0 "$pf_pid" 2>/dev/null; then
     echo "port-forward exited — does svc/${cluster}-rw exist in namespace ${ns}?" >&2
+    cat "$pf_err" >&2
     exit 1
   fi
   sleep 0.2
