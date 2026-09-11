@@ -1,0 +1,40 @@
+# SSO for the monitoring UIs, enforced at the gateway: Envoy Gateway's OIDC
+# filter runs the authorization-code flow against the optional dex app
+# (apps/dex), so Alertmanager and vmui — auth-oblivious themselves — sit
+# behind the same dex → workforce-IdP login as Grafana. Deployed only when
+# the dex marker block in kustomization.yaml is enabled.
+#
+# This gates the browser path only: in-cluster consumers (Grafana
+# datasources, vmalert → Alertmanager) use service DNS and never cross the
+# gateway. Anything probing the public hostnames (e.g. an uptime-kuma
+# monitor) will now see a 302 to dex.
+#
+# The grafana HTTPRoute is deliberately NOT a target: Grafana runs its own
+# OIDC login (the dex block in values.yaml), and this filter in front of it
+# would break that callback.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: ops-oidc
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: alertmanager
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: vmui
+  oidc:
+    provider:
+      # Must equal config.issuer in apps/dex/values.yaml byte-for-byte.
+      issuer: https://dex.project1-dev.devops.coop
+    # The envoy-gateway staticClient in apps/dex/helm_secrets.yaml; each
+    # protected hostname's /oauth2/callback must be in its redirectURIs
+    # (Envoy derives the callback from the request, so no redirectURL is
+    # set here and one policy serves every hostname it targets).
+    clientID: envoy-gateway
+    clientSecret:
+      name: eg-oidc-client-secret # from eg-oidc-client.secrets.yaml
+    # Scope the session cookie to the parent domain: one login covers every
+    # hostname protected by this or any other policy using the same client.
+    cookieDomain: project1-dev.devops.coop

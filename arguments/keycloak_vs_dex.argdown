@@ -1,0 +1,91 @@
+===
+title: "Keycloak vs. Dex"
+subTitle: First-principles comparison map for the in-cluster identity provider, organized by decision criterion — the full Keycloak IAM suite against the Dex federation broker, either one fronting an upstream workforce IdP for cluster services
+author: Claude and evans
+date: 2026-09-09
+color:
+  tagColors:
+    keycloak: "#2166ac"
+    dex: "#e08214"
+    context: "#756bb1"
+    alternative: "#35978f"
+===
+
+# The question
+
+Which identity provider should this cluster run when its services (database SSO, dashboards, internal tools) need an OIDC issuer that federates to the organization's existing workforce IdP? Neither option is a thesis to defend here — each criterion below collects what both sides have to say, and the context section names the conditions that swing the verdict. Node color marks which side an argument serves; the arrows carry the valence.
+
+[Keycloak]: Run Keycloak — a full IAM suite (admin console, user store and federation, OIDC and SAML, MFA flows, fine-grained authorization services) brokering the upstream IdP, backed by its own production Postgres database. #keycloak
+  -> [Dex]
+
+[Dex]: Run Dex — a small CNCF-hosted federation broker that translates an upstream IdP (Google, GitHub, LDAP, any OIDC) into OIDC tokens for cluster services, configured entirely from a file, keeping its modest state in Kubernetes CRDs. #dex
+  -> [Keycloak]
+
+
+# Operational surface and dependencies
+
+<One small Go binary>: Dex is a Go daemon measured in tens of megabytes that stores auth requests and refresh tokens in Kubernetes CRDs and scales by adding replicas; Keycloak is a JVM/Quarkus application wanting a gigabyte-order footprint, an external RDBMS it will not production-run without, and deliberate clustering configuration before it is highly available. #dex
+  +> [Dex]
+
+<The IdP grows a database>: Production Keycloak requires Postgres, which in this template means a CNPG cluster for the identity provider itself — the IdP inherits a database's failure domain, backup regime, and upgrade calendar; and where the issuer is being introduced precisely to authenticate database access, the guard now depends on the kind of thing it guards, a bootstrap circularity that must be managed with fallback auth paths. #dex
+  +> [Dex]
+  - <Fate-sharing is manageable>: The loop only closes if Keycloak's own database authenticates through Keycloak — keep that one cluster on scram or certs and the circularity never bites; and stamping out one more CNPG cluster is a manifest this repo already knows how to write, not a new operational discipline. #keycloak
+
+# GitOps fit
+
+<Config is a file>: Dex's entire universe — connectors, static clients, token lifetimes — is one config file rendered from values.yaml: reviewable in a PR, reproducible from git, and immune to drift because there is nothing outside the file to drift. #dex
+  +> [Dex]
+
+<Realm state lives in the database>: Keycloak's realms, clients, and mappers are mutable rows behind an admin console; the GitOps translations reconcile imperfectly (the operator's realm-import CR is a one-shot import, keycloak-config-cli is another tool to version and run), so the console invites changes the repository cannot see. #dex
+  +> [Dex]
+  - <The console is the point>: That mutable admin UI is live operational capability — inspect a user's sessions, revoke tokens mid-incident, disable an account in seconds — actions a config file cannot express and a small team is grateful for at 3 a.m. #keycloak
+
+# Identity model and feature depth
+
+<Identity truth stays upstream>: Dex holds no user store at all — every login is a fresh assertion from the workforce IdP, so offboarding someone upstream offboards them everywhere, there is no second account database to manage and audit, and MFA policy is inherited from the provider already enforcing it. #dex
+  +> [Dex]
+  - <No local store means no local anything>: No local accounts also means no break-glass admin when the upstream is down, service accounts only via token exchange, and no per-user attributes beyond what a connector passes through — the first time a consumer needs a claim the upstream will not emit, Dex has nowhere to put it. #keycloak
+
+<A suite you grow into>: Keycloak brings user federation (LDAP/AD), SAML alongside OIDC, self-service and MFA flows (WebAuthn, OTP), token exchange, identity brokering with account linking, and fine-grained authorization services — when the next requirement arrives (an enterprise SAML integration, centralized per-resource authorization), it is a configuration change rather than a replacement project. #keycloak
+  +> [Keycloak]
+  - <Unused features are pure surface>: Every capability not in use is still attack surface, CVE exposure, and upgrade risk — the admin console and the frequent major releases with their database migrations are carried whether or not brokering one upstream IdP is the only feature exercised. #dex
+    - <Demand accretes toward the suite>: Consumers multiply once an issuer exists (dashboards, kubectl, VPN, internal tools), and their asks accrete groups, roles, and step-up auth — the suite's surface is bought once, while an outgrown broker is bought again later, with interest. #keycloak
+
+# The PostgreSQL 18 consumer
+
+<The blessed validator targets Keycloak>: The one first-party OAuth validator in the CNPG orbit — postgres-keycloak-oauth-validator, published with prebuilt extension images — speaks Keycloak's authorization services so database role elevation is decided centrally; pairing PG 18 OAuth with Dex means building and maintaining a third-party validator image (such as Percona's pg_oidc_validator) yourself. #keycloak
+  +> [Keycloak]
+  - <Both validators are experimental>: The Keycloak validator calls itself experimental and the Percona one ships as nightly builds — neither side holds a maturity moat — and the generic JWKS validator is deliberately IdP-agnostic, so it survives an issuer swap where the Keycloak-shaped one does not. #dex
+    +> [Start with Dex, swap on demand]
+
+# Project health and security
+
+<Red Hat's weight behind it>: Keycloak is CNCF-incubating with an enormous install base, a paid core engineering team, and an ecosystem of operators, guides, and commercial support — whatever else is true, the project will outlive this cluster. #keycloak
+  +> [Keycloak]
+
+<Less to exploit>: A large Java application with an admin console carries a correspondingly large vulnerability history and patch treadmill; Dex's surface — a small Go daemon with no UI and no user store — simply offers less to attack, and its slower release tempo is an operational mercy for a team without an identity rotation. #dex
+  +> [Dex]
+  - <Slow can mean stalled>: Dex's maintainer bench is thin and feature work moves slowly — connectors linger experimental or unmaintained (SAML most visibly) — so some of that small surface reflects a project in maintenance mode rather than a design triumph. #keycloak
+
+# Cross-cutting context
+
+[An upstream IdP is the system of record]: This map assumes identity truth lives in a workforce provider (Google Workspace, Entra, GitHub) and the in-cluster issuer is a protocol adapter; if the cluster must instead be the source of record for users — customer accounts, contractors outside the directory — Dex is not a candidate at all and the comparison dissolves in Keycloak's favor. #context
+  +> <Identity truth stays upstream>
+  +> <No local store means no local anything>
+
+[One consumer today]: The issuer is being introduced for a single concrete consumer (database SSO for developers, one dashboard) — footprint and config-file simplicity dominate, and speculative depth weighs nothing. #context
+  +> <Unused features are pure surface>
+  -> <Demand accretes toward the suite>
+
+[A portfolio on the roadmap]: SAML integrations, self-service MFA, or centralized authorization are already foreseeable requirements, not hypotheticals — the suite's depth stops being speculative and the second migration starts looking more expensive than the first deployment. #context
+  +> <A suite you grow into>
+  +> <Demand accretes toward the suite>
+
+
+# A middle path
+
+[Start with Dex, swap on demand]: Consumers bind to a standard OIDC interface — issuer URL, client ID, claims — and Dex keeps no identity state, so replacing it with Keycloak later is client re-registration and claim re-mapping, not a data migration. Start minimal; adopt the suite when a concrete requirement (SAML, local accounts, authorization services) arrives rather than in anticipation of one. #alternative
+  -> [Keycloak]
+  -> [Dex]
+  + <No data gravity in a broker>: The force that makes substrate choices calcify — accumulated state — is absent here by construction: identity truth stays upstream either way, so the exit cost stays low permanently, which is exactly when deferring the bigger commitment is rational. #alternative
+  - <Every consumer feels the swap>: An issuer swap touches every registered client, identity mapping, and token-lifetime assumption at once, and it lands at the worst moment — after the consumer count has grown; cheap is not free, and "re-registration" understates a coordinated cutover across everything that logs in. #alternative
