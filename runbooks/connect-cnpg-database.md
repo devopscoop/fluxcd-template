@@ -93,6 +93,7 @@ Requirements:
 - psql 18 with libpq built against libcurl. Debian/Ubuntu PGDG ship it as the `libpq-oauth` package, Arch includes it in `postgresql-libs`; Homebrew's builds lack it (macOS workaround below).
 - A login role named after your email local part in the Cluster's `managed.roles` (the pg-oauth block shows the shape).
 - The dex issuer reachable from your machine.
+- Read-only SSO access (the `cluster-viewers` group) additionally needs `db-developer-rbac.yaml` from the cnpg-database template applied in the database's namespace — the built-in `view` role can neither read the Cluster CR nor open a port-forward. Cluster-admins need nothing extra.
 
 `./psql-oauth.sh <app>` does all of the below in one command — it discovers the issuer from the Cluster's `pg_hba`, port-forwards the `-rw` Service, runs the device flow, and tears the forward down on exit. `--docker` is the macOS path, and `-n`/`-c`/`-d` override the namespace/Cluster/database for clusters that don't follow the `<app>`/`<app>-db` naming. The manual equivalent: forward the read-write Service as in option 3, then:
 

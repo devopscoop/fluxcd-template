@@ -167,6 +167,10 @@ spec:
   #   - Validator libraries are young. The oauth hba rule below is scoped to
   #     the developers group, so apps and break-glass access stay on CNPG's
   #     default scram catch-all (appended after these rules).
+  #   - Read-only SSO roles (the cluster-viewers group) additionally need
+  #     db-developer-rbac.yaml (alongside this file) in the app's
+  #     kustomization: the `view` role can neither read this Cluster CR nor
+  #     port-forward, both of which psql-oauth.sh does.
   # The issuer must equal config.issuer in apps/dex/values.yaml byte-for-byte
   # and be reachable from the instance pods (discovery + JWKS fetch). Then:
   #   psql "host=<endpoint> dbname=app-template user=alice \
