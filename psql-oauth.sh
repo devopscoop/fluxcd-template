@@ -129,7 +129,13 @@ fi
 
 kubectl -n "$ns" port-forward "svc/${cluster}-rw" "${port}:5432" >/dev/null &
 pf_pid=$!
-trap 'kill "$pf_pid" 2>/dev/null || true' EXIT
+cleanup() {
+  kill "$pf_pid" 2>/dev/null || true
+  if [[ -n "${container:-}" ]]; then
+    docker kill "$container" >/dev/null 2>&1 || true
+  fi
+}
+trap cleanup EXIT
 
 # Wait for the forward to listen (bash's /dev/tcp; the subshell closes the
 # probe socket). If kubectl dies first — bad Service name, no kubeconfig —
@@ -145,29 +151,45 @@ for _ in {1..50}; do
 done
 $up || { echo "port-forward never came up on 127.0.0.1:${port}" >&2; exit 1; }
 
+# The client runs in the background and the script waits on it, so Ctrl-C
+# works: psql ignores SIGINT until a session is up (its handler only cancels
+# queries, so during the device flow's /token polling the signal is
+# swallowed), and bash delivers a signal trap only after the foreground
+# child exits — the combination made Ctrl-C appear dead. `wait` IS
+# interruptible, and the trap kills the client directly (for --docker, the
+# named container — the docker CLI only proxies signals to the process that
+# ignores them).
+interrupted=false
 if $docker; then
   # Docker Desktop (macOS) reaches the host's loopback via
   # host.docker.internal; on Linux the bridge can't see a 127.0.0.1-bound
   # forward, so join the host network and dial loopback directly.
-  docker_args=(run --rm -it)
+  container="psql-oauth-$$"
+  docker_args=(run --rm -it --name "$container")
   if [[ "$(uname -s)" == "Darwin" ]]; then
     pg_host="host.docker.internal"
   else
     docker_args+=(--network host)
     pg_host="127.0.0.1"
   fi
-  # No exec: the EXIT trap must still fire afterward to kill the port-forward.
+  trap 'interrupted=true; docker kill "$container" >/dev/null 2>&1 || true' INT TERM
   docker "${docker_args[@]}" debian:trixie-slim bash -c "
     apt-get update -q >/dev/null &&
     apt-get install -yq postgresql-common ca-certificates >/dev/null 2>&1 &&
     /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y >/dev/null &&
     apt-get install -yq postgresql-client-18 libpq-oauth >/dev/null 2>&1 &&
-    exec psql '$(conninfo "$pg_host")'"
+    exec psql '$(conninfo "$pg_host")'" &
+  client_pid=$!
 else
-  psql "$(conninfo 127.0.0.1)" || {
-    rc=$?
-    echo "psql failed (exit ${rc}). If it reported that no OAuth flow is supported," >&2
-    echo "your libpq lacks the libpq-oauth module — retry with --docker." >&2
-    exit "$rc"
-  }
+  trap 'interrupted=true; kill "$client_pid" 2>/dev/null || true' INT TERM
+  psql "$(conninfo 127.0.0.1)" &
+  client_pid=$!
 fi
+rc=0
+wait "$client_pid" || rc=$?
+$interrupted && exit 130
+if ((rc != 0)) && ! $docker; then
+  echo "psql failed (exit ${rc}). If it reported that no OAuth flow is supported," >&2
+  echo "your libpq lacks the libpq-oauth module — retry with --docker." >&2
+fi
+exit "$rc"
