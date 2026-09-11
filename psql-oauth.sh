@@ -159,6 +159,13 @@ $up || { echo "port-forward never came up on 127.0.0.1:${port}" >&2; exit 1; }
 # interruptible, and the trap kills the client directly (for --docker, the
 # named container — the docker CLI only proxies signals to the process that
 # ignores them).
+#
+# Backgrounding a command in a non-interactive shell also rewires its stdin
+# to /dev/null, which breaks both clients — docker -it refuses ("cannot
+# attach stdin to a TTY-enabled container") and interactive psql reads EOF —
+# so duplicate the script's original stdin (the terminal) and hand it to the
+# client explicitly.
+exec 9<&0
 interrupted=false
 if $docker; then
   # Docker Desktop (macOS) reaches the host's loopback via
@@ -178,11 +185,11 @@ if $docker; then
     apt-get install -yq postgresql-common ca-certificates >/dev/null 2>&1 &&
     /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y >/dev/null &&
     apt-get install -yq postgresql-client-18 libpq-oauth >/dev/null 2>&1 &&
-    exec psql '$(conninfo "$pg_host")'" &
+    exec psql '$(conninfo "$pg_host")'" <&9 &
   client_pid=$!
 else
   trap 'interrupted=true; kill "$client_pid" 2>/dev/null || true' INT TERM
-  psql "$(conninfo 127.0.0.1)" &
+  psql "$(conninfo 127.0.0.1)" <&9 &
   client_pid=$!
 fi
 rc=0
