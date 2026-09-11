@@ -83,6 +83,23 @@ if [[ -z "$issuer" ]]; then
   exit 1
 fi
 
+# The oauth hba rule only matches members of the developers group, so a role
+# outside it falls through to CNPG's scram catch-all and psql prompts for a
+# password that doesn't exist — a confusing dead end, and exactly what the
+# default ROLE=$USER produces when your shell user differs from your email
+# local part. Catch it here: pg-oauth login roles are declared in the
+# Cluster's managed.roles.
+login_roles="$(kubectl -n "$ns" get clusters.postgresql.cnpg.io "$cluster" \
+  -o jsonpath='{range .spec.managed.roles[?(@.login==true)]}{.name}{"\n"}{end}')"
+if ! grep -qxF "$role" <<<"$login_roles"; then
+  echo "Role '${role}' is not a login role in ${cluster}'s managed.roles, so the" >&2
+  echo "oauth rule (+developers) won't match it — the server would ask for a" >&2
+  echo "password instead of starting the device flow. pg-oauth roles are named" >&2
+  echo "after email local parts; pass -U ROLE. Login roles on this cluster:" >&2
+  echo "  $(tr '\n' ' ' <<<"$login_roles")" >&2
+  exit 1
+fi
+
 # sslmode=require, deliberately not verify-full: the oauth hba rule is
 # hostssl so TLS is mandatory, but the server certificate names the
 # in-cluster Services, not localhost (runbook option 3 has the same caveat).
