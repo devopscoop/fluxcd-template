@@ -12,10 +12,10 @@ resources:
   - helmrepo.yaml
   - release.yaml
   - vmservicescrape.yaml
-  # Collector self-monitoring: alert rules over the scrape above, and the
-  # community collector dashboard (see each file's header).
+  # Collector self-monitoring: alert rules over the scrape above (the
+  # community collector dashboard downloads via grafana.dashboards in
+  # apps/victoria-metrics/values.yaml).
   - vmrule.yaml
-  - dashboard.yaml
 configMapGenerator:
   - name: otel-collector-values
     files:

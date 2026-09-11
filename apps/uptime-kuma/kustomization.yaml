@@ -18,12 +18,13 @@ resources:
   - kuma-credentials.secrets.yaml
   - pvc.yaml
   - deployment.yaml
-  # Monitoring (operator.victoriametrics.com CRs + a dashboard ConfigMap;
-  # the flux Kustomization's dependsOn victoria-metrics provides the CRDs —
-  # see the placement note in vmservicescrape.yaml).
+  # Monitoring (operator.victoriametrics.com CRs; the flux Kustomization's
+  # dependsOn victoria-metrics provides the CRDs — see the placement note in
+  # vmservicescrape.yaml). The dashboard downloads via grafana.dashboards in
+  # apps/victoria-metrics/values.yaml, behind the uptime-kuma marker —
+  # enable it with this app.
   - vmservicescrape.yaml
   - vmrule.yaml
-  - dashboard.yaml
 configMapGenerator:
   - name: uptime-kuma-values
     files:

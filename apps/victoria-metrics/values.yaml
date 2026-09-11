@@ -438,6 +438,31 @@ grafana:
       external-dns:
         gnetId: 23969
         revision: latest
+      # "OpenTelemetry Collector" (grafana.com 15983) — receiver
+      # accepted/refused, processor throughput, exporter sent/failed/queue
+      # state, batch sizes, collector process health — fed by
+      # apps/otel-collector's vmservicescrape.yaml. Chosen precisely because
+      # its hidden suffix-detection variables handle BOTH otelcol metric
+      # spellings — that deployment emits the suffixed _total/_seconds names
+      # (see the naming gotcha in apps/otel-collector/vmrule.yaml). Known
+      # caveat: the rpc/http latency row is detailed-level telemetry that
+      # config doesn't emit (empty panels).
+      otel-collector:
+        gnetId: 15983
+        revision: latest
+      # "VictoriaLogs - single-node" (grafana.com 22084, the published copy
+      # of the dashboard in the VictoriaLogs repo) — ingestion rate/volume,
+      # disk usage vs free space, merge activity, query concurrency and
+      # latency — all Prometheus-type metrics about the VictoriaLogs process
+      # (scraped by that chart's own VMServiceScrape; see
+      # apps/victoria-logs/values.yaml), NOT LogsQL via the victorialogs
+      # datasource.
+      victoria-logs:
+        gnetId: 22084
+        revision: latest
+        datasource:
+          - name: DS_PROMETHEUS
+            value: VictoriaMetrics
 # >>> eks: deploy.sh uncomments this block when k8s_platform=eks
 ##       "Karpenter Capacity" / "Karpenter Performance" — AWS's official
 ##       dashboards: node/nodepool allocatable vs usage by
@@ -533,6 +558,21 @@ grafana:
 #           - name: DS_PROMETHEUS
 #             value: VictoriaMetrics
 # <<< rook-ceph
+# >>> uptime-kuma: ./toggle_blocks.sh --enable uptime-kuma when enabling apps/uptime-kuma
+##       "Uptime Kuma - Metrics" (grafana.com 18278 — the only meaningful
+##       Uptime Kuma dashboard published) — per-monitor status, response
+##       time, and certificate expiry/validity as seen by its black-box
+##       probes — fed by apps/uptime-kuma's in-app vmservicescrape.yaml
+##       (in-app because the scrape's basicAuth secret must share its
+##       namespace; the dashboard has no such constraint, so it downloads
+##       here like every other one with an upstream).
+#       uptime-kuma:
+#         gnetId: 18278
+#         revision: latest
+#         datasource:
+#           - name: DS_PROMETHEUS
+#             value: VictoriaMetrics
+# <<< uptime-kuma
   # Memory req=limit, no CPU limit. Doubled to 384Mi after OOMKills
   # (2026-08-25), then OOMKilled again on 2026-08-26 once the kubelet
   # relabelConfigs fix below un-dropped the label-heavy cadvisor series

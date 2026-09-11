@@ -169,6 +169,45 @@ grafana:
       url: http://loki-gateway.loki.svc.cluster.local
       jsonData:
         maxLines: 1000
+  # Dashboards Grafana's download-dashboards init container pulls at every
+  # pod start — same pattern and rationale as the grafana.dashboards list in
+  # apps/victoria-metrics/values.yaml (upstream updates arrive on the next
+  # restart instead of being vendored and re-synced by hand; needs egress to
+  # raw.githubusercontent.com). The Alloy mixin dashboards ride here rather
+  # than in apps/alloy because only the Grafana chart can download them —
+  # and alloy only ever deploys alongside this stack (it's the KPS
+  # alternative's log collector), so no extra gating is needed. Their
+  # datasource variables carry no saved selection and bind to this stack's
+  # default Prometheus (and Loki) datasources on load. The URL tag matches
+  # apps/alloy's chart appVersion — bump it when bumping that app.
+  dashboardProviders:
+    dashboardproviders.yaml:
+      apiVersion: 1
+      providers:
+        - name: downloaded
+          orgId: 1
+          folder: ""
+          type: file
+          disableDeletion: false
+          editable: false
+          options:
+            path: /var/lib/grafana/dashboards/downloaded
+  dashboards:
+    downloaded:
+      # "Alloy / Controller" — component health and evaluation activity for
+      # the log collector, fed by the chart ServiceMonitor
+      # apps/alloy/values.yaml enables, alerted on by its prometheusrule.yaml.
+      alloy-controller:
+        url: https://raw.githubusercontent.com/grafana/alloy/v1.16.1/operations/alloy-mixin/rendered/dashboards/alloy-controller.json
+      # "Alloy / Loki Components" — loki.source/loki.process/loki.write
+      # throughput and error rates: the is-the-log-pipeline-actually-
+      # delivering view. Its loki_datasource variable resolves to the Loki
+      # datasource provisioned above.
+      alloy-loki:
+        url: https://raw.githubusercontent.com/grafana/alloy/v1.16.1/operations/alloy-mixin/rendered/dashboards/alloy-loki.json
+      # "Alloy / Resources" — CPU/memory/GC for the collector DaemonSet.
+      alloy-resources:
+        url: https://raw.githubusercontent.com/grafana/alloy/v1.16.1/operations/alloy-mixin/rendered/dashboards/alloy-resources.json
   # Sized from krr (2026-08-22, 14d dev usage); memory req=limit, no CPU limit.
   resources:
     requests:
