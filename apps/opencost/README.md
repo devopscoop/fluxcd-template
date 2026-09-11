@@ -14,12 +14,12 @@ per-container allocation, ...) on `:9003/metrics`. Three pieces, three apps:
 - **apps/victoria-metrics-custom-resources** — `opencost-vmservicescrape.yaml`
   scrapes the exporter back into vmsingle (CRs live there for the
   CRD-ordering reason in that app's kustomization.yaml).
-- **apps/victoria-metrics** — `opencost-overview-dashboard.yaml`, the official
-  "OpenCost / Overview" Grafana dashboard (grafana.com 22208) with a local
-  "Monthly Cost — history & 30d linear forecast" panel on top: the monthly
-  run-rate plus a `predict_linear()` projection 30 days out, regressed over
-  the trailing 7 days. Local modifications are documented in that file's
-  header.
+- **apps/victoria-metrics** — the official "OpenCost / Overview" Grafana
+  dashboard (grafana.com 22208), pulled from grafana.com by Grafana's
+  download-dashboards init container at every pod start (the
+  `grafana.dashboards` entry in that app's values.yaml). It tracks the latest
+  upstream revision, so there is no vendored copy to re-sync — updates land on
+  the next Grafana pod restart.
 
 ## Pricing accuracy
 
