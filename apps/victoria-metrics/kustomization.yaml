@@ -14,34 +14,14 @@ resources:
   - grafana-httproute.yaml
   - vmui-httproute.yaml
   - alertmanager-httproute.yaml
+  # Hand-built, sidecar-provisioned dashboards: no upstream publishes them,
+  # so they can't be pulled at pod start by the download-dashboards init
+  # container like the grafana.dashboards entries in values.yaml (which is
+  # where every dashboard with a real upstream lives — including the gated
+  # ones for platform-conditional and opt-in apps).
   - envoy-proxy-global-dashboard.yaml
   - envoy-clusters-dashboard.yaml
   - envoy-gateway-global-dashboard.yaml
-  # Vendored dashboards for the always-deployed core apps; each file's
-  # header names its upstream source and pin. Dashboards for
-  # platform-conditional and opt-in apps follow below in marker blocks,
-  # mirroring the gating of their scrape/rule CRs in
-  # apps/victoria-metrics-custom-resources (the rationale lives in that
-  # kustomization's header).
-  - flux-performance-dashboard.yaml
-  - flux-control-plane-dashboard.yaml
-  - cert-manager-dashboard.yaml
-  - external-dns-dashboard.yaml
-# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
-#   - karpenter-capacity-dashboard.yaml
-#   - karpenter-performance-dashboard.yaml
-#   - aws-load-balancer-controller-dashboard.yaml
-# <<< eks
-# >>> metallb: deploy.sh uncomments this block when k8s_platform is not eks
-#   - metallb-dashboard.yaml
-# <<< metallb
-# >>> longhorn: ./toggle_blocks.sh --enable longhorn when enabling apps/longhorn
-#   - longhorn-dashboard.yaml
-# <<< longhorn
-# >>> rook-ceph: ./toggle_blocks.sh --enable rook-ceph when enabling apps/rook-ceph
-#   - ceph-cluster-dashboard.yaml
-#   - ceph-pools-dashboard.yaml
-# <<< rook-ceph
 # >>> coraza: ./toggle_blocks.sh --enable coraza when enabling apps/coraza
 #   - coraza-dashboard.yaml
 # <<< coraza

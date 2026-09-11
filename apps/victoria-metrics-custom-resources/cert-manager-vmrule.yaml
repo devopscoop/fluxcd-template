@@ -8,8 +8,8 @@
 #   TargetDown alert already pages for a dead scrape target, and under the
 #   combined Slack+GoAlert receiver a duplicate is a duplicate page.
 # - Dropped the mixin's dashboard_url annotation (it points at a dashboard
-#   uid this repo doesn't vendor; see cert-manager-dashboard.yaml in
-#   apps/victoria-metrics).
+#   uid this repo doesn't carry; see the cert-manager entry under
+#   grafana.dashboards in apps/victoria-metrics/values.yaml).
 # "exported_namespace" below is the Certificate's own namespace — the
 # metrics carry it as "namespace", which the scrape's target label displaces
 # (see the honorLabels note in cert-manager-vmservicescrape.yaml).

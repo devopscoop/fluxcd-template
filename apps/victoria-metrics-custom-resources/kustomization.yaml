@@ -13,8 +13,9 @@ kind: Kustomization
 # this app applies). Same pattern as cert-manager-custom-resources and
 # eg-custom-resources.
 #
-# Dashboards stay in apps/victoria-metrics: they're plain ConfigMaps picked
-# up by Grafana's sidecar, no CRD involved.
+# Dashboards stay in apps/victoria-metrics: they're grafana.dashboards
+# download entries in that app's values.yaml (or, for the hand-built ones,
+# plain ConfigMaps picked up by Grafana's sidecar), no CRD involved.
 #
 # Scrapes and rules for apps that are NOT always deployed sit in marker
 # blocks below, enabled together with their app: a scrape whose selector
