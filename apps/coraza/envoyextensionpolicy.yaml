@@ -155,6 +155,47 @@ spec:
             # RCE rules have nothing to protect there. Every other param,
             # route, and rule family is still inspected.
             - 'SecRule REQUEST_URI "@beginsWith /select/logsql/" "id:10007,phase:1,pass,nolog,ctl:ruleRemoveTargetByTag=attack-sqli;ARGS:query,ctl:ruleRemoveTargetByTag=attack-sqli;ARGS:extra_filters,ctl:ruleRemoveTargetByTag=attack-sqli;ARGS:extra_stream_filters,ctl:ruleRemoveTargetByTag=attack-rce;ARGS:query,ctl:ruleRemoveTargetByTag=attack-rce;ARGS:extra_filters,ctl:ruleRemoveTargetByTag=attack-rce;ARGS:extra_stream_filters"'
+            # Google's OAuth callback to dex (the optional apps/dex issuer's
+            # google connector) echoes the granted scopes in the query string,
+            # and the scope URL .../auth/userinfo.profile contains ".profile" —
+            # a Unix dotfile in lfi-os-files.data, so CRS 930120 (OS File
+            # Access Attempt) matches it as critical, score 5 = the PL1
+            # anomaly threshold on its own. The WAF 403s the callback before
+            # it reaches dex, so every SSO login dies mid-handshake — for
+            # Grafana and every route behind the ops-oidc SecurityPolicy
+            # alike, since all consumers funnel through this one connector
+            # callback. Measured on a downstream dev gateway 2026-09-10.
+            # The scope value is the IdP's fixed vocabulary, not user input,
+            # and dex parses it as OAuth scopes and nothing else: drop 930120
+            # for that one query param on dex's callback only — state, code,
+            # every other param, host, route, and rule family still apply.
+            # Chained to the dex hostname so a colliding /callback path on
+            # any other host keeps full inspection; the ctl action sits on
+            # the LAST rule of the chain because non-disruptive actions run
+            # when their own rule matches — on the starter it would fire on
+            # Host alone. Phase 1 like the exclusions above: must precede the
+            # CRS include. The id skips ahead to 10011 to stay clear of
+            # downstream repos' local exclusions, so subtree syncs don't
+            # collide.
+            - 'SecRule REQUEST_HEADERS:Host "@rx (?i)^dex\.project1-dev\.devops\.coop(:\d+)?$" "id:10011,phase:1,pass,nolog,chain"'
+            - 'SecRule REQUEST_URI "@rx ^/callback(\?|$)" "t:none,ctl:ruleRemoveTargetById=930120;ARGS_GET:scope"'
+            # PostgreSQL 18's OAuth device flow (the pg-oauth block in the
+            # cnpg-database template) carries client_id=psql — dex's public
+            # psql staticClient — through its endpoints: POSTed to
+            # /device/code, polled to /token, and echoed as a query param on
+            # /auth and the /auth/<connector> redirect when the browser
+            # submits the verification code. "psql" is a Unix binary name in
+            # CRS's command wordlist, so 932260 (direct Unix command
+            # execution; critical, score 5 = the PL1 anomaly threshold on its
+            # own) 403s each of them in turn. client_id
+            # values are operator-chosen vocabulary from dex's staticClients
+            # config, not user input. Drop 932260 for that one param (body
+            # and query) on those endpoints only, chained to the dex hostname
+            # like 10011: every other param, endpoint, host, and rule still
+            # applies. Phase 1 like the exclusions above: must precede the
+            # CRS include.
+            - 'SecRule REQUEST_HEADERS:Host "@rx (?i)^dex\.project1-dev\.devops\.coop(:\d+)?$" "id:10012,phase:1,pass,nolog,chain"'
+            - 'SecRule REQUEST_URI "@rx ^/(device/code|token|auth(/[^/?]+)?)(\?|$)" "t:none,ctl:ruleRemoveTargetById=932260;ARGS_POST:client_id,ctl:ruleRemoveTargetById=932260;ARGS_GET:client_id"'
             - Include @owasp_crs/*.conf
           # Same as default, minus request-body inspection. coraza-proxy-wasm
           # 0.6.0 mangles any request body it buffers across more than one

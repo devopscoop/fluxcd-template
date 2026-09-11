@@ -5,19 +5,18 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 # Setting namespace here will ensure that all objects managed by this Kustomization will explicitly be deployed to this namespace. You don't need to put specify `namespace:` anywhere else if you do this.
-namespace: longhorn-system
+namespace: opencost
 
 resources:
-  - longhorn-backup.secrets.yaml
-  - longhorn-crypto.secrets.yaml
+  - namespace.yaml
+  - helmrepo.yaml
   - release.yaml
-  - longhorn-crypto-global.sc.yaml
 configMapGenerator:
-  - name: longhorn-values
+  - name: opencost-values
     files:
       - values.yaml=values.yaml
 secretGenerator:
-  - name: longhorn-secrets
+  - name: opencost-secrets
     files:
       - values.yaml=helm_secrets.yaml
 configurations:

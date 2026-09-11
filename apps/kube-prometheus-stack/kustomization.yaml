@@ -9,11 +9,29 @@ namespace: kube-prometheus-stack
 
 resources:
   - namespace.yaml
-  - basic-auth.secrets.yaml
   - ocirepo.yaml
   - release.yaml
   - grafana-httproute.yaml
+  # htpasswd gate on the Prometheus and Alertmanager routes — the default.
+  # Unusually, this block SHIPS ENABLED; it exists as a marker only so the
+  # dex SSO block below can replace it (Envoy Gateway applies one
+  # SecurityPolicy per route — the older basic-auth policies would win and
+  # the OIDC one would be silently ignored). Swap in one command:
+  #   ./toggle_blocks.sh --enable dex --disable basic-auth
+# >>> basic-auth: ships enabled — disable only when swapping to the dex SSO block below
+  - basic-auth.secrets.yaml
   - basic-auth-securitypolicy.yaml
+# <<< basic-auth
+  # SSO for Prometheus and Alertmanager through the optional dex app: an
+  # Envoy Gateway SecurityPolicy runs the OIDC flow at the gateway, same
+  # dex → workforce-IdP login as Grafana. grafana-oidc-client.secrets.yaml
+  # is Grafana's own OAuth client secret, delivered as an env var via
+  # envFromSecret in values.yaml. See apps/dex/README.md.
+# >>> dex: NOT auto-enabled by deploy.sh — run ./toggle_blocks.sh --enable dex --disable basic-auth after deploying apps/dex
+#   - oidc-securitypolicy.yaml
+#   - eg-oidc-client.secrets.yaml
+#   - grafana-oidc-client.secrets.yaml
+# <<< dex
 configMapGenerator:
   - name: kube-prometheus-stack-values
     files:

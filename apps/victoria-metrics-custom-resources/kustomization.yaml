@@ -30,6 +30,7 @@ resources:
   - envoy-vmpodscrape.yaml
   - envoy-gateway-vmservicescrape.yaml
   - envoy-vmrule.yaml
+  - opencost-vmservicescrape.yaml
   - cnpg-vmpodscrape.yaml
   - cnpg-operator-vmpodscrape.yaml
   - cnpg-vmrule.yaml

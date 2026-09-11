@@ -45,6 +45,16 @@ resources:
 # >>> coraza: ./toggle_blocks.sh --enable coraza when enabling apps/coraza
 #   - coraza-dashboard.yaml
 # <<< coraza
+  # SSO for Alertmanager and vmui through the optional dex app: an Envoy
+  # Gateway SecurityPolicy runs the OIDC flow at the gateway, same dex →
+  # workforce-IdP login as Grafana. grafana-oidc-client.secrets.yaml is
+  # Grafana's own OAuth client secret, delivered as an env var via
+  # envFromSecret in values.yaml. See apps/dex/README.md.
+# >>> dex: NOT auto-enabled by deploy.sh — run ./toggle_blocks.sh --enable dex after deploying apps/dex
+#   - oidc-securitypolicy.yaml
+#   - eg-oidc-client.secrets.yaml
+#   - grafana-oidc-client.secrets.yaml
+# <<< dex
 configMapGenerator:
   - name: victoria-metrics-values
     files:

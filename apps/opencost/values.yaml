@@ -1,0 +1,29 @@
+# OpenCost cost-monitoring exporter (https://opencost.io). Exporter only: no
+# bundled Prometheus and no UI. It reads cluster usage out of the sibling
+# apps/victoria-metrics stack (vmsingle speaks enough of the Prometheus API),
+# computes cost from cloud list/spot pricing, and serves the result on
+# :9003/metrics, which the VMServiceScrape in
+# apps/victoria-metrics-custom-resources scrapes back into vmsingle. The
+# "OpenCost / Overview" Grafana dashboard in apps/victoria-metrics reads
+# those series (node_total_hourly_cost, pv_hourly_cost, ...).
+#
+# On AWS, on-demand list prices work with no credentials. Spot nodes are
+# priced from the spot data feed, which must be configured separately (S3
+# bucket + IAM) or spot nodes get a flat default price:
+# https://opencost.io/docs/configuration/aws/#spot-node-prices
+opencost:
+  ui:
+    # Grafana is the frontend; the bundled UI would be one more thing to
+    # expose and secure for no benefit.
+    enabled: false
+  prometheus:
+    internal:
+      enabled: false
+    external:
+      enabled: true
+      url: http://vmsingle-victoria-metrics.victoria-metrics.svc.cluster.local:8428
+  exporter:
+    # The cluster's identifier in exported metrics (useful the day several
+    # clusters share one TSDB). project1-dev is rewritten to the real cluster
+    # name by deploy.sh during bootstrap.
+    defaultClusterId: project1-dev
