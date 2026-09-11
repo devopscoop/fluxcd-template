@@ -90,26 +90,28 @@ Databases created from `apps/templates/cnpg-database` can enable the `pg-oauth` 
 
 Requirements:
 
-- psql 18 with libpq built against libcurl. Debian/Ubuntu PGDG ship it as the `libpq-oauth` package; Homebrew's builds lack it (macOS workaround below).
+- psql 18 with libpq built against libcurl. Debian/Ubuntu PGDG ship it as the `libpq-oauth` package, Arch includes it in `postgresql-libs`; Homebrew's builds lack it (macOS workaround below).
 - A login role named after your email local part in the Cluster's `managed.roles` (the pg-oauth block shows the shape).
 - The dex issuer reachable from your machine.
 
 `./psql-oauth.sh <app>` does all of the below in one command — it discovers the issuer from the Cluster's `pg_hba`, port-forwards the `-rw` Service, runs the device flow, and tears the forward down on exit. `--docker` is the macOS path, and `-n`/`-c`/`-d` override the namespace/Cluster/database for clusters that don't follow the `<app>`/`<app>-db` naming. The manual equivalent: forward the read-write Service as in option 3, then:
 
 ```shell
-psql "host=localhost port=15432 dbname=<app> user=<email-local-part> sslmode=require oauth_issuer=https://dex.project1-dev.devops.coop oauth_client_id=psql"
+psql "host=localhost port=15432 dbname=<app> user=<email-local-part> sslmode=require oauth_issuer=https://dex.project1-dev.devops.coop oauth_client_id=psql oauth_scope='openid email'"
 ```
+
+`oauth_scope` must request `email`: dex only embeds the email claim — what the validator maps to a role — when the client asks for that scope (the hba rule's `scope=""` disables the validator's scope *check*; it requests nothing on the client's behalf).
 
 psql prints a verification URL and a code; approve in the browser and the prompt opens. The oauth `pg_hba` rule is `hostssl`, so the connection must use TLS — and as in option 3, the certificate names the in-cluster Services, so `sslmode=require` is the right level through a port-forward.
 
 On macOS, run a PGDG psql in a container against the port-forward (`host.docker.internal` reaches the forward listening on your machine):
 
 ```shell
-docker run --rm -it debian:trixie-slim bash -c '
+docker run --rm -it debian:trixie-slim bash -c "
   apt-get update -q >/dev/null && apt-get install -yq postgresql-common ca-certificates >/dev/null &&
   /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y &&
   apt-get install -yq postgresql-client-18 libpq-oauth >/dev/null &&
-  psql "host=host.docker.internal port=15432 dbname=<app> user=<email-local-part> sslmode=require oauth_issuer=https://dex.project1-dev.devops.coop oauth_client_id=psql"'
+  psql \"host=host.docker.internal port=15432 dbname=<app> user=<email-local-part> sslmode=require oauth_issuer=https://dex.project1-dev.devops.coop oauth_client_id=psql oauth_scope='openid email'\""
 ```
 
 Privileges: the `developers` group grants `pg_read_all_data` by default — tables behind row-level security additionally need `bypassrls` on the login role, a per-app data-access decision recorded in the block's comments.

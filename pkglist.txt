@@ -50,10 +50,10 @@ kubectl-cnpg
 # pre-commit — git hook framework used by .pre-commit-config.yaml
 pre-commit
 
-# psql — psql-oauth.sh runs PostgreSQL 18's OAuth device flow, which needs
-# libpq's OAuth module (Debian/Ubuntu PGDG package: libpq-oauth). Arch's
-# postgresql-libs provides psql, but if its libpq lacks the module, use
-# psql-oauth.sh --docker instead. Deliberately not installed by this list.
+# postgresql-libs — psql for psql-oauth.sh. Arch's build ships libpq's OAuth
+# module (usr/lib/libpq-oauth-18.so), so PostgreSQL 18's device flow works
+# natively here — no --docker needed on Arch.
+postgresql-libs
 
 # python — runs the local validate-flux pre-commit hook
 python

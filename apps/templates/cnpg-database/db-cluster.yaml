@@ -170,7 +170,8 @@ spec:
   # The issuer must equal config.issuer in apps/dex/values.yaml byte-for-byte
   # and be reachable from the instance pods (discovery + JWKS fetch). Then:
   #   psql "host=<endpoint> dbname=app-template user=alice \
-  #     oauth_issuer=https://dex.project1-dev.devops.coop oauth_client_id=psql"
+  #     oauth_issuer=https://dex.project1-dev.devops.coop \
+  #     oauth_client_id=psql oauth_scope='openid email'"
   # prints a URL and code; the developer approves in the browser via the
   # upstream IdP and lands in their own audited role.
 # >>> pg-oauth: NOT auto-enabled — enable per adoption after building a validator image (see apps/dex/README.md)
@@ -189,7 +190,11 @@ spec:
 #     pg_hba:
 #       # scope="" disables pg_oidc_validator's scope check — dex doesn't
 #       # write a scope claim into its tokens (validator README, Dex
-#       # section); the hba option is mandatory but may be empty.
+#       # section); the hba option is mandatory but may be empty. It also
+#       # requests nothing on the client's behalf: clients must ask for the
+#       # email scope themselves (oauth_scope='openid email', as in the psql
+#       # example above) or dex omits the email claim authn_field maps
+#       # roles from.
 #       - hostssl all +developers all oauth issuer="https://dex.project1-dev.devops.coop" scope="" map=oidc
 #     pg_ident:
 #       # Workspace email -> the role named after its local part

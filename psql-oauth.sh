@@ -19,10 +19,11 @@
 # Cluster = APP-db, database = APP); -n/-c/-d override any of them for
 # clusters named differently.
 #
-# The local psql must be 18+ with libpq's OAuth module (Debian/Ubuntu PGDG
-# ship it as the libpq-oauth package; Homebrew's builds lack it). --docker
-# sidesteps that by running a PGDG psql in a debian container against the
-# port-forward — the path of least resistance on macOS.
+# The local psql must be 18+ with libpq's OAuth module: Debian/Ubuntu PGDG
+# ship it as the libpq-oauth package, Arch includes it in postgresql-libs,
+# and Homebrew's builds lack it entirely. --docker sidesteps that by running
+# a PGDG psql in a debian container against the port-forward — the only
+# packaged path on macOS.
 #
 # Usage: ./psql-oauth.sh [-U ROLE] [-p PORT] [-i CLIENT_ID] [--docker] [--print] APP
 #        ./psql-oauth.sh [-U ROLE] [-p PORT] [-i CLIENT_ID] [--docker] [--print] -n NAMESPACE -c CLUSTER -d DBNAME
@@ -103,8 +104,13 @@ fi
 # sslmode=require, deliberately not verify-full: the oauth hba rule is
 # hostssl so TLS is mandatory, but the server certificate names the
 # in-cluster Services, not localhost (runbook option 3 has the same caveat).
+#
+# oauth_scope must ask for email: dex only embeds the email claim — the
+# validator's authn_field, i.e. what maps the token to a role — when the
+# client requests the email scope. The hba rule's scope="" merely disables
+# the validator's scope check; it requests nothing on the client's behalf.
 conninfo() {
-  echo "host=$1 port=${port} dbname=${db} user=${role} sslmode=require oauth_issuer=${issuer} oauth_client_id=${client_id}"
+  echo "host=$1 port=${port} dbname=${db} user=${role} sslmode=require oauth_issuer=${issuer} oauth_client_id=${client_id} oauth_scope='openid email'"
 }
 
 if $print_only; then
@@ -185,7 +191,7 @@ if $docker; then
     apt-get install -yq postgresql-common ca-certificates >/dev/null 2>&1 &&
     /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y >/dev/null &&
     apt-get install -yq postgresql-client-18 libpq-oauth >/dev/null 2>&1 &&
-    exec psql '$(conninfo "$pg_host")'" <&9 &
+    exec psql \"$(conninfo "$pg_host")\"" <&9 &
   client_pid=$!
 else
   trap 'interrupted=true; kill "$client_pid" 2>/dev/null || true' INT TERM
