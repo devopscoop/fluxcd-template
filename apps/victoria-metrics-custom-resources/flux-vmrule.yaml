@@ -1,0 +1,98 @@
+# Alerting rules for the Flux control plane, evaluated by this stack's
+# vmalert over the series collected by flux-operator-vmpodscrape.yaml /
+# flux-controllers-vmpodscrape.yaml. Remember the routing model
+# (apps/victoria-metrics/README.md → "Alert routing"): every alert goes to
+# both Slack and GoAlert paging, so severity is a label on the page, not a
+# filter. Everything here is warning: a broken Flux stops *deploys*, not
+# running workloads — the blast radius is "changes aren't landing", and the
+# workload-level damage pages through the bundled kube rules on its own.
+#
+# The readiness rules are adapted from samber/awesome-prometheus-alerts'
+# fluxcd set (the only public Flux ruleset; upstream flux-operator and
+# fluxcd/flux2-monitoring-example ship dashboards but no rules), with one
+# structural deviation: those rules key on gotk_resource_info, a
+# kube-state-metrics custom-resource-state metric this repo doesn't
+# configure — and the controllers' own gotk_reconcile_condition is gone as
+# of Flux 2.1. The flux-operator's flux_resource_info exporter carries the
+# same information (label "kind" instead of "customresource_kind"), so the
+# rules are ported onto it, four kind-specific rules collapsed into one.
+#
+# flux_resource_info refreshes only when the operator's FluxReport
+# reconciles — every 5m with the stock `flux-operator install` (the
+# REPORTING_INTERVAL env var could lower it, but deploy.sh installs the
+# operator unpatched and it self-updates). Every `for:` here is ≥15m to ride
+# out that staleness plus normal retry/backoff churn.
+#
+# Deliberately no "controller down" rule: the pod scrape arms the bundled
+# TargetDown / KubeDeploymentReplicasMismatch alerts for the controllers,
+# and suspended resources are excluded everywhere — suspension is an
+# operator's deliberate act (e.g. runbooks/restore-cnpg-database.md step 1).
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  name: flux
+spec:
+  groups:
+    - name: flux
+      rules:
+        - alert: FluxResourceNotReady
+          annotations:
+            summary: A Flux resource has been not-ready for 15 minutes.
+            description: >-
+              {{ $labels.kind }} {{ $labels.exported_namespace }}/{{
+              $labels.name }} has been reporting Ready=False for 15m — see
+              `flux get all -n {{ $labels.exported_namespace }}` for the
+              reason. Whatever that resource deploys is stuck at its last
+              good revision.
+          expr: |-
+            flux_resource_info{ready="False", suspended="False"} == 1
+          for: 15m
+          labels:
+            severity: warning
+        - alert: FluxInstanceNotReady
+          annotations:
+            summary: The FluxInstance has been not-ready for 15 minutes.
+            description: >-
+              FluxInstance {{ $labels.exported_namespace }}/{{ $labels.name
+              }} is reporting Ready={{ $labels.ready }} — the flux-operator
+              can't reconcile the Flux distribution itself (failed
+              upgrade/install of the controllers, or the cluster sync is
+              misconfigured; see flux/flux-system/flux-instance.yaml). While
+              this holds, GitOps for the whole cluster may be stopped.
+          expr: |-
+            flux_instance_info{ready!="True"} == 1
+          for: 15m
+          labels:
+            severity: warning
+        - alert: FluxControllerStuck
+          annotations:
+            summary: A Flux controller has been stuck on one item for 15m.
+            description: >-
+              The longest-running workqueue processor in pod {{ $labels.pod
+              }} has been at it for {{ printf "%.0f" $value }}s. One
+              reconcile is wedged (commonly a hung helm upgrade or an apply
+              waiting on a webhook) and is starving the queue behind it —
+              other resources' reconciles are piling up.
+          expr: |-
+            max by (pod) (
+              workqueue_longest_running_processor_seconds{namespace="flux-system"}
+            ) > 900
+          for: 15m
+          labels:
+            severity: warning
+        - alert: FluxAPIThrottled
+          annotations:
+            summary: Flux is being rate-limited by the Kubernetes API.
+            description: >-
+              Pod {{ $labels.pod }} has been receiving HTTP 429s from the
+              API server for 15m. Reconciles are queueing behind the
+              throttle; if this is chronic, raise the controller's
+              client-side QPS/burst or the cluster.size in
+              flux/flux-system/flux-instance.yaml.
+          expr: |-
+            sum by (pod) (
+              rate(rest_client_requests_total{namespace="flux-system", code="429"}[5m])
+            ) > 0
+          for: 15m
+          labels:
+            severity: warning

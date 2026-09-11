@@ -1,0 +1,98 @@
+# Alerting rules for the collector itself, evaluated by this stack's
+# vmalert over the series collected by vmservicescrape.yaml. Transcribed
+# from the chart's own prometheusRule.defaultRules (chart 0.170.0, apps/
+# otel-collector's pin — the canonical rendering of the "critical
+# monitoring" guidance in
+# https://opentelemetry.io/docs/collector/internal-telemetry/), which can't
+# be enabled directly for the same monitoring.coreos.com CRD reason as
+# vmservicescrape.yaml. Deliberate deviations:
+# - Collapsed the per-signal triplets into one rule each via a __name__
+#   regex (the envoy-vmrule.yaml circuit-breaker pattern) — the signal is
+#   readable from the description's rate split, and nine near-identical
+#   rules would page identically anyway.
+# - "for" windows lengthened (2m -> 10m): upstream pages on any transient
+#   retry blip, and this repo's routing pages on everything
+#   (apps/victoria-metrics/README.md → "Alert routing").
+# - Dropped upstream's per-signal SendQueueFailed names
+#   ("SendQueueFailedspans" etc. — the chart's literal, unreadable output).
+#
+# IMPORTANT metric-name gotcha, verified for this config: because
+# values.yaml declares service.telemetry.metrics.readers explicitly, the
+# collector emits the suffixed names (otelcol_..._total) — which is what
+# both these exprs and the upstream rules use. Don't "fix" them to the
+# unsuffixed doc names.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  name: otel-collector
+spec:
+  groups:
+    - name: otel-collector
+      rules:
+        # Refused at the receiver = the client was told no (memory_limiter
+        # engaged, or backpressure from a stuck exporter) and the data is
+        # gone unless the client retries.
+        - alert: OtelcolReceiverRefusing
+          annotations:
+            summary: The collector is refusing telemetry at a receiver.
+            description: >-
+              Receiver {{ $labels.receiver }} on {{ $labels.pod }} has been
+              refusing spans/metrics/logs for 10m — memory_limiter pressure
+              or backpressure from a failing exporter (check
+              OtelcolExporterFailing). Refused telemetry is dropped unless
+              the sender retries.
+          expr: |-
+            sum by (receiver, pod) (
+              rate({__name__=~"otelcol_receiver_refused_(spans|metric_points|log_records)_total"}[5m])
+            ) > 0
+          for: 10m
+          labels:
+            severity: warning
+        # send_failed counts batches that failed for good (retries
+        # exhausted) — logs/traces/metrics are being lost between the
+        # collector and VictoriaLogs/Tempo/vmsingle.
+        - alert: OtelcolExporterFailing
+          annotations:
+            summary: A collector exporter is dropping telemetry.
+            description: >-
+              Exporter {{ $labels.exporter }} on {{ $labels.pod }} has been
+              failing sends for 10m — that pipeline's telemetry is being
+              lost. Check the destination (victoria-logs / tempo / vmsingle
+              per the exporter name) and the collector's own logs.
+          expr: |-
+            sum by (exporter, pod) (
+              rate({__name__=~"otelcol_exporter_send_failed_(spans|metric_points|log_records)_total"}[5m])
+            ) > 0
+          for: 10m
+          labels:
+            severity: critical
+        # Enqueue failures mean the sending queue is full and new data is
+        # dropped immediately — the leading edge of OtelcolExporterFailing
+        # when a backend goes away.
+        - alert: OtelcolExporterQueueDropping
+          annotations:
+            summary: A collector exporter's queue is rejecting data.
+            description: >-
+              Exporter {{ $labels.exporter }} on {{ $labels.pod }} has been
+              failing to enqueue telemetry for 5m — its sending queue is
+              full and new data is dropped at the door.
+          expr: |-
+            sum by (exporter, pod) (
+              rate({__name__=~"otelcol_exporter_enqueue_failed_(spans|metric_points|log_records)_total"}[5m])
+            ) > 0
+          for: 5m
+          labels:
+            severity: warning
+        - alert: OtelcolExporterQueueNearFull
+          annotations:
+            summary: A collector exporter's queue is over 80% full.
+            description: >-
+              Exporter {{ $labels.exporter }} on {{ $labels.pod }} has had
+              its sending queue over 80% of capacity for 5m — the
+              destination isn't keeping up; OtelcolExporterQueueDropping is
+              next.
+          expr: |-
+            otelcol_exporter_queue_size > otelcol_exporter_queue_capacity * 0.8
+          for: 5m
+          labels:
+            severity: warning

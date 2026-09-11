@@ -340,15 +340,26 @@ grafana:
   plugins:
     - victoriametrics-logs-datasource
     - victoriametrics-metrics-datasource
-  # Dashboards Grafana's download-dashboards init container pulls from
-  # grafana.com at every pod start (same grafana.com/api egress as the plugins
-  # above), so upstream updates arrive on the next restart instead of being
-  # vendored here and re-synced by hand. revision "latest" tracks the newest
-  # published revision (the chart would otherwise default to revision 1, not
-  # latest). The provider tells Grafana to load whatever the init container
-  # drops in its path; the sidecar-provisioned ConfigMap dashboards (the
-  # envoy-*-dashboard.yaml files in this app) use the chart's own provider and
-  # are unaffected.
+  # Dashboards Grafana's download-dashboards init container pulls at every
+  # pod start — from grafana.com by dashboard id (same grafana.com/api egress
+  # as the plugins above) or from a raw.githubusercontent.com URL — so
+  # upstream updates arrive on the next restart instead of being vendored
+  # here and re-synced by hand. revision "latest" tracks the newest published
+  # revision (the chart would otherwise default to revision 1, not latest);
+  # the GitHub URLs either pin the tag matching the app's chart pin (bump the
+  # URL when bumping the app) or track the default branch where upstream tags
+  # nothing. A datasource list on an entry rewrites its ${DS_PROMETHEUS}
+  # placeholders at download time to the uid of the prometheus-type
+  # datasource the chart provisions (uid VictoriaMetrics) — dashboards
+  # packaged for grafana.com reference that placeholder from __inputs, which
+  # nothing resolves under file provisioning. Entries without placeholders
+  # bind through their own datasource template variable instead, which falls
+  # back to the stack's only prometheus-type datasource on load when its
+  # saved selection doesn't exist here. The provider tells Grafana to load
+  # whatever the init container drops in its path; the sidecar-provisioned
+  # ConfigMap dashboards (the envoy-*-dashboard.yaml files in this app, plus
+  # coraza's — hand-built, no upstream to download) use the chart's own
+  # provider and are unaffected.
   dashboardProviders:
     dashboardproviders.yaml:
       apiVersion: 1
@@ -361,6 +372,10 @@ grafana:
           editable: false
           options:
             path: /var/lib/grafana/dashboards/downloaded
+  # Entries for platform-conditional and opt-in apps sit in marker blocks,
+  # mirroring the gating of their scrape/rule CRs in
+  # apps/victoria-metrics-custom-resources — an undeployed app's dashboard is
+  # dead weight in the Grafana UI.
   dashboards:
     downloaded:
       # "OpenCost / Overview" (grafana.com 22208) -- cluster-wide cost metrics
@@ -373,6 +388,191 @@ grafana:
       opencost-overview:
         gnetId: 22208
         revision: latest
+      # "Flux Performance" — the flux-operator's own dashboard: per-resource
+      # readiness and reconcile durations (flux_resource_info and friends),
+      # controller CPU/memory/network, API-server load — fed by
+      # flux-operator-vmpodscrape.yaml / flux-controllers-vmpodscrape.yaml in
+      # apps/victoria-metrics-custom-resources. The URL tracks main because
+      # deploy.sh installs the operator with self-update on, so a tag pin
+      # would drift from the running version.
+      flux-performance:
+        url: https://raw.githubusercontent.com/controlplaneio-fluxcd/flux-operator/main/config/monitoring/dashboards/flux-performance.json
+        datasource:
+          - name: DS_PROMETHEUS
+            value: VictoriaMetrics
+      # "Flux Control Plane" — controller-level detail: reconcile durations
+      # by kind, workqueue depth/latency, client-go request rates, controller
+      # memory — fed by flux-controllers-vmpodscrape.yaml. Overlaps Flux
+      # Performance on purpose: this one is the controllers' internals, that
+      # one the resources' state. Tracks main — the example repo publishes no
+      # tags. (Its cluster.json/logs.json siblings are deliberately not
+      # pulled: cluster.json needs kube-state-metrics custom-resource-state
+      # config this stack doesn't run, and logs.json is Loki-only — this
+      # stack ships VictoriaLogs.)
+      flux-control-plane:
+        url: https://raw.githubusercontent.com/fluxcd/flux2-monitoring-example/main/monitoring/configs/dashboards/control-plane.json
+        datasource:
+          - name: DS_PROMETHEUS
+            value: VictoriaMetrics
+      # "cert-manager" (grafana.com 20340) — certificate readiness and
+      # time-to-expiry by namespace/cert, ACME client request rates — fed by
+      # cert-manager-vmservicescrape.yaml (the "namespace" variable lists
+      # exported_namespace values, i.e. the Certificates' own namespaces; see
+      # the honorLabels note on the scrape). The current-era community
+      # dashboard: the older mixin dashboards query kube-state-metrics v1
+      # names that no longer exist.
+      cert-manager:
+        gnetId: 20340
+        revision: latest
+        datasource:
+          - name: DS_PROMETHEUS
+            value: VictoriaMetrics
+      # "External DNS" (grafana.com 23969) — record counts by
+      # source/registry, sync/error rates, last sync timestamps — fed by
+      # external-dns-vmservicescrape.yaml; the per-pod variable comes from
+      # kube_pod_info (kube-state-metrics, part of this stack). Deliberately
+      # NOT the far-more-downloaded 15038: that one predates external-dns
+      # 0.20's metric consolidation (its *_a_records/*_aaaa_records panels
+      # are empty on apps/external-dns's pin), and the two share a uid so
+      # only one can be provisioned.
+      external-dns:
+        gnetId: 23969
+        revision: latest
+      # "OpenTelemetry Collector" (grafana.com 15983) — receiver
+      # accepted/refused, processor throughput, exporter sent/failed/queue
+      # state, batch sizes, collector process health — fed by
+      # apps/otel-collector's vmservicescrape.yaml. Chosen precisely because
+      # its hidden suffix-detection variables handle BOTH otelcol metric
+      # spellings — that deployment emits the suffixed _total/_seconds names
+      # (see the naming gotcha in apps/otel-collector/vmrule.yaml). Known
+      # caveat: the rpc/http latency row is detailed-level telemetry that
+      # config doesn't emit (empty panels).
+      otel-collector:
+        gnetId: 15983
+        revision: latest
+      # "VictoriaLogs - single-node" (grafana.com 22084, the published copy
+      # of the dashboard in the VictoriaLogs repo) — ingestion rate/volume,
+      # disk usage vs free space, merge activity, query concurrency and
+      # latency — all Prometheus-type metrics about the VictoriaLogs process
+      # (scraped by that chart's own VMServiceScrape; see
+      # apps/victoria-logs/values.yaml), NOT LogsQL via the victorialogs
+      # datasource.
+      victoria-logs:
+        gnetId: 22084
+        revision: latest
+        datasource:
+          - name: DS_PROMETHEUS
+            value: VictoriaMetrics
+# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
+##       "Karpenter Capacity" / "Karpenter Performance" — AWS's official
+##       dashboards: node/nodepool allocatable vs usage by
+##       zone/arch/capacity-type, pod scheduling state, disruption activity;
+##       controller reconcile rates/latency, scheduling queue timing — fed
+##       by karpenter-vmservicescrape.yaml (its job="karpenter" is what the
+##       $controller variable filters on). The URL tag matches
+##       apps/karpenter's chart pin (chart version = karpenter version) —
+##       bump it when bumping the app. No placeholders to rewrite: the saved
+##       datasource selection (uid "prometheus") doesn't exist here and the
+##       datasource variable falls back to the stack's default on load.
+#       karpenter-capacity:
+#         url: https://raw.githubusercontent.com/aws/karpenter-provider-aws/v1.14.0/website/content/en/docs/getting-started/getting-started-with-karpenter/karpenter-capacity-dashboard.json
+#       karpenter-performance:
+#         url: https://raw.githubusercontent.com/aws/karpenter-provider-aws/v1.14.0/website/content/en/docs/getting-started/getting-started-with-karpenter/karpenter-performance-dashboard.json
+##       "AWS Load Balancer Controller" (grafana.com 18319 — no official
+##       upstream dashboard exists) — reconcile rates/errors/latency,
+##       webhook requests, AWS API call rates/latency/retries — fed by
+##       aws-load-balancer-controller-vmpodscrape.yaml (whose jobLabel makes
+##       job="aws-load-balancer-controller", which the $job variable needs).
+##       Known gap: the upstream predates client-go's rename of
+##       rest_client_request_latency_seconds to
+##       rest_client_request_duration_seconds, so its two client-go latency
+##       panels stay empty — aws-load-balancer-controller-vmrule.yaml alerts
+##       on the awslbc_* metrics directly instead. It also predates the
+##       awslbc_* subsystem, so reconcile-stage/readiness-gate detail isn't
+##       charted.
+#       aws-load-balancer-controller:
+#         gnetId: 18319
+#         revision: latest
+#         datasource:
+#           - name: DS_PROMETHEUS
+#             value: VictoriaMetrics
+# <<< eks
+# >>> metallb: deploy.sh uncomments this block when k8s_platform is not eks
+##       "Metallb" (grafana.com 20162, community-maintained at
+##       github.com/M0NsTeRRR/grafana-dashboards — metallb ships no dashboard
+##       of its own) — address-pool usage split by IPv4/IPv6 (an aggregate
+##       ratio would hide "IPv6 exhausted, IPv4 free" in this template's
+##       dual-stack pool), layer-2 announcement activity, config
+##       loaded/stale state — fed by metallb-vmpodscrape.yaml. Preferred
+##       over the more-downloaded 14127, which is schema-26-era with no
+##       per-family pool split. BGP panels are absent by design — this
+##       template advertises via L2 only.
+#       metallb:
+#         gnetId: 20162
+#         revision: latest
+#         datasource:
+#           - name: DS_PROMETHEUS
+#             value: VictoriaMetrics
+# <<< metallb
+# >>> longhorn: ./toggle_blocks.sh --enable longhorn when enabling apps/longhorn
+##       "Longhorn Monitoring & Backups" (grafana.com 16888) — volume
+##       robustness/capacity with per-PVC drill-down, node/disk storage
+##       usage, backup state — fed by longhorn-vmservicescrape.yaml (plus
+##       kubelet_volume_stats_* from the stack's kubelet scrape). Preferred
+##       over the Longhorn docs' 17626, which is schema-26-era and needs
+##       datasource surgery to provision. Known caveats at apps/longhorn's
+##       1.10.0 pin: the backup-freshness panels query
+##       longhorn_volume_last_backup_at, which 1.10.0 does not export (empty
+##       panels); longhorn_backup_state and the capacity/robustness panels
+##       all work.
+#       longhorn:
+#         gnetId: 16888
+#         revision: latest
+#         datasource:
+#           - name: DS_PROMETHEUS
+#             value: VictoriaMetrics
+# <<< longhorn
+# >>> rook-ceph: ./toggle_blocks.sh --enable rook-ceph when enabling apps/rook-ceph
+##       "Ceph Cluster" / "Ceph - Pools" — health, capacity,
+##       throughput/IOPS, OSD state; per-pool capacity/usage/IOPS — fed by
+##       rook-ceph-mgr-vmservicescrape.yaml (whose honorLabels: true is what
+##       keeps the on(instance)/on(ceph_daemon)/pool_id joins working). The
+##       URL tag matches apps/rook-ceph-cluster's pin — bump it when bumping
+##       the app; rook's copies track the ceph-mixin originals with Rook
+##       tweaks. The per-OSD drill-down dashboard rook also carries (Ceph
+##       OSD Single) is deliberately skipped — it's a break-glass view; add
+##       it the same way if an OSD alert makes you miss it. Known gap: the
+##       Ceph Cluster CPU panel filters node_cpu_seconds_total on
+##       job="node", which matches nothing under this stack's node-exporter
+##       job naming, so that panel stays empty (the other node_* panels
+##       carry no job filter and show all nodes, not just storage nodes — a
+##       known, harmless imprecision).
+#       ceph-cluster:
+#         url: https://raw.githubusercontent.com/rook/rook/v1.17.5/deploy/examples/monitoring/grafana/Ceph%20Cluster%20Dashboard.json
+#         datasource:
+#           - name: DS_PROMETHEUS
+#             value: VictoriaMetrics
+#       ceph-pools:
+#         url: https://raw.githubusercontent.com/rook/rook/v1.17.5/deploy/examples/monitoring/grafana/Ceph%20Pools%20Dashboard.json
+#         datasource:
+#           - name: DS_PROMETHEUS
+#             value: VictoriaMetrics
+# <<< rook-ceph
+# >>> uptime-kuma: ./toggle_blocks.sh --enable uptime-kuma when enabling apps/uptime-kuma
+##       "Uptime Kuma - Metrics" (grafana.com 18278 — the only meaningful
+##       Uptime Kuma dashboard published) — per-monitor status, response
+##       time, and certificate expiry/validity as seen by its black-box
+##       probes — fed by apps/uptime-kuma's in-app vmservicescrape.yaml
+##       (in-app because the scrape's basicAuth secret must share its
+##       namespace; the dashboard has no such constraint, so it downloads
+##       here like every other one with an upstream).
+#       uptime-kuma:
+#         gnetId: 18278
+#         revision: latest
+#         datasource:
+#           - name: DS_PROMETHEUS
+#             value: VictoriaMetrics
+# <<< uptime-kuma
   # Memory req=limit, no CPU limit. Doubled to 384Mi after OOMKills
   # (2026-08-25), then OOMKilled again on 2026-08-26 once the kubelet
   # relabelConfigs fix below un-dropped the label-heavy cadvisor series

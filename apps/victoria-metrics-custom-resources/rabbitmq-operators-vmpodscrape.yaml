@@ -1,0 +1,56 @@
+# Scrape the two RabbitMQ operators' controller-runtime metrics (reconcile
+# rates/errors, workqueue depth, client-go internals) — neither installs a
+# Service, so these are pod scrapes. Ports verified against the pinned
+# release manifests both apps' kustomizations pull:
+# - cluster-operator v2.19.0: container port "metrics" (:9782), declared
+#   upstream.
+# - messaging-topology-operator v1.18.2: serves :8080 but upstream declares
+#   only the webhook port, so apps/rabbitmq-messaging-topology-operator's
+#   kustomization patches in a "metrics" containerPort — see the comment
+#   there.
+# Both plain HTTP /metrics, no auth.
+#
+# Two objects rather than one: both pods carry
+# app.kubernetes.io/component=rabbitmq-operator (upstream's PodMonitor
+# selects on that), but their metrics ports differ, and one object with two
+# endpoints would probe both ports on both pods.
+#
+# Note this covers the OPERATORS only. RabbitMQ *instances* (RabbitmqCluster
+# CRs — none ship in this repo; apps/templates/rabbitmq is the scaffold)
+# expose the real broker metrics on their :15692 "prometheus" port, always
+# on. When the first RabbitmqCluster lands, uncomment
+# rabbitmq-instances-vmpodscrape.yaml in kustomization.yaml — the cnpg-style
+# fleet-wide scrape — and vendor the RabbitMQ-Overview dashboard
+# (grafana.com/dashboards/10991) plus the rabbitmq alert set from
+# rabbitmq/cluster-operator's observability/ dir into apps/victoria-metrics.
+#
+# Opt-in, like the operator apps — gated by the rabbitmq marker block in
+# kustomization.yaml: run ./toggle_blocks.sh --enable rabbitmq when
+# enabling them.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMPodScrape
+metadata:
+  name: rabbitmq-cluster-operator
+spec:
+  namespaceSelector:
+    matchNames:
+      - rabbitmq-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: rabbitmq-cluster-operator
+  podMetricsEndpoints:
+    - port: metrics
+---
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMPodScrape
+metadata:
+  name: rabbitmq-messaging-topology-operator
+spec:
+  namespaceSelector:
+    matchNames:
+      - rabbitmq-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: messaging-topology-operator
+  podMetricsEndpoints:
+    - port: metrics

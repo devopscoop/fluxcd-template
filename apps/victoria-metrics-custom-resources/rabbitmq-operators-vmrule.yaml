@@ -1,0 +1,44 @@
+# Alerting rule for the RabbitMQ operators, evaluated by this stack's
+# vmalert. Generalised from the one operator rule upstream ships
+# (rabbitmq/cluster-operator v2.19.0
+# observability/prometheus/rules/rabbitmq-cluster-operator/unavailable-replicas.yml)
+# to cover the messaging-topology-operator too. It deliberately duplicates
+# the bundled KubeDeploymentReplicasMismatch for these two Deployments —
+# kept because it names the operator in the page title, which the generic
+# rule does not.
+#
+# The rest of upstream's observability/prometheus/rules tree (cluster
+# alarms, FD limits, disk-watermark prediction, ...) alerts on rabbitmq_*
+# broker series that no pod in this repo produces — a VMRule full of
+# permanently-absent exprs is dead weight, so adopt those alongside
+# rabbitmq-instances-vmpodscrape.yaml when the first RabbitmqCluster ships
+# (two of them, no-majority-of-nodes-ready and persistent-volume-missing,
+# additionally need kube-state-metrics metricLabelsAllowlist config this
+# stack doesn't set; the rest port cleanly).
+#
+# Opt-in — gated by the same rabbitmq marker block as the operator scrape.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  name: rabbitmq-operators
+spec:
+  groups:
+    - name: rabbitmq-operators
+      rules:
+        - alert: RabbitMQOperatorUnavailableReplicas
+          annotations:
+            summary: A RabbitMQ operator has unavailable replicas.
+            description: >-
+              {{ $labels.deployment }} has had
+              {{ printf "%.0f" $value }} unavailable replica(s) for 5m —
+              RabbitmqCluster and messaging-topology reconciliation is
+              stopped (running brokers keep serving; changes and repairs
+              don't happen).
+          expr: |-
+            kube_deployment_status_replicas_unavailable{
+              namespace="rabbitmq-system",
+              deployment=~"rabbitmq-cluster-operator|messaging-topology-operator"
+            } > 0
+          for: 5m
+          labels:
+            severity: warning

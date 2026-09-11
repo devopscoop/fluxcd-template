@@ -1,0 +1,41 @@
+# Scrape Uptime Kuma's /metrics — per-monitor status/response-time/cert
+# gauges — from its Service's only port (:3001 serves the UI and /metrics
+# alike). Feeds vmrule.yaml and the dashboard ConfigMap next to this file.
+#
+# In-app rather than in apps/victoria-metrics-custom-resources because the
+# basicAuth secret refs below resolve against the scrape object's OWN
+# namespace (VictoriaMetrics operator behavior), and the credentials
+# already live here as autokuma-kuma-credentials — the alternative is
+# duplicating a SOPS secret into the victoria-metrics namespace. The flux
+# Kustomization's dependsOn victoria-metrics provides the CRD ordering
+# (the tempo/otel-collector pattern); like them, this makes the app
+# VM-stack-only as shipped.
+#
+# Auth semantics worth knowing (uptime-kuma 2.5.0 server/auth.js): with no
+# API key ever created, /metrics wants the ADMIN username+password — the
+# same pair AutoKuma logs in with, hence the shared secret. The username is
+# actually ignored in API-key mode, but sending the real one keeps this
+# working in both modes... EXCEPT: creating the first API key in the UI
+# flips the instance to key-only auth and this scrape starts getting 401s.
+# If you do that, put the key in a secret and point password at it.
+# Uptime Kuma rate-limits the API at 60/min; the stack scrapes at 20s
+# intervals — comfortable.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMServiceScrape
+metadata:
+  name: uptime-kuma
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: uptime-kuma
+      app.kubernetes.io/instance: uptime-kuma
+  endpoints:
+    - port: http
+      path: /metrics
+      basicAuth:
+        username:
+          name: autokuma-kuma-credentials
+          key: AUTOKUMA__KUMA__USERNAME
+        password:
+          name: autokuma-kuma-credentials
+          key: AUTOKUMA__KUMA__PASSWORD

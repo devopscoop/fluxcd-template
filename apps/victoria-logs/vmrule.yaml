@@ -1,0 +1,70 @@
+# Alerting rules for VictoriaLogs, evaluated by this stack's vmalert over
+# the series the chart's own VMServiceScrape collects (values.yaml enables
+# it). Copied from the official VictoriaLogs alerts
+# (https://github.com/VictoriaMetrics/VictoriaLogs
+# deployment/docker/rules/alerts-vlogs.yml — no tagged pin: the sibling
+# victoria-metrics stack's sync-job fetches its rule sources from master
+# too), with annotations rewritten to this repo's context.
+#
+# Why this file exists at all: the victoria-metrics-k8s-stack bundles a
+# vlogs rule group, but gated on ITS OWN vlsingle/vlcluster components
+# being enabled — this app is a separate victoria-logs-single release, so
+# the stack never fetches them. The generic vm-health group (TooManyLogs,
+# TooHighMemoryUsage, ...) does already cover this binary — it's
+# job-agnostic — but nothing VictoriaLogs-specific does. DiskRunsOutOfSpace
+# is the one that matters most here: the PVC is the only copy of the logs
+# and README.md's durability caveat says exactly that.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  name: victoria-logs
+spec:
+  groups:
+    - name: vlogs
+      rules:
+        - alert: DiskRunsOutOfSpace
+          annotations:
+            summary: VictoriaLogs disk is over 80% full.
+            description: >-
+              {{ $labels.instance }} is using
+              {{ $value | humanizePercentage }} of its volume. Under
+              20% free cripples merges and overall performance; when it
+              actually fills, ingestion stops read-only. Grow the PVC (see
+              the retention/size note in values.yaml) or lower
+              retentionPeriod.
+          expr: |-
+            sum(vl_data_size_bytes) by (job, instance)
+            /
+            (
+              sum(vl_free_disk_space_bytes) by (job, instance)
+              +
+              sum(vl_data_size_bytes) by (job, instance)
+            ) > 0.8
+          for: 30m
+          labels:
+            severity: critical
+        - alert: ConcurrentQueriesHitTheLimit
+          annotations:
+            summary: VictoriaLogs is at its concurrent-query limit.
+            description: >-
+              {{ $labels.instance }} has been running at its concurrent
+              select capacity for 15m — new queries queue and eventually
+              time out. Look for a runaway Grafana dashboard or an
+              unexpectedly heavy LogsQL query.
+          expr: |-
+            avg_over_time(vl_concurrent_select_current[1m]) >= vl_concurrent_select_capacity
+          for: 15m
+          labels:
+            severity: warning
+        - alert: TooHighQueryLoad
+          annotations:
+            summary: VictoriaLogs queries are timing out in the queue.
+            description: >-
+              Queries on {{ $labels.instance }} waited so long for a
+              concurrency slot that they hit the queue timeout — sustained
+              query overload.
+          expr: |-
+            increase(vl_concurrent_select_limit_timeout_total[5m]) > 0
+          for: 15m
+          labels:
+            severity: warning

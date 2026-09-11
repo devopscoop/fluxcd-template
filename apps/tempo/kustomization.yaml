@@ -12,6 +12,11 @@ resources:
   - helmrepo.yaml
   - release.yaml
   - vmservicescrape.yaml
+  # Tempo self-monitoring: adapted tempo-mixin alert rules plus the
+  # metrics-generator remote-write rules, and a hand-built single-binary
+  # dashboard (see each file's header for why not the mixin's).
+  - vmrule.yaml
+  - dashboard.yaml
 configMapGenerator:
   - name: tempo-values
     files:

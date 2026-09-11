@@ -1,0 +1,104 @@
+# Alerting rules for MetalLB, evaluated by this stack's vmalert over the
+# series collected by metallb-vmpodscrape.yaml. Adapted from the
+# PrometheusRule the metallb chart's prometheus.prometheusRule.enabled
+# would render (charts/metallb/templates/prometheusrules.yaml at v0.15.2,
+# apps/metallb's pin — unusable directly for the CRD-ownership reason in
+# cnpg-vmpodscrape.yaml), with deliberate deviations:
+# - MetalLBConfigNotLoaded raised warning -> critical: no config loaded
+#   means no LoadBalancer gets an address at all.
+# - Kept only the 95% tier of upstream's 75/85/95 pool-usage ladder, and
+#   gave it the "for: 5m" upstream omits: the template's pool is four
+#   addresses (apps/metallb-custom-resources/ipaddresspools.yaml), so 75%
+#   is normal operation, and this repo pages on warnings.
+# - Dropped MetalLBBGPSessionDown: this template advertises via
+#   L2Advertisement only, so metallb_bgp_session_up never exists (same
+#   dead-expr reasoning as the count:up0 note in
+#   apps/victoria-metrics/values.yaml). Restore it if BGP is configured.
+# - Added MetalLBServiceNoIngressIP (not upstream, from kube-state-metrics):
+#   ipaddresspools.yaml documents that a LoadBalancer Service that can't
+#   get an address just sits <pending> forever — a silent failure. Pool
+#   exhaustion is one cause (covered above); a Service whose pool
+#   annotation matches nothing is another, and only this rule sees it.
+# Non-EKS only, gated by the same metallb marker block as the scrape.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  name: metallb
+spec:
+  groups:
+    - name: metallb
+      rules:
+        - alert: MetalLBConfigNotLoaded
+          annotations:
+            summary: MetalLB has not loaded its config.
+            description: >-
+              {{ $labels.container }} on {{ $labels.pod }} reports no
+              loaded configuration — it is allocating and announcing
+              nothing. Check the IPAddressPool/L2Advertisement objects in
+              apps/metallb-custom-resources and the controller logs.
+          expr: |-
+            metallb_k8s_client_config_loaded_bool{job=~"metallb.*"} == 0
+          for: 5m
+          labels:
+            severity: critical
+        - alert: MetalLBStaleConfig
+          annotations:
+            summary: A MetalLB pod is running on stale config.
+            description: >-
+              {{ $labels.container }} on {{ $labels.pod }} has been unable
+              to apply the latest configuration for 5m and keeps running on
+              the previous one — usually a newly-applied pool/advertisement
+              that fails validation.
+          expr: |-
+            metallb_k8s_client_config_stale_bool{job=~"metallb.*"} == 1
+          for: 5m
+          labels:
+            severity: warning
+        - alert: MetalLBAddressPoolExhausted
+          annotations:
+            summary: A MetalLB address pool is exhausted.
+            description: >-
+              Pool {{ $labels.pool }} has no free addresses — the next
+              LoadBalancer Service sits <pending> silently. Widen the pool
+              in apps/metallb-custom-resources/ipaddresspools.yaml.
+          expr: |-
+            metallb_allocator_addresses_in_use_total{pool!~""}
+            >= on (pool) metallb_allocator_addresses_total
+          for: 5m
+          labels:
+            severity: critical
+        # The aggregate ratio can hide "IPv6 exhausted, IPv4 free" in the
+        # dual-stack pool; the vendored dashboard's per-family panels are
+        # where to look when this fires.
+        - alert: MetalLBAddressPoolUsage95Percent
+          annotations:
+            summary: A MetalLB address pool is over 95% used.
+            description: >-
+              Pool {{ $labels.pool }} is {{ printf "%.0f" $value }}% used —
+              one or two more LoadBalancer Services and
+              MetalLBAddressPoolExhausted applies.
+          expr: |-
+            (
+              metallb_allocator_addresses_in_use_total{pool!~""}
+              / on (pool) metallb_allocator_addresses_total
+            ) * 100 > 95
+          for: 5m
+          labels:
+            severity: warning
+        - alert: MetalLBServiceNoIngressIP
+          annotations:
+            summary: A LoadBalancer Service has no address.
+            description: >-
+              Service {{ $labels.namespace }}/{{ $labels.service }} has
+              been type LoadBalancer without an assigned address for 15m —
+              the exact <pending>-forever failure
+              apps/metallb-custom-resources/ipaddresspools.yaml warns is
+              otherwise silent. Check pool capacity and any pool-selection
+              annotations on the Service.
+          expr: |-
+            kube_service_spec_type{type="LoadBalancer"}
+            unless on (namespace, service)
+            kube_service_status_load_balancer_ingress
+          for: 15m
+          labels:
+            severity: warning

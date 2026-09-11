@@ -4,6 +4,15 @@ metadata:
   name: alloy
   namespace: flux-system
 spec:
+  # values.yaml enables the chart's ServiceMonitor and prometheusrule.yaml
+  # is a PrometheusRule — monitoring.coreos.com CRs whose CRDs
+  # kube-prometheus-stack installs. The alloy chart's servicemonitor
+  # template has no Capabilities.APIVersions guard (unlike loki's), so the
+  # apply fails outright unless kube-prometheus-stack lands first. (Alloy
+  # only ships as part of that alternative stack anyway — see
+  # apps/victoria-metrics/README.md → "Either/or".)
+  dependsOn:
+    - name: kube-prometheus-stack
   interval: 10m0s
   sourceRef:
     kind: GitRepository

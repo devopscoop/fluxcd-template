@@ -1,0 +1,30 @@
+# Scrape external-dns — registry/source error counters, record counts, and
+# the last-successful-sync timestamp external-dns-vmrule.yaml alerts on —
+# from its Service's :7979 port, standard /metrics, plain HTTP (verified by
+# rendering chart 1.20.0, apps/external-dns's pin). Mirrors the
+# ServiceMonitor the chart's serviceMonitor.enabled would create, which is
+# unusable here for the CRD-ownership reason in cnpg-vmpodscrape.yaml.
+#
+# The port NAME is "http", not "metrics" — the chart exposes the metrics
+# listener as its only port and names it generically. The selector uses only
+# the stable name+instance pair (the Deployment's own matchLabels), never
+# helm.sh/chart — the silently-stops-matching-on-every-bump trap
+# apps/tempo/vmservicescrape.yaml documents.
+#
+# If the Cloudflare webhook-provider block in apps/external-dns/values.yaml
+# is ever enabled, the sidecar's external_dns_webhook_provider_* series
+# need a second endpoint here: `- port: http-webhook`.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMServiceScrape
+metadata:
+  name: external-dns
+spec:
+  namespaceSelector:
+    matchNames:
+      - external-dns
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: external-dns
+      app.kubernetes.io/instance: external-dns
+  endpoints:
+    - port: http

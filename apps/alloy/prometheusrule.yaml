@@ -1,0 +1,64 @@
+# Alerting rules for Alloy itself, for the kube-prometheus-stack
+# alternative stack (a monitoring.coreos.com PrometheusRule — this app only
+# deploys alongside that stack; the flux Kustomization's dependsOn provides
+# the CRD). The release label is mandatory: KPS's Prometheus selects rules
+# by it, same as the ServiceMonitor note in values.yaml.
+#
+# The two controller rules are the applicable subset of the alloy-mixin
+# (https://github.com/grafana/alloy/tree/v1.16.1/operations/alloy-mixin —
+# the clustering and otelcol groups can't fire here: clustering is off and
+# the config runs no otelcol components). The dropped-entries rule is our
+# own: a loki.write component that can't deliver drops log lines after its
+# retries, which is precisely the silent failure a log pipeline has.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: alloy
+  labels:
+    release: kube-prometheus-stack
+spec:
+  groups:
+    - name: alloy_controller
+      rules:
+        - alert: AlloyUnhealthyComponents
+          annotations:
+            summary: Alloy has unhealthy components.
+            description: >-
+              {{ printf "%.0f" $value }} components on {{ $labels.pod }}
+              have been unhealthy for 15m — part of the log pipeline
+              (discovery, tailing, or the loki.write push) is down. The
+              component graph in Alloy's UI (:12345) names the broken one.
+          expr: |-
+            sum by (namespace, pod) (
+              alloy_component_controller_running_components{health_type!="healthy"}
+            ) > 0
+          for: 15m
+          labels:
+            severity: warning
+        - alert: AlloySlowComponentEvaluations
+          annotations:
+            summary: Alloy component evaluations are running slow.
+            description: >-
+              Component {{ $labels.component_id }} on {{ $labels.pod }} has
+              been evaluating slowly for 15m — config churn or resource
+              starvation; log collection may lag.
+          expr: |-
+            sum by (namespace, pod, component_path, component_id) (
+              rate(alloy_component_evaluation_slow_seconds[10m])
+            ) > 0
+          for: 15m
+          labels:
+            severity: warning
+        - alert: AlloyLokiWriteDroppingLogs
+          annotations:
+            summary: Alloy is dropping log entries.
+            description: >-
+              loki.write on {{ $labels.pod }} has been dropping entries for
+              15m — Loki is rejecting or unreachable past the retry budget,
+              and those log lines are gone. Check Loki's ingestion health
+              (its own rules/dashboards) and rate limits.
+          expr: |-
+            sum by (namespace, pod) (rate(loki_write_dropped_entries_total[5m])) > 0
+          for: 15m
+          labels:
+            severity: warning

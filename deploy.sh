@@ -154,6 +154,20 @@ if [[ "$k8s_platform" == "eks" ]]; then
   commit_and_push "Enabling EKS and Karpenter marker blocks"
 fi
 
+# On non-EKS platforms, uncomment the metallb marker blocks: MetalLB's
+# scrape/rules/dashboard entries in apps/victoria-metrics-custom-resources
+# and apps/victoria-metrics. Gated like the app itself ($app_list registers
+# metallb.yaml only on k0s/talos) because monitoring an app that never
+# deploys leaves an empty scrape pool paging ScrapePoolHasNoTargets — see
+# the marker note in apps/victoria-metrics-custom-resources/kustomization.yaml.
+# Opt-in apps' monitoring markers (longhorn, rook-ceph, rabbitmq, coraza)
+# are NOT enabled here for the same reason: enable them by hand together
+# with the app. Same converge-on-every-run reasoning as the eks step above.
+if [[ "$k8s_platform" != "eks" ]]; then
+  ./toggle_blocks.sh --enable metallb | while read -r f; do git add "$f"; done
+  commit_and_push "Enabling MetalLB monitoring marker blocks"
+fi
+
 # Uncomment the Alertmanager -> Slack config in apps/kube-prometheus-stack and
 # apps/victoria-metrics (toggle_blocks.sh finds every slack block
 # repo-wide). The channel is set in each app's values.yaml; the webhook URL

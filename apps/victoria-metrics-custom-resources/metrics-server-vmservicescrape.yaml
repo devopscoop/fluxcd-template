@@ -1,0 +1,45 @@
+# Scrape metrics-server's own /metrics — kubelet-scrape success/latency per
+# node (metrics_server_kubelet_*), API freshness, and the standard
+# aggregated-apiserver internals — from its Service's "https" port (:443 →
+# container :10250; verified by rendering chart 3.12.2, apps/metrics-server's
+# pin).
+#
+# The endpoint is HTTPS with delegated auth, unlike every other scrape here:
+# - The serving cert is self-signed into /tmp (--cert-dir, no
+#   --tls-cert-file) — the same reason the chart's APIService sets
+#   insecureSkipTLSVerify — so the scrape must skip verification too.
+# - /metrics sits behind TokenReview+SubjectAccessReview (the chart's
+#   metrics.enabled would bolt it open via
+#   --authorization-always-allow-paths; deliberately NOT set — vmagent's
+#   operator-generated ClusterRole already carries nonResourceURLs
+#   ["/metrics"] get, so its own ServiceAccount token passes authorization
+#   and nothing needs weakening).
+#
+# No metrics-server VMRule ships with this: the stack's bundled
+# kubernetes-system-apiserver group already pages on the failure that
+# matters (KubeAggregatedAPIDown / KubeAggregatedAPIErrors watch the
+# v1beta1.metrics.k8s.io APIService from the apiserver side), and
+# kubernetes-apps covers the Deployment. No canonical dashboard exists for
+# metrics-server; the bundled kubernetes-system-api-server dashboard shows
+# aggregated-API health.
+#
+# EKS-only, like the app (k0s bundles its own metrics-server) — referenced
+# from kustomization.yaml inside an eks marker block.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMServiceScrape
+metadata:
+  name: metrics-server
+spec:
+  namespaceSelector:
+    matchNames:
+      - metrics-server
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: metrics-server
+      app.kubernetes.io/instance: metrics-server
+  endpoints:
+    - port: https
+      scheme: https
+      tlsConfig:
+        insecureSkipVerify: true
+      bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token

@@ -43,6 +43,16 @@ env:
   # next to integration keys.
   - name: GOALERT_PUBLIC_URL
     value: "https://goalert.project1-dev.devops.coop"
+  # Serve Prometheus metrics on :2112 (GoAlert's conventional port, per its
+  # own devtools scrape config). The flag is --listen-prometheus; viper's
+  # GOALERT_ prefix + "-"→"_" replacer makes this env var equivalent, and
+  # env is the only route this chart offers (it renders exactly one
+  # containerPort and one Service port — which is also why vmpodscrape.yaml
+  # scrapes by port NUMBER). Go's ":port" listener is dual-stack, so it
+  # works on the IPv6-only pod network. Feeds vmrule.yaml — the
+  # paging-system-watching-itself rules; see README.md → "Monitoring".
+  - name: GOALERT_LISTEN_PROMETHEUS
+    value: ":2112"
 
 # The HTTP listener only comes up after the startup DB migrations have
 # applied, so first boot (or an upgrade with big migrations) needs headroom:

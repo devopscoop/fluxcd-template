@@ -14,9 +14,17 @@ resources:
   - grafana-httproute.yaml
   - vmui-httproute.yaml
   - alertmanager-httproute.yaml
+  # Hand-built, sidecar-provisioned dashboards: no upstream publishes them,
+  # so they can't be pulled at pod start by the download-dashboards init
+  # container like the grafana.dashboards entries in values.yaml (which is
+  # where every dashboard with a real upstream lives — including the gated
+  # ones for platform-conditional and opt-in apps).
   - envoy-proxy-global-dashboard.yaml
   - envoy-clusters-dashboard.yaml
   - envoy-gateway-global-dashboard.yaml
+# >>> coraza: ./toggle_blocks.sh --enable coraza when enabling apps/coraza
+#   - coraza-dashboard.yaml
+# <<< coraza
   # SSO for Alertmanager and vmui through the optional dex app: an Envoy
   # Gateway SecurityPolicy runs the OIDC flow at the gateway, same dex →
   # workforce-IdP login as Grafana. grafana-oidc-client.secrets.yaml is

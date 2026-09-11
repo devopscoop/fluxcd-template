@@ -11,6 +11,11 @@ resources:
   - namespace.yaml
   - helmrepo.yaml
   - release.yaml
+  # Self-monitoring for the KPS alternative stack (see the ServiceMonitor
+  # note in values.yaml; the flux Kustomization dependsOn
+  # kube-prometheus-stack for the PrometheusRule CRD). The mixin dashboards
+  # download via grafana.dashboards in apps/kube-prometheus-stack/values.yaml.
+  - prometheusrule.yaml
 configMapGenerator:
   - name: alloy-values
     files:

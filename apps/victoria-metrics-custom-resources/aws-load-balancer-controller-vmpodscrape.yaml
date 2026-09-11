@@ -1,0 +1,36 @@
+# Scrape the AWS Load Balancer Controller — controller-runtime reconcile
+# counters, AWS API call/error/throttle counters (aws_api_*), and the
+# awslbc_* webhook/reconcile series — from the pods' :8080 container port
+# named "metrics-server", standard /metrics, plain HTTP (verified by
+# rendering chart 3.3.0, apps/aws-load-balancer-controller's pin).
+#
+# A pod scrape, not a service scrape, for two reasons: the chart renders no
+# metrics Service unless serviceMonitor.enabled also emits its unusable
+# monitoring.coreos.com ServiceMonitor (they share one gate), and the AWS
+# API metrics carry their own "service" label (the AWS service name, e.g.
+# "Elastic Load Balancing v2") that a VMServiceScrape's service target
+# label would displace to exported_service, silently breaking by(service)
+# groupings. jobLabel mirrors the chart's own ServiceMonitor
+# (jobLabel: app.kubernetes.io/instance), so job="aws-load-balancer-
+# controller" — which the vendored dashboard's $job variable and
+# aws-load-balancer-controller-vmrule.yaml both rely on.
+#
+# EKS-only, like the app — referenced from kustomization.yaml inside an eks
+# marker block, so deploy.sh enables it exactly when it enables the app.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMPodScrape
+metadata:
+  name: aws-load-balancer-controller
+spec:
+  jobLabel: app.kubernetes.io/instance
+  namespaceSelector:
+    matchNames:
+      # The controller installs into kube-system — see the note in
+      # apps/aws-load-balancer-controller/kustomization.yaml.
+      - kube-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: aws-load-balancer-controller
+      app.kubernetes.io/instance: aws-load-balancer-controller
+  podMetricsEndpoints:
+    - port: metrics-server

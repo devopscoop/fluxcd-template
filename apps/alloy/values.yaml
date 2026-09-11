@@ -137,3 +137,16 @@ configReloader:
       memory: 128Mi
     limits:
       memory: 128Mi
+
+# Scrape Alloy's own metrics (component health, evaluation timing, and the
+# loki.write success/drop counters — the "is the log pipeline silently
+# broken" signals prometheusrule.yaml alerts on). The chart's ServiceMonitor
+# needs the release label or kube-prometheus-stack's Prometheus silently
+# ignores it (same note as apps/loki/values.yaml). Unlike loki's, this
+# chart's servicemonitor template has NO CRD guard, so the flux
+# Kustomization dependsOn kube-prometheus-stack — without it a fresh
+# bootstrap fails the apply on the missing monitoring.coreos.com CRDs.
+serviceMonitor:
+  enabled: true
+  additionalLabels:
+    release: kube-prometheus-stack

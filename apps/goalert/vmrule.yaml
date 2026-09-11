@@ -1,0 +1,83 @@
+# Alerting rules for GoAlert itself, evaluated by this stack's vmalert over
+# the series collected by vmpodscrape.yaml. GoAlert is the paging half of
+# the observability stack, so its failures are silent by construction —
+# they take out the channel that would report them. That's survivable
+# because the Alertmanager receiver is a COMBINED one (GoAlert + Slack, see
+# apps/victoria-metrics/README.md → "Alert routing"): when these fire and
+# GoAlert can't page, Slack still gets the message. The truly external
+# backstop — an Uptime Kuma push monitor fed by the Watchdog alert instead
+# of blackholing it — is still TODO (the README's alert-routing section
+# already anticipates it).
+#
+# No public GoAlert ruleset or dashboard exists; these are our own, on
+# metric names verified in goalert v0.34.1 source (engine cycle time
+# defaults to 5s).
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  name: goalert
+spec:
+  groups:
+    - name: goalert
+      rules:
+        - alert: GoAlertEngineNotCycling
+          annotations:
+            summary: GoAlert's engine has stopped cycling — paging is down.
+            description: >-
+              Zero engine cycles in 5m (normal cadence is one per 5s).
+              Alerts are landing in GoAlert's database and NO notifications
+              are being dispatched. Check the goalert pod's logs and its
+              database (runbooks/connect-cnpg-database.md); this page
+              reached you via the Slack half of the combined receiver.
+          expr: |-
+            rate(goalert_engine_cycle_total[5m]) == 0
+          for: 5m
+          labels:
+            severity: critical
+        - alert: GoAlertEngineSlow
+          annotations:
+            summary: GoAlert engine cycles are overrunning their budget.
+            description: >-
+              p99 engine cycle time for module {{ $labels.module }} has
+              been {{ printf "%.1f" $value }}s against the 5s cycle
+              cadence for 15m — escalations and notifications are being
+              dispatched late. Usually database pressure; check the
+              goalert-db instances' load.
+          expr: |-
+            histogram_quantile(0.99,
+              sum by (module, le) (rate(goalert_engine_cycle_duration_seconds_bucket[5m]))
+            ) > 5
+          for: 15m
+          labels:
+            severity: warning
+        - alert: GoAlertNotificationsNotLeaving
+          annotations:
+            summary: GoAlert is receiving alerts but sending nothing.
+            description: >-
+              Alerts have been created in the last 15m but zero
+              notifications went out — the engine is alive (or
+              GoAlertEngineNotCycling would have fired) yet every contact
+              method is failing. Suspect the notification provider config
+              or egress.
+          expr: |-
+            sum(rate(goalert_alert_created_total[15m])) > 0
+            and
+            sum(rate(goalert_notification_sent_total[15m])) == 0
+          for: 15m
+          labels:
+            severity: critical
+        - alert: GoAlertHttpServerErrors
+          annotations:
+            summary: GoAlert is answering 5xx.
+            description: >-
+              {{ printf "%.1f" $value }}% of HTTP requests to GoAlert got a
+              5xx over the last 5m. If Alertmanager's webhook deliveries
+              are among them, Alertmanager believes it delivered and the
+              alert was never opened — silent page loss.
+          expr: |-
+            sum(rate(goalert_http_server_requests_total{code=~"5.."}[5m]))
+            /
+            sum(rate(goalert_http_server_requests_total[5m])) * 100 > 5
+          for: 10m
+          labels:
+            severity: warning
