@@ -180,20 +180,21 @@ spec:
             - 'SecRule REQUEST_HEADERS:Host "@rx (?i)^dex\.project1-dev\.devops\.coop(:\d+)?$" "id:10011,phase:1,pass,nolog,chain"'
             - 'SecRule REQUEST_URI "@rx ^/callback(\?|$)" "t:none,ctl:ruleRemoveTargetById=930120;ARGS_GET:scope"'
             # PostgreSQL 18's OAuth device flow (the pg-oauth block in the
-            # cnpg-database template) POSTs client_id=psql — dex's public
-            # psql staticClient — to /device/code, then polls /token with the
-            # same parameter. "psql" is a Unix binary name in CRS's command
-            # wordlist, so 932260 (direct Unix command execution; critical,
-            # score 5 = the PL1 anomaly threshold on its own) 403s both
-            # requests and psql dies with "failed to obtain device
-            # authorization". client_id values are operator-chosen vocabulary
-            # from dex's staticClients config, not user input. Drop 932260
-            # for that one body param on dex's device-flow endpoints only,
-            # chained to the dex hostname like 10011: every other param,
-            # endpoint, host, and rule still applies. Phase 1 like the
-            # exclusions above: must precede the CRS include.
+            # cnpg-database template) carries client_id=psql — dex's public
+            # psql staticClient — through three endpoints: POSTed to
+            # /device/code, polled to /token, and echoed as a query param on
+            # /auth when the browser submits the verification code. "psql" is
+            # a Unix binary name in CRS's command wordlist, so 932260 (direct
+            # Unix command execution; critical, score 5 = the PL1 anomaly
+            # threshold on its own) 403s each of them in turn. client_id
+            # values are operator-chosen vocabulary from dex's staticClients
+            # config, not user input. Drop 932260 for that one param (body
+            # and query) on those endpoints only, chained to the dex hostname
+            # like 10011: every other param, endpoint, host, and rule still
+            # applies. Phase 1 like the exclusions above: must precede the
+            # CRS include.
             - 'SecRule REQUEST_HEADERS:Host "@rx (?i)^dex\.project1-dev\.devops\.coop(:\d+)?$" "id:10012,phase:1,pass,nolog,chain"'
-            - 'SecRule REQUEST_URI "@rx ^/(device/code|token)(\?|$)" "t:none,ctl:ruleRemoveTargetById=932260;ARGS_POST:client_id"'
+            - 'SecRule REQUEST_URI "@rx ^/(device/code|token|auth)(\?|$)" "t:none,ctl:ruleRemoveTargetById=932260;ARGS_POST:client_id,ctl:ruleRemoveTargetById=932260;ARGS_GET:client_id"'
             - Include @owasp_crs/*.conf
           # Same as default, minus request-body inspection. coraza-proxy-wasm
           # 0.6.0 mangles any request body it buffers across more than one
