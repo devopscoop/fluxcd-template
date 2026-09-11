@@ -94,7 +94,7 @@ Requirements:
 - A login role named after your email local part in the Cluster's `managed.roles` (the pg-oauth block shows the shape).
 - The dex issuer reachable from your machine.
 
-Forward the read-write Service as in option 3, then:
+`./psql-oauth.sh <app>` does all of the below in one command — it discovers the issuer from the Cluster's `pg_hba`, port-forwards the `-rw` Service, runs the device flow, and tears the forward down on exit. `--docker` is the macOS path, and `-n`/`-c`/`-d` override the namespace/Cluster/database for clusters that don't follow the `<app>`/`<app>-db` naming. The manual equivalent: forward the read-write Service as in option 3, then:
 
 ```shell
 psql "host=localhost port=15432 dbname=<app> user=<email-local-part> sslmode=require oauth_issuer=https://dex.project1-dev.devops.coop oauth_client_id=psql"

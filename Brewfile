@@ -42,6 +42,11 @@ brew "kubectl-cnpg"
 # pre-commit - git hook framework used by .pre-commit-config.yaml
 brew "pre-commit"
 
+# psql - psql-oauth.sh runs PostgreSQL 18's OAuth device flow, which needs
+# libpq's OAuth module; Homebrew's libpq/psql formulas are built without it,
+# so there is nothing to install from here — use psql-oauth.sh --docker (a
+# PGDG psql in a container), or bring a PGDG psql 18 + libpq-oauth yourself.
+
 # python - runs the local validate-flux pre-commit hook
 brew "python"
 
