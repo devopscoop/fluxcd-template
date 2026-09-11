@@ -1,0 +1,25 @@
+# Scrape the CloudNativePG operator itself — controller-runtime metrics
+# (reconcile rates/durations, webhook requests, workqueue depth) on :8080,
+# the container port named "metrics". The CloudNativePG dashboard's operator
+# panels and its operatorNamespace variable
+# (controller_runtime_webhook_requests_total) come from here; the per-database
+# series come from cnpg-vmpodscrape.yaml. Selector and port mirror the
+# PodMonitor the chart's monitoring.podMonitorEnabled would create, which is
+# unusable here for the CRD-ownership reason in cnpg-vmpodscrape.yaml.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMPodScrape
+metadata:
+  name: cnpg-operator
+spec:
+  namespaceSelector:
+    matchNames:
+      # The namespace apps/cnpg deploys the operator into (its
+      # namespace.yaml), not the release name; "cnpg" here matched nothing
+      # and the scrape pool sat empty (ScrapePoolHasNoTargets).
+      - cnpg-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cloudnative-pg
+      app.kubernetes.io/instance: cnpg
+  podMetricsEndpoints:
+    - port: metrics

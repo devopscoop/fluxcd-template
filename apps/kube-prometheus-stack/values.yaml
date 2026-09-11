@@ -160,6 +160,12 @@ grafana:
         memory: 128Mi
       limits:
         memory: 128Mi
+    # Load grafana_dashboard=1 ConfigMaps from every namespace instead of
+    # only this one — see the note on the same setting in
+    # apps/victoria-metrics/values.yaml; the two stacks are either/or, so
+    # keep them interchangeable.
+    dashboards:
+      searchNamespace: ALL
 
 # Sized from krr (2026-08-22, 14d dev usage); memory req=limit, no CPU limit.
 prometheusOperator:

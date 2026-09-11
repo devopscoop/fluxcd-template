@@ -8,7 +8,7 @@ kind: Kustomization
 namespace: longhorn-system
 
 resources:
-  - evanstest.secrets.yaml
+  - longhorn-backup.secrets.yaml
   - longhorn-crypto.secrets.yaml
   - release.yaml
   - longhorn-crypto-global.sc.yaml
