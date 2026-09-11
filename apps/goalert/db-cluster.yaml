@@ -30,6 +30,26 @@ spec:
   # (schedules, escalation policies, alert metadata), so the cost of HA is
   # just two more pods and PVCs.
   instances: 3
+  # A database must not ride Karpenter capacity: consolidation and drift
+  # drains force a switchover whenever the bin-packer rearranges nodes (the
+  # operator switches the primary over as soon as its node is cordoned, so
+  # the primary PDB never gets to object). The affinity pins the instances to
+  # managed-node-group nodes — `Exists` on the label survives node-group
+  # renames and blue/green rotations — and the toleration matches the
+  # CriticalAddonsOnly taint that reserves those nodes for scheduling-critical
+  # workloads (see the managed node group in aws-eks-template).
+# >>> karpenter: deploy.sh uncomments this block when k8s_platform=eks
+#   affinity:
+#     nodeAffinity:
+#       requiredDuringSchedulingIgnoredDuringExecution:
+#         nodeSelectorTerms:
+#           - matchExpressions:
+#               - key: eks.amazonaws.com/nodegroup
+#                 operator: Exists
+#     tolerations:
+#       - key: CriticalAddonsOnly
+#         operator: Exists
+# <<< karpenter
   # Pinned to PostgreSQL 17, deliberately: GoAlert v0.34 is tested against
   # PostgreSQL 13-17, while this repo's CNPG operator (1.28) defaults new
   # clusters to PostgreSQL 18, which GoAlert's test suite doesn't cover yet.
@@ -58,6 +78,17 @@ spec:
 # >>> eks: deploy.sh uncomments this block when k8s_platform=eks
 #     storageClass: gp3-dangerous
 # <<< eks
+  # Separate WAL volume, so a WAL burst fills this volume instead of the data
+  # volume, and WAL I/O is isolated from table I/O — the full rationale and
+  # the 2026-09-05 incident it comes from are in apps/templates/cnpg-database.
+  # 1Gi is plenty for GoAlert's write rate. walStorage is one-way: it can be
+  # added to a running cluster (the operator rolls the instances to attach
+  # it), but never removed.
+  walStorage:
+    size: 1Gi
+# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
+#     storageClass: gp3-dangerous
+# <<< eks
   # Continuous WAL archiving + base backups through the Barman Cloud Plugin
   # (apps/cnpg-barman-plugin). The bucket, retention, and sidecar tuning live
   # in the ObjectStore below; the daily cadence in the ScheduledBackup at the
@@ -76,6 +107,15 @@ spec:
       memory: 512Mi
     limits:
       memory: 512Mi
+  # Deliberately no monitoring block. On the victoria-metrics stack, the
+  # fleet-wide cnpg-instances VMPodScrape in
+  # apps/victoria-metrics-custom-resources scrapes every pod labeled
+  # cnpg.io/podRole=instance, so this database is collected with no per-app
+  # config. Don't set monitoring.enablePodMonitor: it would duplicate that
+  # scrape (every cnpg_* series stored twice under a second job label), and
+  # the field is deprecated upstream ("will be removed in a future version of
+  # the operator"). On the kube-prometheus-stack alternative, create a
+  # PodMonitor manually — the deprecation notice recommends exactly that.
   # IRSA: the instance pods run as the goalert-db ServiceAccount (CNPG names
   # it after the Cluster), and this annotation lets their barman-cloud
   # sidecars reach the backup bucket. Role and bucket come from
@@ -112,6 +152,12 @@ spec:
       inheritFromIAMRole: true
     wal:
       compression: gzip
+      # Ship up to 8 WAL segments per archiver invocation. Archive throughput
+      # is what keeps the WAL volume's backlog bounded (WAL that isn't
+      # archived can't be recycled), and single-segment uploads have already
+      # lost that race once — see the walStorage comment on the Cluster
+      # above.
+      maxParallel: 8
     data:
       compression: gzip
   # Recovery-window retention: barman keeps enough base backups and WAL to
@@ -121,8 +167,11 @@ spec:
   retentionPolicy: "30d"
   instanceSidecarConfiguration:
     # Memory req=limit, no CPU limit, same as the postgres containers in the
-    # Cluster above. The sidecar only streams compressed WAL and backup
-    # data, and the dataset is tiny.
+    # Cluster above. The sidecar only streams compressed WAL and backup data,
+    # and GoAlert's dataset is tiny — but base backups of a multi-GB database
+    # OOMKill the sidecar mid-stream at 128Mi (the Backup fails with "rpc
+    # error ... EOF"), so raise this with the dataset; the first fork
+    # database with real data needed 512Mi.
     resources:
       requests:
         cpu: 10m

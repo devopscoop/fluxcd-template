@@ -74,7 +74,7 @@ fi
 core_app_list="cert-manager-custom-resources.yaml cert-manager.yaml external-dns.yaml imagepolicies.yaml imagerepositories.yaml imageupdateautomation.yaml sops-age.secrets.yaml cnpg.yaml cnpg-barman-plugin.yaml victoria-metrics.yaml victoria-metrics-custom-resources.yaml victoria-logs.yaml tempo.yaml otel-collector.yaml goalert.yaml eg.yaml eg-custom-resources.yaml"
 case "$k8s_platform" in
   eks)
-    app_list="metrics-server.yaml aws-load-balancer-controller.yaml eks-storage-classes.yaml cluster-viewers.yaml karpenter-crd.yaml karpenter.yaml karpenter-custom-resources.yaml"
+    app_list="metrics-server.yaml aws-load-balancer-controller.yaml eks-storage-classes.yaml cluster-viewers.yaml karpenter-crd.yaml karpenter.yaml karpenter-custom-resources.yaml opencost.yaml"
     ;;
   k0s)
     app_list="metallb.yaml metallb-custom-resources.yaml"

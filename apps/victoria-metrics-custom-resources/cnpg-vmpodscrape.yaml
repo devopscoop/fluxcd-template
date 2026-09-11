@@ -1,0 +1,30 @@
+# Scrape every CloudNativePG database instance — the postgres exporter the
+# instance manager serves on :9187 (the container port named "metrics"):
+# connections, transactions, replication lag, WAL activity, backup freshness
+# and the rest of the cnpg_* collectors that feed the CloudNativePG dashboard
+# (chart-provisioned; see monitoring.grafanaDashboard in
+# apps/cnpg/values.yaml). The operator stamps
+# cnpg.io/podRole=instance on every instance pod of every Cluster, so one
+# fleet-wide scrape covers goalert's database and any future one scaffolded
+# from apps/templates/cnpg-database with no per-app config.
+#
+# Not CNPG's own monitoring hooks: a Cluster's
+# .spec.monitoring.enablePodMonitor (and the operator chart's
+# monitoring.podMonitorEnabled) create monitoring.coreos.com PodMonitors, and
+# those CRDs only exist on clusters running the kube-prometheus-stack
+# alternative — see the CRD-ownership note in apps/victoria-metrics/README.md.
+# Why this lives here rather than in apps/cnpg: same stack-agnosticism reason
+# as envoy-vmpodscrape.yaml, and same CRD-ordering reason as
+# kustomization.yaml.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMPodScrape
+metadata:
+  name: cnpg-instances
+spec:
+  namespaceSelector:
+    any: true
+  selector:
+    matchLabels:
+      cnpg.io/podRole: instance
+  podMetricsEndpoints:
+    - port: metrics

@@ -9,5 +9,12 @@ resources:
     memory: 129Mi
 
 monitoring:
+  # Package the official Grafana dashboard as a grafana_dashboard=1 ConfigMap
+  # in this namespace; both stacks run their Grafana dashboard sidecar with
+  # searchNamespace: ALL, so it's loaded from here and tracks this chart's
+  # pin. The metrics behind it come from the cnpg-*vmpodscrape.yaml pair in
+  # apps/victoria-metrics-custom-resources — not the chart's
+  # podMonitorEnabled, whose monitoring.coreos.com CRDs only exist on
+  # clusters running the kube-prometheus-stack alternative.
   grafanaDashboard:
     create: true

@@ -17,6 +17,16 @@ falcon-sensor:
   # registry path and a pinned tag are required. Auth comes from
   # global.containerRegistry.configJSON in helm_secrets.yaml.
   node:
+    # The sensor daemonset must also cover nodes tainted CriticalAddonsOnly
+    # (the managed node group reserved for scheduling-critical workloads and
+    # databases — see aws-eks-template), or those nodes run without endpoint
+    # security.
+# >>> karpenter: deploy.sh uncomments this block when k8s_platform=eks
+#     daemonset:
+#       tolerations:
+#         - key: CriticalAddonsOnly
+#           operator: Exists
+# <<< karpenter
     image:
       repository: registry.crowdstrike.com/falcon-sensor/release/falcon-sensor
       digest: sha256:26d60f33c9f651b598dccb78d42363a06ae5741f6c16176aa21c88d84b091027 # 8.10.0-19402-1

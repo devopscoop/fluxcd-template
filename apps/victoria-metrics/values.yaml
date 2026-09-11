@@ -125,8 +125,9 @@ alertmanager:
 # with `sops helm_secrets.yaml`. They are there because the GoAlert webhook URL
 # embeds an integration key (see apps/goalert/README.md), and Flux merges
 # valuesFrom like `helm -f`: maps deep-merge but lists are replaced wholesale,
-# so each list must live entirely in one file. Current routing: Watchdog is
-# blackholed; every other alert goes to BOTH GoAlert (paging) and Slack via
+# so each list must live entirely in one file. Current routing: Watchdog and
+# InfoInhibitor are blackholed; every other alert goes to BOTH GoAlert
+# (paging) and Slack via
 # a single combined receiver (named "default") carrying both integrations --
 # one receiver, not one route per system, because the Alertmanager UI lists
 # each alert group once per receiver, so split receivers showed every alert
@@ -149,11 +150,51 @@ alertmanager:
 # the combined "default" receiver back into separate goalert and slack
 # routes/receivers in helm_secrets.yaml -- at the cost of the UI showing
 # every alert twice again (once per receiver).
+#
+# inhibit_rules implement the severity ladder the bundled alert rules assume
+# but the chart does not ship (its default values carry these rules only as a
+# commented-out example, unlike kube-prometheus-stack, which installs them):
+# critical mutes warning+info for the same alertname+namespace, warning mutes
+# info likewise, and InfoInhibitor -- a bundled meta-alert that fires whenever
+# a severity=info alert is pending or firing in a namespace -- mutes every
+# info alert in its namespace. Net effect: info alerts never notify on their
+# own; when a warning/critical alert fires in the same namespace,
+# InfoInhibitor stops firing there (that's its expr) and the info alerts
+# un-mute to ride along as context. InfoInhibitor itself is blackholed in
+# helm_secrets.yaml's routes (muted alerts still work as inhibition sources).
+# Without these rules every info-severity blip pages GoAlert: a falcon-kac
+# pod replacement briefly fills its 2-pod ResourceQuota, KubeQuotaFullyUsed
+# (info) goes pending, and InfoInhibitor -- severity=none, no `for:` -- fired
+# through the catch-all route within seconds, twice in one day (2026-09-08).
+# The list lives here, not helm_secrets.yaml, because nothing in it is
+# secret (same reasoning as group_by above); it's a sibling of the
+# route.routes list, so the each-list-in-one-file rule is satisfied.
 # >>> slack: deploy.sh uncomments this block when slack_alerts=true (variables.sh)
 #   config:
 #     route:
 #       group_by: ["alertname", "namespace"]
 #       receiver: default
+#     inhibit_rules:
+#       - source_matchers:
+#           - severity = critical
+#         target_matchers:
+#           - severity =~ warning|info
+#         equal:
+#           - namespace
+#           - alertname
+#       - source_matchers:
+#           - severity = warning
+#         target_matchers:
+#           - severity = info
+#         equal:
+#           - namespace
+#           - alertname
+#       - source_matchers:
+#           - alertname = InfoInhibitor
+#         target_matchers:
+#           - severity = info
+#         equal:
+#           - namespace
 # <<< slack
 
 # Grafana sits behind a repo-managed HTTPRoute (grafana-httproute.yaml), not
@@ -268,6 +309,39 @@ grafana:
   plugins:
     - victoriametrics-logs-datasource
     - victoriametrics-metrics-datasource
+  # Dashboards Grafana's download-dashboards init container pulls from
+  # grafana.com at every pod start (same grafana.com/api egress as the plugins
+  # above), so upstream updates arrive on the next restart instead of being
+  # vendored here and re-synced by hand. revision "latest" tracks the newest
+  # published revision (the chart would otherwise default to revision 1, not
+  # latest). The provider tells Grafana to load whatever the init container
+  # drops in its path; the sidecar-provisioned ConfigMap dashboards (the
+  # envoy-*-dashboard.yaml files in this app) use the chart's own provider and
+  # are unaffected.
+  dashboardProviders:
+    dashboardproviders.yaml:
+      apiVersion: 1
+      providers:
+        - name: downloaded
+          orgId: 1
+          folder: ""
+          type: file
+          disableDeletion: false
+          editable: false
+          options:
+            path: /var/lib/grafana/dashboards/downloaded
+  dashboards:
+    downloaded:
+      # "OpenCost / Overview" (grafana.com 22208) -- cluster-wide cost metrics
+      # (hourly/monthly totals, cost by resource, instance type, namespace,
+      # node, and PV), fed by apps/opencost via the VMServiceScrape in
+      # apps/victoria-metrics-custom-resources/opencost-vmservicescrape.yaml.
+      # Its hidden "cluster" variable resolves empty here (this stack stamps
+      # no `cluster` external label) and PromQL {cluster=""} matches series
+      # without the label, so every query works as-is.
+      opencost-overview:
+        gnetId: 22208
+        revision: latest
   # Memory req=limit, no CPU limit. Doubled to 384Mi after OOMKills
   # (2026-08-25), then OOMKilled again on 2026-08-26 once the kubelet
   # relabelConfigs fix below un-dropped the label-heavy cadvisor series
@@ -286,6 +360,16 @@ grafana:
         memory: 128Mi
       limits:
         memory: 128Mi
+    # Load grafana_dashboard=1 ConfigMaps from every namespace instead of
+    # only this one, so a chart that packages its own dashboard can just
+    # enable it wherever it deploys (apps/cnpg's monitoring.grafanaDashboard)
+    # and the dashboard tracks that chart's pin with no vendored copy here.
+    # The sidecar's ClusterRole already allows it. Trade-off: anything that
+    # can create a labeled ConfigMap in some namespace can register a
+    # dashboard. Mirrored in apps/kube-prometheus-stack — the two stacks are
+    # either/or, so keep them interchangeable.
+    dashboards:
+      searchNamespace: ALL
 
 # Initial guesses (resize with krr after 14d of usage); memory req=limit, no
 # CPU limit.
