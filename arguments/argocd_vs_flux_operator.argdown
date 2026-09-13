@@ -1,0 +1,145 @@
+===
+title: "Argo CD vs. Flux Operator"
+subTitle: First-principles comparison map for the GitOps reconciler in a brand-new environment, organized by decision criterion — Argo CD against the Flux Operator distribution of Flux
+author: Claude and 3uzbcqje
+date: 2026-09-10
+color:
+  tagColors:
+    argocd: "#2166ac"
+    flux: "#e08214"
+    context: "#756bb1"
+    alternative: "#35978f"
+===
+
+# The question
+
+For a brand-new environment with no reconciler, tooling, or operational commitments already in place, which engine should turn a git repo into a running cluster? Neither option is a thesis to defend here — each criterion below collects what both sides have to say, and the context section names the conditions that swing the verdict. Node color marks which side an argument serves; the arrows carry the valence.
+
+[Argo CD]: Run Argo CD — `Application` and `ApplicationSet` resources, a control plane that can drive many clusters, and a web console that shows every managed resource's live state, diff, and logs. #argocd
+  -> [Flux Operator]
+
+[Flux Operator]: Run the Flux Operator distribution of Flux — a `FluxInstance` that installs and maintains the GitOps Toolkit controllers, with `Kustomization`/`HelmRelease`/`OCIRepository` as the unit of deployment and one agent per cluster. #flux
+  -> [Argo CD]
+
+
+# Secret management
+
+<SOPS decryption is built into the reconciler>: Flux's kustomize-controller decrypts SOPS in-process from an age key in a cluster Secret, declared as a `spec.decryption` block on the Kustomization, so encrypted values live beside the manifests they configure, with nothing extra to install. #flux
+  +> [Flux Operator]
+  - <Argo CD reaches the same place with a plugin>: KSOPS, helm-secrets, or argocd-vault-plugin run as a repo-server sidecar and decrypt during manifest generation; it is a solved, widely-deployed pattern, not a missing capability. #argocd
+    - <A plugin is a sidecar you now own>: A config-management plugin means a custom repo-server image, a decryption key mounted into the component that renders every app in the estate, and a build step whose failures surface as opaque generation errors — a standing maintenance and blast-radius cost where Flux has a field in the CRD. #flux
+  - <External secret operators sidestep the argument>: Pointing both tools at External Secrets Operator and a real secret manager removes ciphertext from git entirely, which is a stronger posture than either reconciler's decryption story and erases this criterion. #argocd
+    - <It also adds a dependency the cluster does not otherwise need>: That trade swaps a file format for a cloud KMS, an operator, and per-environment IAM wiring; for self-contained clusters meant to carry no external dependency, the SOPS-in-git model is the smaller system. #flux
+
+# Helm handling
+
+<Real Helm releases, not rendered templates>: helm-controller drives the Helm SDK — actual release history, hooks, tests, configurable install/upgrade remediation, and automatic rollback on a failed upgrade; Argo CD runs `helm template` and applies the output, so a chart's own lifecycle machinery and `helm rollback` are not available to it. #flux
+  +> [Flux Operator]
+  - <Templating is the more transparent model>: Without hidden release state, what Argo CD will apply is exactly what the UI diffs before you sync — no release secrets to corrupt or outgrow, no divergence between Helm's idea of the release and the cluster's. #argocd
+  - <The values indirection is real overhead>: Flux's values plumbing means every Helm app needs a `configMapGenerator`, a `secretGenerator`, a `valuesFrom` block, and a `kustomizeconfig.yaml` `nameReference` so generated names get rewritten; Argo CD takes `values.yaml` paths directly in the Application spec. #argocd
+    - <The indirection is what makes values encryptable>: That same split is what lets sensitive Helm values be SOPS-encrypted as a Secret and prototyped with plain `helm install`; collapsing it would mean inlining values into the HelmRelease and losing both. #flux
+
+# Visibility and self-service
+
+<The console is the product>: Argo CD's UI gives a live resource tree per application, live-vs-desired diffs, pod logs, events, and sync and rollback buttons — bundled with OIDC SSO, Projects, and its own RBAC, so an app developer can see and fix a failed deploy without a kubeconfig or cluster RBAC at all. #argocd
+  +> [Argo CD]
+  - <Flux Operator ships a web UI too>: The operator serves a web UI of its own, showing the Flux object graph and reconciliation state, so "Flux has no UI" is out of date. #flux
+    - <Object graph is not the application>: Seeing that a Kustomization failed is a different question from seeing which Deployment is unhealthy, what changed against the live object, and what the pod logged — the Flux UI is narrower, newer, and stops short of the workload-level debugging the Argo console is used for. #argocd
+  - <Console authority competes with git>: Sync and rollback buttons are a second path to change the cluster, and the audit trail for "who clicked what" lives outside git; a reconciler with no write surface keeps the repo as the only answer to what is deployed. #flux
+    - <Argo CD can be read-only by policy>: Argo's RBAC can withhold sync and override permissions and leave the console purely observational, so the drift-by-click risk is a configuration choice rather than a property of the tool. #argocd
+
+<Reconciler state belongs on the dashboards you already have>: Flux controllers export Prometheus metrics and notification-controller routes failures to Slack or Alertmanager, which is the same path every other workload's alerts take — visibility without a console to log into. #flux
+  +> [Flux Operator]
+  - <Argo CD exports metrics and notifications as well>: Metrics, an events API, and Argo CD Notifications cover the same ground, so this is parity rather than an advantage. #argocd
+
+# Multi-cluster topology and blast radius
+
+<One pane for the whole fleet>: A single Argo CD can register and reconcile dozens of clusters, so fleet-wide questions — which clusters are on which release, what is out of sync right now — have one place to ask them, and one place to configure SSO and RBAC. #argocd
+  +> [Argo CD]
+  - <The hub holds every cluster's credentials>: Hub-and-spoke concentrates kubeconfigs for the entire estate in one deployment; compromise it and the blast radius is the fleet, while a per-cluster agent that only pulls has no credential worth stealing for a cluster it cannot reach. #flux
+    - <Argo CD can also run per-cluster>: Installing one Argo CD per cluster in agent mode is a supported topology, which keeps the console and gives up only the single pane — so the blast radius is a deployment choice, not an inherent difference. #argocd
+  - <Fleet view is a reporting problem, not a control-plane one>: The operator's `FluxReport` plus metrics scraped into the central observability stack answer the same fleet questions without giving one deployment write access everywhere. #flux
+
+<One repo per cluster needs no fleet abstraction>: Under a git-repo-per-cluster layout reconciled by an in-cluster agent, Argo CD's strongest structural feature solves a problem the repo layout has already dissolved, and adopting it would invite re-centralizing what is deliberately separated. #flux
+  +> [Flux Operator]
+
+# Templating and ephemeral environments
+
+<ApplicationSet is the mature generator>: Git, list, cluster, matrix, merge, and SCM-provider generators are years old, heavily used, and they compose — "this app once per directory in the repo, on every cluster carrying a label" is a generator expression rather than a bespoke controller. #argocd
+  +> [Argo CD]
+  - <ResourceSet is the operator's answer>: `ResourceSet` with a `ResourceSetInputProvider` templates any resource from inputs, which covers the same fan-out ground — and it is one of the main reasons to run the operator rather than plain Flux. #flux
+    - <Younger, with a smaller corpus>: ApplicationSet has far more production mileage, examples, and answered questions behind it; on a generator that silently stamps environments, that difference is operational risk, not taste. #argocd
+
+<Per-PR ephemeral environments are a first-class, documented path>: A `ResourceSetInputProvider` of `type: GitHubPullRequest` watches pull requests carrying an agreed `filter.labels` gate such as `deploy/flux-preview`, exports `id`, `sha`, `branch`, `author`, and `title`, and a `ResourceSet` templates whatever a preview actually needs from them — a `GitRepository` pinned to the PR's commit SHA, a `HelmRelease` on the image tagged with that SHA, the namespace and route around them — then tears the whole set down when the PR merges or loses the label. #flux
+  +> [Flux Operator]
+  - <Argo CD's Pull Request generator does this too>: Ephemeral environments are parity, not a differentiator: the PR generator discovers open pull requests across GitHub, GitLab, Gitea, both Bitbuckets, and Azure DevOps, filters on labels or a branch/title regex, exposes `number`, `branch_slug`, `head_sha`, and `labels` to the template, and deletes the generated Application — and the resources under it — the moment a PR stops matching, immediately via webhook rather than waiting out the 30-minute `requeueAfterSeconds` poll. #argocd
+    - <The templated unit is where they differ>: Argo generates an `Application`, so anything a preview needs beyond that one app — namespace, per-PR hostname, a throwaway database CR — has to be packaged into the chart or directory it points at or composed with a matrix generator; the operator templates those resources directly, and its input providers reach past pull requests to branches, tags, and OCI/ECR/ACR artifact tags, so "ephemeral" is not confined to what a forge calls a PR. #flux
+
+# Image automation and promotion
+
+<Tag updates are committed back to git>: Flux's image-reflector and image-automation controllers scan registries and commit the new tag into the `$imagepolicy` marker in `values.yaml`, so the repo remains the literal record of what is deployed and prod-like repos can sync from dev by PR. #flux
+  +> [Flux Operator]
+  - <Argo CD Image Updater does this too>: It can write back to git, and the separate-project status is arguably healthier — image automation is a distinct concern with its own release cadence rather than a controller bolted into the reconciler. #argocd
+    - <Its git write-back is the secondary path>: Image Updater's default is an Argo-specific override file or Application annotations, with git write-back the less-travelled option; Flux's only mode is a commit to the manifest you already review, which is what makes dev-to-prod promotion a plain PR. #flux
+
+# Lifecycle of the reconciler itself
+
+<The operator manages Flux, including upgrades and drift>: `FluxInstance` declares the distribution version, component set, and patches; the operator installs it, corrects drift in Flux's own resources, and can upgrade on its own — so the version pin and the digest-pinned controller images are declared in one file and bumped in one place. #flux
+  +> [Flux Operator]
+  - <Argo CD self-manages with an ordinary Application>: Pointing Argo CD at its own manifests is the long-standing app-of-apps pattern; it needs no additional operator, no additional CRD, and no additional vendor in the dependency chain. #argocd
+    - <Self-management has a bootstrap seam>: An Argo CD that upgrades itself is reconciling the controller performing the reconciliation; the operator keeps that lifecycle outside the thing being managed, which is why a broken Flux install self-heals here instead of needing a human with a kubeconfig. #flux
+
+<Upstream Flux, plus one vendor>: Flux core is CNCF, but the operator is ControlPlane's, stewarded outside the CNCF repos with a commercial enterprise distribution alongside it — so the install path has a single-vendor layer that Argo CD's does not. #argocd
+  +> [Argo CD]
+  - <The vendor layer is shallow by construction>: The operator installs stock Flux and manages nothing inside the reconciliation path; drop it and the CRDs, controllers, and this entire repo still work under `flux bootstrap` — a one-file exit, not a migration. #flux
+
+# Operational footprint
+
+<Fewer moving parts per cluster>: Flux is a set of small single-purpose controllers with no Redis, no API server of its own, and no manifest-rendering tier; Argo CD's repo-server, application-controller, api-server, Redis, and Dex are more to run, tune, and shard — a cost paid on every cluster in the fleet. #flux
+  +> [Flux Operator]
+  - <Components you can decline>: Dex is optional with an external OIDC provider, the ApplicationSet controller is optional, and for a handful of applications the default footprint is unremarkable on any cluster large enough to matter. #argocd
+
+<Composable controllers, composable failures>: Splitting source, kustomize, helm, image, and notification concerns into separate controllers means a failure is localized and a component you do not need is simply absent from the FluxInstance component list. #flux
+  +> [Flux Operator]
+  - <It also spreads the debugging surface>: A stuck deploy can be in any of four controllers' conditions plus a generated ConfigMap's hash, and following it takes CLI archaeology that Argo CD answers with one screen. #argocd
+
+# Ecosystem and skills
+
+<Argo CD is the wider-adopted skill>: Larger install base and mindshare means more engineers arriving already fluent, more blog posts and Stack Overflow answers, more third-party integrations, and more training data behind the AI assistants now doing some of this work. #argocd
+  +> [Argo CD]
+  - <Both are CNCF graduated with real communities>: Flux is graduated, actively released, and its conventions are well documented; "less popular" is not "less supported", and the fluency gap is a week of ramp-up, not a structural disadvantage. #flux
+
+<Progressive delivery is stronger on the Argo side>: Argo Rollouts is widely used and actively developed for canaries and blue/green; Flagger, Flux's counterpart, moves more quietly — so a future canary-deployment requirement lands more comfortably next to Argo CD. #argocd
+  +> [Argo CD]
+  - <Argo Rollouts works under Flux>: Rollouts is an independent controller reconciled like any other workload, so its CRs can ship as just another app without changing reconcilers at all. #flux
+
+<Flux is the Kubernetes-native idiom>: Everything is a CRD reconciled by a controller with standard conditions, dependencies are `dependsOn` between Kustomizations, and the whole estate is inspected with `kubectl` like anything else; Argo CD introduces `Application` as a layer above the cluster's own objects, with its own RBAC and projects to learn. #flux
+  +> [Flux Operator]
+
+# Cross-cutting context
+
+[One repo per cluster]: The environment is laid out as a git repo per cluster with an in-cluster agent pulling it — the topology Flux assumes by default and the one Argo CD's central control plane is built to transcend. #context
+  +> <One repo per cluster needs no fleet abstraction>
+  -> <One pane for the whole fleet>
+
+[Developers need deploy visibility without cluster access]: If application teams are expected to diagnose their own failed deploys and will not be given kubeconfigs or cluster RBAC, the console plus Projects plus SSO stops being a convenience and becomes the requirement the reconciler is chosen for. #context
+  +> <The console is the product>
+  -> <Object graph is not the application>
+
+[The cluster is operator-owned platform infrastructure]: Where the repo's content is operators, CRDs, gateways, and storage — reconciled by the same people who own the cluster and have `kubectl` — there is no audience for a self-service console, and the criteria collapse to secrets handling, Helm fidelity, and footprint. #context
+  +> [Flux Operator]
+  +> <SOPS decryption is built into the reconciler>
+
+[Secrets must live in git]: Clusters that must be self-contained, with no external KMS dependency, make in-reconciler SOPS decryption close to decisive, and make the plugin sidecar the permanent cost it looks like. #context
+  +> <SOPS decryption is built into the reconciler>
+  -> <External secret operators sidestep the argument>
+
+
+# A middle path
+
+[Flux below, Argo CD above]: Let Flux own the platform layer — CRDs, operators, secrets, ordering via `dependsOn` — and install Argo CD as one more Flux-managed app to own tenant workloads, so platform engineers get SOPS and dependency ordering while product teams get the console and self-service. #alternative
+  -> [Argo CD]
+  -> [Flux Operator]
+  + <Each tool at what it is best at>: The split maps cleanly onto the two real audiences: infrastructure that needs ordering and decryption, and application deploys that need a diff, a log, and a sync button. #alternative
+  - <Two reconcilers is two of everything>: Two upgrade cadences, two RBAC models, two notification paths, two sets of metrics and runbooks — and an ambiguous boundary that every new app has to be argued across. #flux
+  - <The seam lands on exactly the hard cases>: Apps that need both an operator's CRDs and a developer console straddle the boundary, and "which reconciler owns this" becomes a standing design question rather than a one-time decision. #argocd
