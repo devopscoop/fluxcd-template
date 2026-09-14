@@ -1,6 +1,79 @@
+# Scrape the Ceph mgr's prometheus module — cluster health, capacity, pool
+# and OSD state, the ceph_health_detail series most of
+# the VMRule below reads — from the rook-ceph-mgr Service's
+# "http-metrics" port (:9283). Rook creates that Service unconditionally
+# (verified in rook v1.17.5, apps/rook-ceph-cluster's pin:
+# pkg/operator/ceph/cluster/mgr reconcileServices), so no chart change is
+# needed; keep the chart's monitoring.enabled OFF — all it adds is
+# prometheus-operator objects, and with the monitoring.coreos.com CRDs
+# absent (see cnpg-vm.yaml) enabling it makes rook's
+# exporter reconcile fail outright.
+#
+# The Service's own selector carries mgr_role=active, so with two mgrs only
+# the active one is ever a target — failover moves the target instead of
+# double-counting. Pinning the port name matters: the sibling
+# rook-ceph-mgr-dashboard Service carries the same app labels with an
+# https-dashboard port.
+#
+# honorLabels keeps the mgr module's own "instance" label (ceph daemon
+# identity): the ceph dashboards join series on it, and the default
+# displacement to exported_instance would break those joins.
+#
+# job="rook-ceph-mgr" (the Service name) is load-bearing: the vendored
+# ceph rule set's PrometheusJobMissing alert is absent(up{job="rook-ceph-mgr"}).
+#
+# Opt-in, like apps/rook-ceph itself — referenced from kustomization.yaml
+# inside a rook-ceph marker block; run
+# ./toggle_blocks.sh --enable rook-ceph when enabling the app.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMServiceScrape
+metadata:
+  name: rook-ceph-mgr
+spec:
+  namespaceSelector:
+    matchNames:
+      - rook-ceph
+  selector:
+    matchLabels:
+      app: rook-ceph-mgr
+      rook_cluster: rook-ceph
+  endpoints:
+    - port: http-metrics
+      honorLabels: true
+---
+# Scrape the per-node ceph-exporter — per-daemon performance counters and
+# ceph_daemon_health_metrics (the SLOW_OPS series behind
+# CephDaemonSlowOps in the VMRule below) — from the rook-ceph-exporter
+# Service's "ceph-exporter-http-metrics" port (:9926). Rook creates the
+# exporter and its Service whenever metrics aren't disabled (verified in
+# rook v1.17.5: pkg/operator/ceph/cluster/nodedaemon), so like the mgr
+# scrape this needs no chart change — and the same warning applies: leave
+# the chart's monitoring.enabled off.
+#
+# honorLabels for the same join reason as the mgr scrape above;
+# job="rook-ceph-exporter" (the Service name) satisfies the rule set's
+# PrometheusJobExporterMissing.
+#
+# Opt-in — gated by the same rook-ceph marker block as the mgr scrape.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMServiceScrape
+metadata:
+  name: rook-ceph-exporter
+spec:
+  namespaceSelector:
+    matchNames:
+      - rook-ceph
+  selector:
+    matchLabels:
+      app: rook-ceph-exporter
+      rook_cluster: rook-ceph
+  endpoints:
+    - port: ceph-exporter-http-metrics
+      honorLabels: true
+---
 # Alerting rules for the Rook Ceph cluster, evaluated by this stack's
-# vmalert over the series collected by rook-ceph-mgr-vmservicescrape.yaml
-# and rook-ceph-exporter-vmservicescrape.yaml. Copied from the rule set the
+# vmalert over the series collected by the two scrapes
+# above. Copied from the rule set the
 # rook-ceph-cluster chart's monitoring.createPrometheusRules would install
 # (https://raw.githubusercontent.com/rook/rook/v1.17.5/deploy/charts/rook-ceph-cluster/prometheus/localrules.yaml,
 # matching apps/rook-ceph-cluster's pin; itself a curated copy of the ceph
@@ -29,7 +102,7 @@
 # - Stripped the oid (SNMP) and type labels from every rule.
 # The two PrometheusJob* rules work verbatim because the scrape objects'
 # job labels are the Service names rook-ceph-mgr / rook-ceph-exporter --
-# see the scrape files. Most everything else keys off ceph_health_detail,
+# see the scrapes above. Most everything else keys off ceph_health_detail,
 # i.e. `ceph health detail` as series, which is the right altitude for one
 # small cluster.
 #

@@ -76,7 +76,7 @@ spec:
   # (rule, phase) pair becomes a distinct metric NAME — unqueryable, and the
   # worst kind of cardinality. With them, the proxies expose
   # waf_filter_tx_interruptions{rule_id=,phase=,...} and waf_filter_tx_total,
-  # which coraza-vmrule.yaml and the WAF dashboard read, and
+  # which coraza-vm.yaml and the WAF dashboard read, and
   # `sum by (rule_id) (increase(waf_filter_tx_interruptions[24h]))` replaces
   # the log-grep loop apps/coraza/README.md prescribes for rule tuning.
   # Regexes are upstream's own (coraza-proxy-wasm 0.6.0

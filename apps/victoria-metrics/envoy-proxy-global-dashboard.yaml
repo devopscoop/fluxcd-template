@@ -2,7 +2,7 @@
 # request rates by response-code class, downstream/upstream request-duration
 # percentiles (Envoy histograms are in milliseconds), connection counts, and
 # bandwidth, fed by the VMPodScrape in
-# apps/victoria-metrics-custom-resources/envoy-vmpodscrape.yaml.
+# apps/victoria-metrics-custom-resources/envoy-vm.yaml.
 # Provisioned by this stack's Grafana dashboard sidecar, which loads any
 # ConfigMap in this namespace labeled grafana_dashboard=1.
 #

@@ -2,7 +2,7 @@
 # dashboard: membership/health, request and error rates, connection pools,
 # circuit-breaker state for every backend cluster the proxies route to, fed
 # by the VMPodScrape in
-# apps/victoria-metrics-custom-resources/envoy-vmpodscrape.yaml.
+# apps/victoria-metrics-custom-resources/envoy-vm.yaml.
 # Provisioned by this stack's Grafana dashboard sidecar, which loads any
 # ConfigMap in this namespace labeled grafana_dashboard=1.
 #

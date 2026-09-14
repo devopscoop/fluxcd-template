@@ -1,11 +1,11 @@
 # Alerting rules for the coraza WAF (apps/coraza — a wasm filter inside the
 # Envoy proxies, not a workload), evaluated over series the existing envoy
 # scrapes already collect: waf_filter_* comes from the proxy pods
-# (envoy-vmpodscrape.yaml — the coraza plugin's counters, made queryable by
+# (envoy-vm.yaml — the coraza plugin's counters, made queryable by
 # the stats_tags bootstrap block in apps/eg-custom-resources/envoyproxy-*.yaml),
 # and wasm_remote_fetch_total from the Envoy Gateway controller
-# (envoy-gateway-vmservicescrape.yaml). No public ruleset exists for
-# coraza-proxy-wasm; both rules are our own, in envoy-vmrule.yaml's
+# (the controller scrape in envoy-vm.yaml). No public ruleset exists for
+# coraza-proxy-wasm; both rules are our own, in envoy-vm.yaml's
 # ratio-plus-absolute-guard house style.
 #
 # Opt-in — gated by the coraza marker block in kustomization.yaml: run

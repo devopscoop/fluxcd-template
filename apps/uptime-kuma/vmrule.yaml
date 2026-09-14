@@ -6,7 +6,7 @@
 # paging path (apps/victoria-metrics/README.md → "Alert routing").
 #
 # No down/absent rule for Uptime Kuma itself: the bundled TargetDown covers
-# a dead scrape target (same reasoning as flux-vmrule.yaml).
+# a dead scrape target (same reasoning as flux-vm.yaml).
 # monitor_status values: 1=UP 0=DOWN 2=PENDING 3=MAINTENANCE.
 apiVersion: operator.victoriametrics.com/v1beta1
 kind: VMRule
@@ -33,7 +33,7 @@ spec:
           labels:
             severity: critical
         # Same threshold and reasoning as EnvoyTlsCertExpiringSoon
-        # (envoy-vmrule.yaml): cert-manager renews 30d ahead where it owns
+        # (envoy-vm.yaml): cert-manager renews 30d ahead where it owns
         # the cert, so 14d left means renewal is stuck — but seen from
         # outside, covering certs cert-manager does NOT own too.
         - alert: UptimeKumaCertExpiringSoon

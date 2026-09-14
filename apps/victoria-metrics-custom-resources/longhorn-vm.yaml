@@ -1,5 +1,34 @@
+# Scrape the Longhorn managers — volume robustness/capacity, node and disk
+# storage usage, backup state, instance-manager CPU — from the
+# "longhorn-backend" Service's :9500 port named "manager" (the DaemonSet's
+# metrics port; default /metrics path), mirroring the ServiceMonitor the
+# chart's metrics.serviceMonitor.enabled would create (verified by rendering
+# chart 1.10.0, apps/longhorn's pin), which is unusable here for the
+# CRD-ownership reason in cnpg-vm.yaml. These series feed
+# the VMRule below and the Longhorn dashboard in apps/victoria-metrics.
+#
+# Longhorn's runtime-created CSI sidecars expose no metrics endpoints, so
+# the managers are the whole scrape surface.
+#
+# apps/longhorn is opt-in (no deploy.sh list registers it), so this file is
+# only referenced from kustomization.yaml inside the longhorn marker block —
+# see the marker note there.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMServiceScrape
+metadata:
+  name: longhorn-manager
+spec:
+  namespaceSelector:
+    matchNames:
+      - longhorn-system
+  selector:
+    matchLabels:
+      app: longhorn-manager
+  endpoints:
+    - port: manager
+---
 # Alerting rules for Longhorn, evaluated by this stack's vmalert over the
-# series collected by longhorn-vmservicescrape.yaml. Copied from the alert
+# series collected by the scrape above. Copied from the alert
 # examples in the Longhorn docs matching apps/longhorn's chart pin
 # (https://longhorn.io/docs/1.10.0/monitoring/alert-rules-example/ — re-sync
 # when bumping the chart), with deliberate deviations:

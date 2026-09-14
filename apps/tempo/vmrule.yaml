@@ -6,7 +6,7 @@
 # — re-sync when bumping the chart), with deliberate deviations for this
 # repo's MONOLITHIC single-binary deployment:
 # - Dropped the multi-cluster "cluster" grouping label (no such external
-#   label here; envoy-vmrule.yaml precedent) and rewrote the mixin's
+#   label here; envoy-vm.yaml precedent) and rewrote the mixin's
 #   container="compactor" / job="<ns>/<component>" matchers — every
 #   component runs in the one "tempo" container under one job.
 # - Dropped alerts that cannot apply: the ring-health quartet (all rings

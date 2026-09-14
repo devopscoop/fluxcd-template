@@ -7,7 +7,7 @@
 # be enabled directly for the same monitoring.coreos.com CRD reason as
 # vmservicescrape.yaml. Deliberate deviations:
 # - Collapsed the per-signal triplets into one rule each via a __name__
-#   regex (the envoy-vmrule.yaml circuit-breaker pattern) — the signal is
+#   regex (the envoy-vm.yaml circuit-breaker pattern) — the signal is
 #   readable from the description's rate split, and nine near-identical
 #   rules would page identically anyway.
 # - "for" windows lengthened (2m -> 10m): upstream pages on any transient
