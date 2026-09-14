@@ -5,6 +5,12 @@
 # pin). Lives here rather than in apps/opencost for the CRD-ordering reason
 # in kustomization.yaml. The "OpenCost / Overview" dashboard in
 # apps/victoria-metrics reads these series back out of vmsingle.
+#
+# EKS-only, like apps/opencost itself (deploy.sh registers the app only
+# when k8s_platform=eks) — referenced from kustomization.yaml inside an
+# opencost marker block, which deploy.sh enables alongside the app; the
+# dashboard entry sits in the same marker in
+# apps/victoria-metrics/values.yaml.
 apiVersion: operator.victoriametrics.com/v1beta1
 kind: VMServiceScrape
 metadata:

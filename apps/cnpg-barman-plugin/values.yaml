@@ -17,7 +17,7 @@
 # plugin's instance-pod sidecar already feeds into each database's :9187
 # exporter as barman_cloud_cloudnative_pg_io_* gauges, which the fleet-wide
 # cnpg-instances scrape collects and the CNPGBackup*/CNPGRecoveryWindow*
-# rules in apps/victoria-metrics-custom-resources/cnpg-vmrule.yaml page on.
+# rules in apps/victoria-metrics-custom-resources/cnpg-vm.yaml page on.
 # (The in-core cnpg_collector_first_recoverability_point twins are
 # deprecated and stay zero on plugin-based clusters like these.) Controller
 # liveness is covered by the bundled KubeDeploymentReplicasMismatch.

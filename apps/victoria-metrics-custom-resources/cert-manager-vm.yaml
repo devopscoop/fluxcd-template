@@ -1,5 +1,41 @@
+# Scrape all three cert-manager components — the controller (certificate
+# ready/expiry/renewal gauges, ACME client request counters, sync counters),
+# the webhook (a failing webhook blocks every cert-manager API write), and
+# cainjector (controller-runtime internals only) — each on :9402 /metrics,
+# plain HTTP (no metricsTLSConfig in apps/cert-manager/values.yaml). Mirrors
+# what the chart's prometheus.servicemonitor.enabled would create, which is
+# unusable here for the CRD-ownership reason in cnpg-vm.yaml.
+#
+# One scrape object, three endpoints: the chart names the metrics port
+# differently on each Service (verified by rendering chart v1.20.0,
+# apps/cert-manager's pin), and an endpoint whose port name a Service lacks
+# simply yields no target, so the three coexist. The job label comes from
+# each Service name: cert-manager, cert-manager-webhook,
+# cert-manager-cainjector — job="cert-manager" is what the cert-manager
+# mixin's rules expect.
+#
+# honorLabels stays false (the default) on purpose: certificate metrics
+# carry their Certificate's namespace in a "namespace" label, which the
+# scrape's target namespace label displaces to "exported_namespace" — the
+# name the VMRule below and the vendored dashboard group on.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMServiceScrape
+metadata:
+  name: cert-manager
+spec:
+  namespaceSelector:
+    matchNames:
+      - cert-manager
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: cert-manager
+  endpoints:
+    - port: tcp-prometheus-servicemonitor
+    - port: metrics
+    - port: http-metrics
+---
 # Alerting rules for cert-manager, evaluated by this stack's vmalert over
-# the series collected by cert-manager-vmservicescrape.yaml. Adapted from
+# the series collected by the scrape above. Adapted from
 # the cert-manager mixin the upstream docs link to
 # (https://github.com/imusmanmalik/cert-manager-mixin, v1.6.0 — jsonnet
 # only, hand-rendered here with its default config), with deliberate
@@ -12,13 +48,13 @@
 #   grafana.dashboards in apps/victoria-metrics/values.yaml).
 # "exported_namespace" below is the Certificate's own namespace — the
 # metrics carry it as "namespace", which the scrape's target label displaces
-# (see the honorLabels note in cert-manager-vmservicescrape.yaml).
+# (see the honorLabels note in the scrape above).
 #
 # The blast radius worth remembering: this repo's ClusterIssuer issues the
 # wildcard certs the Gateways serve
 # (apps/cert-manager-custom-resources/clusterissuer.yaml), so one
 # not-ready Certificate can take every hostname down at expiry. The last
-# line of defense after these is envoy-vmrule.yaml's
+# line of defense after these is envoy-vm.yaml's
 # EnvoyTlsCertExpiringSoon, which watches the certs actually loaded in the
 # proxies.
 apiVersion: operator.victoriametrics.com/v1beta1

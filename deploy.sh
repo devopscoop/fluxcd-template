@@ -132,14 +132,18 @@ if [[ "$bootstrapped" == "false" ]]; then
   commit_and_push "Replacing project1-dev with ${cluster_name}"
 fi
 
-# On EKS, uncomment the eks and karpenter marker blocks in the app manifests.
-# eks blocks hold EKS-platform config (IRSA serviceAccount annotations, AWS
-# NLB annotations, ...); karpenter blocks pin spot-intolerant workloads to
-# on-demand nodes via karpenter.sh/capacity-type. Separate markers because
-# those labels exist only on Karpenter-provisioned nodes, not on EKS nodes in
-# general, and the pinning can be toggled on its own (toggle_blocks.sh
-# --disable karpenter). On non-EKS platforms neither applies, so the blocks
-# stay commented.
+# On EKS, uncomment the eks, karpenter and opencost marker blocks in the app
+# manifests. eks blocks hold EKS-platform config (IRSA serviceAccount
+# annotations, AWS NLB annotations, ...) plus the EKS-only apps' monitoring
+# entries (aws-load-balancer-controller, metrics-server); karpenter blocks
+# pin spot-intolerant workloads to on-demand nodes via
+# karpenter.sh/capacity-type and hold Karpenter's own monitoring — separate
+# markers because those labels exist only on Karpenter-provisioned nodes,
+# not on EKS nodes in general, and the pinning (or a removed Karpenter's
+# monitoring) can be toggled on its own (toggle_blocks.sh --disable
+# karpenter); opencost blocks hold OpenCost's monitoring, gated like the app
+# itself ($app_list registers opencost.yaml only on eks). On non-EKS
+# platforms none of them apply, so the blocks stay commented.
 # toggle_blocks.sh owns the transform and prints each file it processed;
 # the loop stages exactly those (the git bookkeeping stays in this script,
 # like encrypt_secrets.sh below). A pipe rather than process substitution so
@@ -150,8 +154,8 @@ fi
 # safe to repeat -- uncommenting is a no-op for blocks already open, and
 # commit_and_push skips an empty stage.
 if [[ "$k8s_platform" == "eks" ]]; then
-  ./toggle_blocks.sh --enable eks,karpenter | while read -r f; do git add "$f"; done
-  commit_and_push "Enabling EKS and Karpenter marker blocks"
+  ./toggle_blocks.sh --enable eks,karpenter,opencost | while read -r f; do git add "$f"; done
+  commit_and_push "Enabling EKS, Karpenter and OpenCost marker blocks"
 fi
 
 # On non-EKS platforms, uncomment the metallb marker blocks: MetalLB's
@@ -167,6 +171,34 @@ if [[ "$k8s_platform" != "eks" ]]; then
   ./toggle_blocks.sh --enable metallb | while read -r f; do git add "$f"; done
   commit_and_push "Enabling MetalLB monitoring marker blocks"
 fi
+
+# Remove the monitoring manifests of apps this cluster will never run. Each
+# <app>-vm.yaml in apps/victoria-metrics-custom-resources holds one app's
+# scrapes and rules (see that kustomization.yaml's header); its marker block
+# there only gates the kustomize reference, leaving the file itself as dead
+# weight in a cluster repo, so delete it unless the app is installed: named
+# in $core_app_list/$app_list, or already registered in
+# flux/flux-system/kustomization.yaml (which is what covers opt-in apps
+# enabled by hand after bootstrap — their restored files survive re-runs).
+# Special cases: envoy-vm.yaml watches the eg app, rabbitmq-vm.yaml the
+# rabbitmq operator pair, and flux-vm.yaml is skipped outright (the Flux
+# control plane is installed by definition). Like the toggle steps above,
+# this runs on every invocation — and it only ever deletes: enabling an app
+# later means restoring its file from fluxcd-template by hand.
+installed_apps="$core_app_list $app_list $(yq '.resources[]' flux/flux-system/kustomization.yaml | xargs)"
+for f in apps/victoria-metrics-custom-resources/*-vm.yaml; do
+  [[ -e "$f" ]] || continue
+  case "$(basename "$f")" in
+    envoy-vm.yaml) app="eg.yaml" ;;
+    flux-vm.yaml) continue ;;
+    rabbitmq-vm.yaml) app="rabbitmq-cluster-operator.yaml" ;;
+    *) app="$(basename "$f" -vm.yaml).yaml" ;;
+  esac
+  if [[ " ${installed_apps} " != *" ${app} "* ]]; then
+    git rm -q "$f"
+  fi
+done
+commit_and_push "Removing monitoring for apps this cluster does not run"
 
 # Uncomment the Alertmanager -> Slack config in apps/kube-prometheus-stack and
 # apps/victoria-metrics (toggle_blocks.sh finds every slack block

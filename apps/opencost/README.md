@@ -11,7 +11,7 @@ rates, and serves cost metrics (`node_total_hourly_cost`, `pv_hourly_cost`,
 per-container allocation, ...) on `:9003/metrics`. Three pieces, three apps:
 
 - **apps/opencost** (this app) — the exporter itself.
-- **apps/victoria-metrics-custom-resources** — `opencost-vmservicescrape.yaml`
+- **apps/victoria-metrics-custom-resources** — `opencost-vm.yaml`
   scrapes the exporter back into vmsingle (CRs live there for the
   CRD-ordering reason in that app's kustomization.yaml).
 - **apps/victoria-metrics** — the official "OpenCost / Overview" Grafana
@@ -20,6 +20,10 @@ per-container allocation, ...) on `:9003/metrics`. Three pieces, three apps:
   `grafana.dashboards` entry in that app's values.yaml). It tracks the latest
   upstream revision, so there is no vendored copy to re-sync — updates land on
   the next Grafana pod restart.
+
+Both monitoring pieces sit in `opencost` marker blocks, which deploy.sh
+enables on EKS together with the app itself (the app is EKS-only: it's in
+deploy.sh's eks `$app_list`).
 
 ## Pricing accuracy
 

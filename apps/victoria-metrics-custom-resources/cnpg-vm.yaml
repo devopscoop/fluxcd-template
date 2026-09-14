@@ -1,6 +1,74 @@
+# Scrape every CloudNativePG database instance — the postgres exporter the
+# instance manager serves on :9187 (the container port named "metrics"):
+# connections, transactions, replication lag, WAL activity, backup freshness
+# and the rest of the cnpg_* collectors that feed the CloudNativePG dashboard
+# (chart-provisioned; see monitoring.grafanaDashboard in
+# apps/cnpg/values.yaml). The operator stamps
+# cnpg.io/podRole=instance on every instance pod of every Cluster, so one
+# fleet-wide scrape covers goalert's database and any future one scaffolded
+# from apps/templates/cnpg-database with no per-app config.
+#
+# Not CNPG's own monitoring hooks: a Cluster's
+# .spec.monitoring.enablePodMonitor (and the operator chart's
+# monitoring.podMonitorEnabled) create monitoring.coreos.com PodMonitors, and
+# those CRDs only exist on clusters running the kube-prometheus-stack
+# alternative — see the CRD-ownership note in apps/victoria-metrics/README.md.
+# Why this lives here rather than in apps/cnpg: same stack-agnosticism reason
+# as envoy-vm.yaml, and same CRD-ordering reason as
+# kustomization.yaml.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMPodScrape
+metadata:
+  name: cnpg-instances
+spec:
+  namespaceSelector:
+    any: true
+  selector:
+    matchLabels:
+      cnpg.io/podRole: instance
+  podMetricsEndpoints:
+    - port: metrics
+      relabelConfigs:
+        # One fleet-wide scrape means one job label for every database, so
+        # nothing separates goalert-db's series from a future app's. Lift
+        # the operator's owning-cluster pod label onto every series as
+        # "cnpg_cluster" so the VMRule below can group per Cluster — the
+        # exporter itself stamps a "cluster" label on only two metrics
+        # (cnpg_collector_up, cnpg_collector_postgres_version). Same
+        # pattern as the gateway label in envoy-vm.yaml.
+        - sourceLabels:
+            - __meta_kubernetes_pod_label_cnpg_io_cluster
+          targetLabel: cnpg_cluster
+---
+# Scrape the CloudNativePG operator itself — controller-runtime metrics
+# (reconcile rates/durations, webhook requests, workqueue depth) on :8080,
+# the container port named "metrics". The CloudNativePG dashboard's operator
+# panels and its operatorNamespace variable
+# (controller_runtime_webhook_requests_total) come from here; the per-database
+# series come from the instance scrape above. Selector and port mirror the
+# PodMonitor the chart's monitoring.podMonitorEnabled would create, which is
+# unusable here for the CRD-ownership reason in the instance scrape above.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMPodScrape
+metadata:
+  name: cnpg-operator
+spec:
+  namespaceSelector:
+    matchNames:
+      # The namespace apps/cnpg deploys the operator into (its
+      # namespace.yaml), not the release name; "cnpg" here matched nothing
+      # and the scrape pool sat empty (ScrapePoolHasNoTargets).
+      - cnpg-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cloudnative-pg
+      app.kubernetes.io/instance: cnpg
+  podMetricsEndpoints:
+    - port: metrics
+---
 # Alerting rules for every CloudNativePG database, evaluated by this
-# stack's vmalert over the series collected by cnpg-vmpodscrape.yaml (all
-# instances, fleet-wide) and cnpg-operator-vmpodscrape.yaml. Remember the
+# stack's vmalert over the series collected by the two scrapes above (all
+# instances, fleet-wide, plus the operator). Remember the
 # routing model (apps/victoria-metrics/README.md → "Alert routing"): every
 # alert pages GoAlert and Slack; severity is a label, not a filter.
 #
@@ -10,7 +78,7 @@
 # - Fleet-wide instead of per-cluster: upstream templates one PrometheusRule
 #   per database, keyed on its scrape job and a pod-name regex. Here one
 #   scrape covers the fleet, so rules group by (namespace, cnpg_cluster) —
-#   the label cnpg-vmpodscrape.yaml lifts from the cnpg.io/cluster pod
+#   the label the instance scrape lifts from the cnpg.io/cluster pod
 #   label — and one VMRule covers goalert-db plus every future database
 #   scaffolded from apps/templates/cnpg-database with no per-app config.
 # - Dropped the logical-replication rules (6 of upstream's 19): they read
@@ -25,7 +93,7 @@
 #   regex ends in "$" before appending "-wal", which RE2 can never match.
 # - Dropped instance-metrics-absent and cluster-offline: the bundled
 #   TargetDown covers a dead exporter (same reasoning as the deliberately
-#   missing controller-down rule in flux-vmrule.yaml); the fleet-wide
+#   missing controller-down rule in flux-vm.yaml); the fleet-wide
 #   CNPGFleetMetricsAbsent below keeps the one absence that is
 #   unconditionally wrong on this template (goalert-db is a core app, so
 #   zero cnpg series cluster-wide means collection itself broke).
@@ -170,7 +238,7 @@ spec:
               Not a single cnpg_collector_up series is being collected. On
               this template that is unconditionally wrong — goalert-db is a
               core app — so either every database is down or the
-              cnpg-instances scrape broke (see cnpg-vmpodscrape.yaml; its
+              cnpg-instances scrape broke (see the instance scrape above; its
               selector rotting is exactly how the operator scrape once sat
               empty). Every other rule in this group is blind while this
               fires.

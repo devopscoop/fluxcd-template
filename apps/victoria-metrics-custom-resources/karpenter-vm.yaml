@@ -1,11 +1,48 @@
+# Scrape Karpenter — node/nodepool capacity gauges, provisioning and
+# disruption counters, cloudprovider error counters, controller-runtime
+# internals — from the chart's "karpenter" Service, port "http-metrics"
+# (:8080, standard /metrics, plain HTTP; verified by rendering chart 1.14.0,
+# apps/karpenter's pin). Mirrors the ServiceMonitor the chart's
+# serviceMonitor.enabled would create, which is unusable here for the
+# CRD-ownership reason in cnpg-vm.yaml.
+#
+# A service scrape, not a pod scrape, on purpose: the job label defaults to
+# the Service name, and job="karpenter" is what the VMRule below's
+# upstream exprs and the vendored Karpenter Performance dashboard's
+# $controller variable filter on (a VMPodScrape would yield
+# job="victoria-metrics/karpenter", and those anchored matchers would go
+# dark).
+#
+# EKS-only, like apps/karpenter itself — this file is referenced from
+# kustomization.yaml inside a karpenter marker block, which deploy.sh
+# enables exactly when it enables the app (a separate marker from eks so
+# Karpenter's monitoring can be toggled on its own, matching the
+# karpenter blocks elsewhere in the repo).
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMServiceScrape
+metadata:
+  name: karpenter
+spec:
+  namespaceSelector:
+    matchNames:
+      # apps/karpenter deploys into kube-system (its kustomization.yaml),
+      # matching the Karpenter getting-started layout.
+      - kube-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: karpenter
+      app.kubernetes.io/instance: karpenter
+  endpoints:
+    - port: http-metrics
+---
 # Alerting rules for Karpenter, evaluated by this stack's vmalert over the
-# series collected by karpenter-vmservicescrape.yaml. Adapted from
+# series collected by the scrape above. Adapted from
 # adinhodovic/kubernetes-autoscaling-mixin (the alerting companion to the
 # community Karpenter dashboards; same author as the envoy-mixin behind
-# envoy-vmrule.yaml), with deliberate deviations:
+# envoy-vm.yaml), with deliberate deviations:
 # - Dropped the multi-cluster "cluster" grouping label and the namespace
 #   grouping (Karpenter is a kube-system singleton), same as
-#   envoy-vmrule.yaml; kept the job="karpenter" matchers — nothing else
+#   envoy-vm.yaml; kept the job="karpenter" matchers — nothing else
 #   emits karpenter_* series, but they cost nothing and keep the exprs
 #   aligned with upstream.
 # - KarpenterClusterStateNotSynced raised warning -> critical: an unsynced
@@ -18,7 +55,7 @@
 # - Added KarpenterInstanceLaunchFailures (not in the mixin): the NodePool
 #   restricts to nitro c/m/r generations >2, size >= large, spot-first — a
 #   combination that can genuinely run out of offerings in an AZ.
-# EKS-only, gated by the same eks marker block as the scrape.
+# EKS-only, gated by the same karpenter marker block as the scrape.
 apiVersion: operator.victoriametrics.com/v1beta1
 kind: VMRule
 metadata:

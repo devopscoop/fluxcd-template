@@ -1,7 +1,7 @@
 # "Coraza WAF" — block rate/ratio per gateway fleet, the per-rule_id tuning
 # view, and the Envoy Gateway controller's wasm module fetch health — fed by
 # the existing envoy scrapes (the coraza wasm filter runs inside the proxy
-# pods; see apps/victoria-metrics-custom-resources/coraza-vmrule.yaml for the
+# pods; see apps/victoria-metrics-custom-resources/coraza-vm.yaml for the
 # data path and the stats_tags prerequisite in
 # apps/eg-custom-resources/envoyproxy-*.yaml). Hand-built: coraza-proxy-wasm
 # publishes no dashboard, and it only emits two counters. The gateway label

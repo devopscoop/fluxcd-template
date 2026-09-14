@@ -378,20 +378,10 @@ grafana:
   # dead weight in the Grafana UI.
   dashboards:
     downloaded:
-      # "OpenCost / Overview" (grafana.com 22208) -- cluster-wide cost metrics
-      # (hourly/monthly totals, cost by resource, instance type, namespace,
-      # node, and PV), fed by apps/opencost via the VMServiceScrape in
-      # apps/victoria-metrics-custom-resources/opencost-vmservicescrape.yaml.
-      # Its hidden "cluster" variable resolves empty here (this stack stamps
-      # no `cluster` external label) and PromQL {cluster=""} matches series
-      # without the label, so every query works as-is.
-      opencost-overview:
-        gnetId: 22208
-        revision: latest
       # "Flux Performance" — the flux-operator's own dashboard: per-resource
       # readiness and reconcile durations (flux_resource_info and friends),
       # controller CPU/memory/network, API-server load — fed by
-      # flux-operator-vmpodscrape.yaml / flux-controllers-vmpodscrape.yaml in
+      # flux-vm.yaml in
       # apps/victoria-metrics-custom-resources. The URL tracks main because
       # deploy.sh installs the operator with self-update on, so a tag pin
       # would drift from the running version.
@@ -402,7 +392,7 @@ grafana:
             value: VictoriaMetrics
       # "Flux Control Plane" — controller-level detail: reconcile durations
       # by kind, workqueue depth/latency, client-go request rates, controller
-      # memory — fed by flux-controllers-vmpodscrape.yaml. Overlaps Flux
+      # memory — fed by flux-vm.yaml. Overlaps Flux
       # Performance on purpose: this one is the controllers' internals, that
       # one the resources' state. Tracks main — the example repo publishes no
       # tags. (Its cluster.json/logs.json siblings are deliberately not
@@ -416,7 +406,7 @@ grafana:
             value: VictoriaMetrics
       # "cert-manager" (grafana.com 20340) — certificate readiness and
       # time-to-expiry by namespace/cert, ACME client request rates — fed by
-      # cert-manager-vmservicescrape.yaml (the "namespace" variable lists
+      # cert-manager-vm.yaml (the "namespace" variable lists
       # exported_namespace values, i.e. the Certificates' own namespaces; see
       # the honorLabels note on the scrape). The current-era community
       # dashboard: the older mixin dashboards query kube-state-metrics v1
@@ -429,7 +419,7 @@ grafana:
             value: VictoriaMetrics
       # "External DNS" (grafana.com 23969) — record counts by
       # source/registry, sync/error rates, last sync timestamps — fed by
-      # external-dns-vmservicescrape.yaml; the per-pod variable comes from
+      # external-dns-vm.yaml; the per-pod variable comes from
       # kube_pod_info (kube-state-metrics, part of this stack). Deliberately
       # NOT the far-more-downloaded 15038: that one predates external-dns
       # 0.20's metric consolidation (its *_a_records/*_aaaa_records panels
@@ -463,12 +453,25 @@ grafana:
         datasource:
           - name: DS_PROMETHEUS
             value: VictoriaMetrics
-# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
+# >>> opencost: deploy.sh uncomments this block when k8s_platform=eks
+##       "OpenCost / Overview" (grafana.com 22208) -- cluster-wide cost
+##       metrics (hourly/monthly totals, cost by resource, instance type,
+##       namespace, node, and PV), fed by apps/opencost via the
+##       VMServiceScrape in
+##       apps/victoria-metrics-custom-resources/opencost-vm.yaml. Its hidden
+##       "cluster" variable resolves empty here (this stack stamps no
+##       `cluster` external label) and PromQL {cluster=""} matches series
+##       without the label, so every query works as-is.
+#       opencost-overview:
+#         gnetId: 22208
+#         revision: latest
+# <<< opencost
+# >>> karpenter: deploy.sh uncomments this block when k8s_platform=eks
 ##       "Karpenter Capacity" / "Karpenter Performance" — AWS's official
 ##       dashboards: node/nodepool allocatable vs usage by
 ##       zone/arch/capacity-type, pod scheduling state, disruption activity;
 ##       controller reconcile rates/latency, scheduling queue timing — fed
-##       by karpenter-vmservicescrape.yaml (its job="karpenter" is what the
+##       by karpenter-vm.yaml (its job="karpenter" is what the
 ##       $controller variable filters on). The URL tag matches
 ##       apps/karpenter's chart pin (chart version = karpenter version) —
 ##       bump it when bumping the app. No placeholders to rewrite: the saved
@@ -478,15 +481,17 @@ grafana:
 #         url: https://raw.githubusercontent.com/aws/karpenter-provider-aws/v1.14.0/website/content/en/docs/getting-started/getting-started-with-karpenter/karpenter-capacity-dashboard.json
 #       karpenter-performance:
 #         url: https://raw.githubusercontent.com/aws/karpenter-provider-aws/v1.14.0/website/content/en/docs/getting-started/getting-started-with-karpenter/karpenter-performance-dashboard.json
+# <<< karpenter
+# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
 ##       "AWS Load Balancer Controller" (grafana.com 18319 — no official
 ##       upstream dashboard exists) — reconcile rates/errors/latency,
 ##       webhook requests, AWS API call rates/latency/retries — fed by
-##       aws-load-balancer-controller-vmpodscrape.yaml (whose jobLabel makes
+##       aws-load-balancer-controller-vm.yaml (whose jobLabel makes
 ##       job="aws-load-balancer-controller", which the $job variable needs).
 ##       Known gap: the upstream predates client-go's rename of
 ##       rest_client_request_latency_seconds to
 ##       rest_client_request_duration_seconds, so its two client-go latency
-##       panels stay empty — aws-load-balancer-controller-vmrule.yaml alerts
+##       panels stay empty — aws-load-balancer-controller-vm.yaml alerts
 ##       on the awslbc_* metrics directly instead. It also predates the
 ##       awslbc_* subsystem, so reconcile-stage/readiness-gate detail isn't
 ##       charted.
@@ -503,7 +508,7 @@ grafana:
 ##       of its own) — address-pool usage split by IPv4/IPv6 (an aggregate
 ##       ratio would hide "IPv6 exhausted, IPv4 free" in this template's
 ##       dual-stack pool), layer-2 announcement activity, config
-##       loaded/stale state — fed by metallb-vmpodscrape.yaml. Preferred
+##       loaded/stale state — fed by metallb-vm.yaml. Preferred
 ##       over the more-downloaded 14127, which is schema-26-era with no
 ##       per-family pool split. BGP panels are absent by design — this
 ##       template advertises via L2 only.
@@ -517,7 +522,7 @@ grafana:
 # >>> longhorn: ./toggle_blocks.sh --enable longhorn when enabling apps/longhorn
 ##       "Longhorn Monitoring & Backups" (grafana.com 16888) — volume
 ##       robustness/capacity with per-PVC drill-down, node/disk storage
-##       usage, backup state — fed by longhorn-vmservicescrape.yaml (plus
+##       usage, backup state — fed by longhorn-vm.yaml (plus
 ##       kubelet_volume_stats_* from the stack's kubelet scrape). Preferred
 ##       over the Longhorn docs' 17626, which is schema-26-era and needs
 ##       datasource surgery to provision. Known caveats at apps/longhorn's
@@ -535,7 +540,7 @@ grafana:
 # >>> rook-ceph: ./toggle_blocks.sh --enable rook-ceph when enabling apps/rook-ceph
 ##       "Ceph Cluster" / "Ceph - Pools" — health, capacity,
 ##       throughput/IOPS, OSD state; per-pool capacity/usage/IOPS — fed by
-##       rook-ceph-mgr-vmservicescrape.yaml (whose honorLabels: true is what
+##       rook-ceph-vm.yaml (whose honorLabels: true is what
 ##       keeps the on(instance)/on(ceph_daemon)/pool_id joins working). The
 ##       URL tag matches apps/rook-ceph-cluster's pin — bump it when bumping
 ##       the app; rook's copies track the ceph-mixin originals with Rook
