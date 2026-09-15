@@ -53,7 +53,7 @@ At least one base backup must exist. Everything written after the last archived 
 Three changes to the Cluster document (the ObjectStore and ScheduledBackup documents stay as they are):
 
 1. Replace the whole `bootstrap.initdb` block with `bootstrap.recovery`.
-2. Add a `serverName` parameter under `.spec.plugins` — the restored cluster's *new* archive path. Bump the suffix on every restore (`-r2`, `-r3`, ...).
+2. Add a `serverName` parameter under `.spec.plugins` — the restored cluster's *new* archive path. Bump the suffix on every restore (`-r2`, `-r3`, ...). Major upgrades bump the same counter for the same reason (`runbooks/upgrade-cnpg-database.md`), so the next free suffix may be one a restore never used.
 3. Add `externalClusters` pointing at where the backup lives — the *old* `serverName` (the Cluster name, unless a previous restore already bumped it).
 
 ```yaml

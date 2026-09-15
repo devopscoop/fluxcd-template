@@ -120,3 +120,5 @@ Privileges: the `developers` group grants `pg_read_all_data` by default — tabl
 ## Related
 
 Restoring a database from its barman backup: `runbooks/restore-cnpg-database.md`.
+
+Moving a database to a new PostgreSQL major: `runbooks/upgrade-cnpg-database.md`.

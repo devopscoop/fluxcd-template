@@ -23,6 +23,7 @@
 #
 # Connecting a psql or GUI client: runbooks/connect-cnpg-database.md.
 # Restoring from backup: runbooks/restore-cnpg-database.md.
+# Moving to a new postgres major: runbooks/upgrade-cnpg-database.md.
 #
 # CNPG auto-creates an `app-template-db-app` Secret (`<cluster>-app`) for the
 # owner of the database below; its `uri` key is a ready-made libpq connection
@@ -69,7 +70,10 @@ spec:
   # what this repo's CNPG operator (1.28) defaults new clusters to, and the
   # first major with native OAuth support — but drop to an older major when
   # the app's test matrix demands it (goalert stays on 17: its v0.34 tested
-  # against 13-17 only).
+  # against 13-17 only). Patch bumps within a major are a rolling restart;
+  # bumping the MAJOR on a live database is an offline, one-way operation
+  # that also has to move the barman archive path — read
+  # runbooks/upgrade-cnpg-database.md before you edit this line.
   imageName: ghcr.io/cloudnative-pg/postgresql:18.6-system-trixie
   bootstrap:
     initdb:
