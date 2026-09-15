@@ -164,7 +164,8 @@ fi
 # metallb.yaml only on k0s/talos) because monitoring an app that never
 # deploys leaves an empty scrape pool paging ScrapePoolHasNoTargets — see
 # the marker note in apps/victoria-metrics-custom-resources/kustomization.yaml.
-# Opt-in apps' monitoring markers (longhorn, rook-ceph, rabbitmq, coraza)
+# Opt-in apps' monitoring markers (longhorn, rook-ceph, rabbitmq, coraza,
+# valkey)
 # are NOT enabled here for the same reason: enable them by hand together
 # with the app. Same converge-on-every-run reasoning as the eks step above.
 if [[ "$k8s_platform" != "eks" ]]; then
@@ -181,8 +182,9 @@ fi
 # flux/flux-system/kustomization.yaml (which is what covers opt-in apps
 # enabled by hand after bootstrap — their restored files survive re-runs).
 # Special cases: envoy-vm.yaml watches the eg app, rabbitmq-vm.yaml the
-# rabbitmq operator pair, and flux-vm.yaml is skipped outright (the Flux
-# control plane is installed by definition). Like the toggle steps above,
+# rabbitmq operator pair, valkey-vm.yaml the valkey-operator app, and
+# flux-vm.yaml is skipped outright (the Flux control plane is installed by
+# definition). Like the toggle steps above,
 # this runs on every invocation — and it only ever deletes: enabling an app
 # later means restoring its file from fluxcd-template by hand.
 installed_apps="$core_app_list $app_list $(yq '.resources[]' flux/flux-system/kustomization.yaml | xargs)"
@@ -192,6 +194,7 @@ for f in apps/victoria-metrics-custom-resources/*-vm.yaml; do
     envoy-vm.yaml) app="eg.yaml" ;;
     flux-vm.yaml) continue ;;
     rabbitmq-vm.yaml) app="rabbitmq-cluster-operator.yaml" ;;
+    valkey-vm.yaml) app="valkey-operator.yaml" ;;
     *) app="$(basename "$f" -vm.yaml).yaml" ;;
   esac
   if [[ " ${installed_apps} " != *" ${app} "* ]]; then

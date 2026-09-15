@@ -70,3 +70,9 @@ resources:
 # >>> coraza: ./toggle_blocks.sh --enable coraza when enabling apps/coraza
 #   - coraza-vm.yaml
 # <<< coraza
+# >>> valkey: ./toggle_blocks.sh --enable valkey when enabling the valkey-operator app
+#   - valkey-vm.yaml
+## The valkey-instances scrape is a second marker block inside
+## valkey-vm.yaml, commented until the first ValkeyCluster ships -- see that
+## file's header.
+# <<< valkey

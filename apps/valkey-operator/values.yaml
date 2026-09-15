@@ -1,0 +1,14 @@
+# dyff between <(yq . <(helm show values valkey/valkey-operator --version 0.6.0)) <(yq eval '. * load("values.yaml")' <(helm show values valkey/valkey-operator --version 0.6.0))
+# vim -O <(helm show values valkey/valkey-operator --version 0.6.0) values.yaml
+
+# No overrides: the chart's defaults are all right here. Two of them are
+# load-bearing for monitoring — metrics.enabled=true serves the operator's
+# controller-runtime metrics on :8443 behind the valkey-operator-metrics
+# Service, and metrics.secure=false keeps that endpoint plain HTTP with the
+# Service port named "http" — which is exactly what the VMServiceScrape in
+# apps/victoria-metrics-custom-resources/valkey-vm.yaml scrapes (flipping
+# secure on renames the port "https" and gates it behind TokenReview, so the
+# scrape would need a bearer-token re-work). The chart's ServiceMonitor
+# toggle stays off as always: the monitoring.coreos.com CRDs are
+# deliberately absent on a pure VictoriaMetrics cluster (see
+# apps/victoria-metrics/README.md → "CRD ownership").

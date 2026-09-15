@@ -1,0 +1,115 @@
+# An HA Valkey cluster (sharded, automatic failover) for an app that needs a
+# fault-tolerant cache or key/value store, managed by the operator in
+# apps/valkey-operator. Copied by hand (not scaffolded by a script), like
+# apps/templates/rabbitmq. Spec reference:
+# https://github.com/valkey-io/valkey-operator/blob/main/docs/valkeycluster.md
+# (pin the tag to apps/valkey-operator's chart version when reading).
+#
+# To give an app a Valkey cluster:
+#
+# 1. Copy this file into apps/<app>/ and replace every "app-template" with
+#    the app's name, e.g.:
+#      sed -i "s/app-template/myapp/g" apps/myapp/valkeycluster.yaml
+# 2. Add the file to that app's kustomization.yaml resources, and give the
+#    app's Kustomization in flux/flux-system/ a dependsOn entry for
+#    valkey-operator — that app's HelmRelease installs the ValkeyCluster CRD,
+#    and flux dry-runs every object before applying any (the ordering problem
+#    apps/victoria-metrics-custom-resources/kustomization.yaml explains).
+# 3. Review the sizing and comments marked "per app" below: shards/replicas,
+#    resources, maxmemory and eviction policy, persistence.
+# 4. Enable monitoring with the app: ./toggle_blocks.sh --enable
+#    valkey,valkey-instances — see the header of
+#    apps/victoria-metrics-custom-resources/valkey-vm.yaml for the dashboard
+#    and alert set to vendor alongside.
+#
+# Decide-before-first-deploy fields, all immutable after creation:
+# workloadType (StatefulSet below; Deployment is the cache-only variant with
+# no volumes and no stable pod identity), persistence (cannot be added OR
+# removed later; size can only grow; storageClassName is immutable), and
+# zone pinning if you add it. Changing any of them means delete-and-recreate,
+# which with persistence is destructive.
+#
+# The app's client must speak the cluster protocol — follow MOVED/ASK
+# redirects (ioredis `new Cluster(...)`, redis-py `RedisCluster`, go-redis
+# `ClusterClient`, ...). A plain single-node client fails on any key living
+# on another shard, and multi-key commands only work when the keys share a
+# hash slot (force that with "{...}" hash tags).
+apiVersion: valkey.io/v1alpha1
+kind: ValkeyCluster
+metadata:
+  name: app-template-valkey
+spec:
+  # 3 shards is the floor for automatic failover of an UNPLANNED primary
+  # loss: promotion is voted by a majority of the remaining primaries, and
+  # with 1 or 2 shards no majority survives a dead primary. (Planned
+  # terminations — drains, evictions, rolling updates — don't need the vote:
+  # the operator and Valkey 9's shutdown-on-sigterm failover hand slots over
+  # before the pod exits.) 1 replica per shard makes any single pod loss
+  # non-disruptive: a replica's death costs nothing, a primary's death
+  # promotes its replica within cluster-node-timeout. 6 pods total. Scale
+  # shards for keyspace/throughput and replicas for failure tolerance —
+  # never below 3x1. per app
+  shards: 3
+  replicas: 1
+  # No image pin: the operator's default is valkey/valkey:9.0.0 (its
+  # graceful-shutdown failover needs 9.0+, TLS cert reload 9.1+). Set
+  # `image:` to pin independently of operator upgrades. per app
+  config:
+    # Both are live-settable: the operator applies changes without rolling
+    # pods. maxmemory is per node (each shard holds 1/shards of the
+    # keyspace) and needs headroom below the container limit for client
+    # buffers, replication and fork overhead — ~75% is the usual ceiling.
+    # allkeys-lru suits a cache; use noeviction when losing keys is worse
+    # than failing writes, and size the limit for the real dataset. per app
+    maxmemory: 1536mb
+    maxmemory-policy: allkeys-lru
+  # Memory req=limit so the kubelet never evicts a cache node for someone
+  # else's burst; no CPU limit (repo-wide convention, and Valkey is
+  # single-threaded per shard — throttling just adds tail latency). per app
+  resources:
+    requests:
+      cpu: 500m
+      memory: 2Gi
+    limits:
+      memory: 2Gi
+  # Persistence keeps memory state across pod rolls (replicas can partially
+  # resync instead of full-syncing) and means a full-cluster restart comes
+  # back warm instead of stampeding the backing store. Drop this block —
+  # BEFORE first deploy, it's immutable — only for a strictly disposable
+  # cache, and switch workloadType to Deployment if you do. Size it for the
+  # RDB/AOF of maxmemory's dataset with room to grow (it can only grow).
+  # gp3 is the EKS class from apps/eks-storage-classes; change it on other
+  # platforms. per app
+  persistence:
+    size: 5Gi
+    storageClassName: gp3
+  scheduling:
+    node:
+      spread:
+        # Never let a shard's primary and replica share a node: colocated,
+        # one node loss takes the whole shard's slice of the keyspace
+        # offline — the exact failure the replica exists to absorb.
+        shard:
+          mode: Required
+    zone:
+      spread:
+        # Bias each shard's pods across zones so a zone outage can't take
+        # out a whole shard. Preferred, not Required: a hard rule can leave
+        # pods Pending when zone capacity is tight, and (with persistence)
+        # can push a recreated pod away from its zonal volume. Cross-zone
+        # replication adds write latency and inter-AZ transfer cost —
+        # usually the right trade for a customer-facing store, but drop the
+        # block if this cluster is a latency-critical same-zone cache.
+        shard:
+          mode: Preferred
+# >>> karpenter: deploy.sh uncomments this block when k8s_platform=eks
+## A single spot reclaim is handled gracefully (the SIGTERM failover above),
+## but reclaims correlate, and two primaries gone at once is a lost failover
+## quorum with 3 shards -- so keep Valkey on on-demand capacity, same
+## reasoning as apps/templates/rabbitmq.
+#     nodeSelector:
+#       karpenter.sh/capacity-type: on-demand
+# <<< karpenter
+  # No PDB manifest, unlike apps/templates/rabbitmq: the operator creates a
+  # maxUnavailable: 1 PodDisruptionBudget itself (podDisruptionBudget.mode
+  # defaults to Cluster).
