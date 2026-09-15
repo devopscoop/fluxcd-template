@@ -1,0 +1,118 @@
+# Scrape the Valkey operator's controller-runtime metrics (reconcile
+# rates/errors, workqueue depth, client-go internals) from the chart's
+# valkey-operator-metrics Service, port "http" (:8443 — plain HTTP:
+# metrics.secure defaults to false, and flipping it renames the port "https"
+# and gates the endpoint behind TokenReview; see the comment in
+# apps/valkey-operator/values.yaml). Selector mirrors the chart's own
+# ServiceMonitor (templates/servicemonitor.yaml, disabled as always — the
+# monitoring.coreos.com CRDs are deliberately absent on a pure
+# VictoriaMetrics cluster) minus its release-name instance label. Verified
+# against valkey-operator chart 0.6.0, matching apps/valkey-operator's pin.
+#
+# Note this covers the OPERATOR only. Valkey *instances* (ValkeyCluster CRs
+# — none ship in this repo; apps/templates/valkey is the scaffold) expose
+# the real keyspace/memory/command/replication metrics via the
+# redis_exporter sidecar the operator adds to every pod by default. When
+# the first ValkeyCluster lands, enable the valkey-instances marker block at
+# the bottom of this file (./toggle_blocks.sh --enable valkey-instances) —
+# the cnpg-style fleet-wide scrape — and vendor the exporter's dashboard
+# (grafana.com/dashboards/763, redis_exporter's own contrib dashboard: the
+# sidecar is oliver006/redis_exporter, so redis_* tooling applies to Valkey
+# as-is) plus an instance alert set into apps/victoria-metrics (the operator
+# ships no rules; adapt the redis_exporter-based redis/valkey set from
+# samber/awesome-prometheus-alerts, pruned and re-tuned per AGENTS.md —
+# severity is a page label here, not a filter).
+#
+# Opt-in, like the operator app — gated by the valkey marker block in
+# kustomization.yaml: run ./toggle_blocks.sh --enable valkey when enabling
+# it.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMServiceScrape
+metadata:
+  name: valkey-operator
+spec:
+  namespaceSelector:
+    matchNames:
+      - valkey-operator-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: valkey-operator
+  endpoints:
+    - port: http
+---
+# Alerting rule for the Valkey operator, evaluated by this stack's vmalert.
+# Upstream ships no alert rules at the valkey-operator 0.6.0 pin, so this is
+# modeled on the rabbitmq-operators rule in rabbitmq-vm.yaml. It
+# deliberately duplicates the bundled KubeDeploymentReplicasMismatch for
+# this one Deployment — kept because it names the operator and what stops
+# working in the page title, which the generic rule does not.
+#
+# Opt-in — gated by the same valkey marker block as the operator scrape.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  name: valkey-operator
+spec:
+  groups:
+    - name: valkey-operator
+      rules:
+        - alert: ValkeyOperatorUnavailableReplicas
+          annotations:
+            summary: The Valkey operator has unavailable replicas.
+            description: >-
+              {{ $labels.deployment }} has had
+              {{ printf "%.0f" $value }} unavailable replica(s) for 5m —
+              ValkeyCluster reconciliation is stopped. Running clusters keep
+              serving, and quorum failover still promotes replicas (that
+              vote is server-side); rolling updates, scaling, config/ACL
+              changes and post-failover repairs don't happen.
+          expr: |-
+            kube_deployment_status_replicas_unavailable{
+              namespace="valkey-operator-system",
+              deployment="valkey-operator"
+            } > 0
+          for: 5m
+          labels:
+            severity: warning
+# >>> valkey-instances: ./toggle_blocks.sh --enable valkey-instances when the first ValkeyCluster ships
+# ---
+## Scrape every Valkey instance pod — keyspace hit/miss, memory vs
+## maxmemory, command rates, replication lag, cluster state — fleet-wide:
+## the operator stamps app.kubernetes.io/component=valkey-node +
+## app.kubernetes.io/managed-by=valkey-operator on every ValkeyCluster pod
+## in any namespace, each of which carries the redis_exporter sidecar on
+## its "metrics" container port (:9121, on by default). Same fleet-wide
+## pattern as cnpg-vm.yaml and the rabbitmq-instances block: one scrape
+## covers every cluster ever scaffolded from apps/templates/valkey with no
+## per-app config. Selector, port and labels verified against
+## valkey-operator v0.6.0 (internal/controller/utils.go baseLabels,
+## valkeynode_resources.go, metrics_exporter.go).
+##
+## Commented out by default (this marker block, inside the valkey one): no
+## ValkeyCluster ships in this repo, and an empty scrape pool trips the
+## bundled ScrapePoolHasNoTargets alert. Enable it when the first cluster
+## lands, together with the dashboard and alert set the file header names.
+# apiVersion: operator.victoriametrics.com/v1beta1
+# kind: VMPodScrape
+# metadata:
+#   name: valkey-instances
+# spec:
+#   namespaceSelector:
+#     any: true
+#   selector:
+#     matchLabels:
+#       app.kubernetes.io/component: valkey-node
+#       app.kubernetes.io/managed-by: valkey-operator
+#   podMetricsEndpoints:
+#     - port: metrics
+#       relabelConfigs:
+##         redis_exporter series carry no label naming the ValkeyCluster
+##         they came from — with two clusters, only the pod name would tell
+##         them apart. Lift the operator's cluster pod label onto every
+##         series so rules and dashboard variables can group per cluster.
+##         Named valkey_cluster, not cluster: dashboards and mixins treat
+##         "cluster" as a multi-Kubernetes-cluster external label.
+#         - sourceLabels:
+#             - __meta_kubernetes_pod_label_valkey_io_cluster
+#           targetLabel: valkey_cluster
+# <<< valkey-instances

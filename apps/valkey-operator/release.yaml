@@ -1,0 +1,38 @@
+# https://fluxcd.io/flux/components/helm/helmreleases/
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: valkey-operator
+spec:
+  # The chart carries the ValkeyCluster/ValkeyNode CRDs in its crds/
+  # directory, and Helm never upgrades those on its own — upstream's
+  # UPGRADE.md tells you to kubectl-apply the new CRDs by hand before every
+  # chart bump. CreateReplace makes Flux apply them from the chart on both
+  # install and upgrade instead, so a version bump here is the whole
+  # procedure. Contrast apps/karpenter, which Skips because a separate
+  # karpenter-crd chart owns its CRDs; no such chart exists for
+  # valkey-operator.
+  #
+  # The API is still v1alpha1 and upstream has shipped breaking spec changes
+  # in minor releases (0.5.0 moved spec.tls, 0.6.0 moved
+  # spec.networking.tls.certificate — see the chart's UPGRADE.md), so treat
+  # every bump of the pin below as a real change: read the release notes and
+  # check the ValkeyCluster manifests scaffolded from apps/templates/valkey
+  # against them.
+  install:
+    crds: CreateReplace
+  upgrade:
+    crds: CreateReplace
+  interval: 10m
+  valuesFrom:
+    - kind: ConfigMap
+      name: valkey-operator-values
+    - kind: Secret
+      name: valkey-operator-secrets
+  chart:
+    spec:
+      chart: valkey-operator
+      version: 0.6.0
+      sourceRef:
+        kind: HelmRepository
+        name: valkey
