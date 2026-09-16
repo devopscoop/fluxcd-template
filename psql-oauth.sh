@@ -1,73 +1,42 @@
 #!/usr/bin/env bash
 
-# One-command OAuth developer SSO psql session on a CNPG database whose
-# Cluster has the pg-oauth marker block enabled — the scripted version of
-# runbooks/connect-cnpg-database.md option 4, which documents the manual
-# steps, the prerequisites, and the privilege model.
-#
-# What it does:
-#   1. reads the oauth rule from the Cluster's .spec.postgresql.pg_hba and
-#      takes the issuer from it, so there is no issuer flag to drift out of
-#      sync with the manifest;
-#   2. port-forwards the cluster's read-write Service to a local port;
-#   3. runs psql's OAuth device flow — psql prints a URL and a code, you
-#      approve in the browser via the upstream IdP, and the prompt opens in
-#      your per-developer role;
-#   4. kills the port-forward when psql exits.
+# One-command OAuth developer SSO psql on a CNPG database whose Cluster has
+# the pg-oauth marker block enabled — the scripted version of option 4 in
+# runbooks/connect-cnpg-database.md, which documents the prerequisites and
+# the privilege model. It reads the issuer from the Cluster's pg_hba,
+# port-forwards the read-write Service, runs psql's OAuth device flow, and
+# tears the forward down on exit.
 #
 # Interactive or batch. With a terminal on stdin and no -c/-f you get the
-# psql prompt and read the device-flow URL and code off it as usual.
-# Otherwise — `-c`/`-f` after `--`, SQL piped in, or an agent such as Claude
-# Code running the script — psql runs the statements and exits, and the
-# script opens dex's verification page (code prefilled) in the local browser
-# the moment psql prints the device-flow prompt: approve there and the
-# results come back, whether or not anyone is reading the terminal. Every
-# connection is one approval — libpq has no way to hand psql a token
-# obtained earlier (only the PQsetAuthDataHook C API) — so batch statements
-# into a single invocation rather than one per query:
+# psql prompt. Otherwise (SQL via -c/-f after `--`, or piped in) psql runs
+# the statements and exits, and the script opens dex's verification page —
+# code prefilled — in the browser the moment psql prints the device prompt,
+# so an agent such as Claude Code can drive it: the run blocks until you
+# approve, then returns the output. libpq can't reuse a token across psql
+# processes, so every connection is one approval — batch statements into one
+# invocation.
 #
-#   ./psql-oauth.sh APP -- -c 'select count(*) from users'
-#   ./psql-oauth.sh APP -- -At -c 'select id from users order by 1'
-#   ./psql-oauth.sh APP <<'SQL'
-#   \dt
-#   select ...;
-#   SQL
+# Sessions amortise that approval. `--session start APP` leaves the
+# port-forward and a connected psql in the background; later batch runs
+# against the same database are fed to it over a FIFO with no browser, until
+# `--session stop APP` (`--session status` lists them). A session request
+# takes SQL via -c/-f/stdin plus output flags -A -t -x -F -v --csv; anything
+# else needs a fresh connection. A CNPG switchover ends a session (the
+# forward pins one pod); the next request says so and connects afresh.
 #
-# Sessions, for many queries on one approval. `--session start APP` leaves
-# the port-forward and a connected psql running in the background; from then
-# on every batch run against the same database (same namespace, Cluster,
-# database and role) is handed to that psql over a FIFO and returns without
-# a browser, until `--session stop APP`. Session requests take SQL through
-# -c (repeatable), -f FILE or stdin, plus the output flags -A -t -x -F SEP
-# --csv and -v NAME=VALUE; any other psql flag needs a fresh connection, so
-# stop the session first. Statements run one at a time with the output
-# settings reset per request, as with psql -f, and the exit status is 1 when
-# the server reported an error. An interactive run (terminal, no -c/-f)
-# always connects afresh. `--session status` (with or without APP) shows
-# what is running. A session keeps a database connection and a port-forward
-# open until stopped — and the forward pins one pod, so a CNPG switchover
-# ends it; the next request notices, says so, and connects afresh.
-#
-# The APP argument follows this repo's conventions (namespace = APP,
-# Cluster = APP-db, database = APP); -n/-c/-d override any of them for
-# clusters named differently. Everything after `--` goes to psql verbatim.
-#
-# The local psql must be 18+ with libpq's OAuth module: Debian/Ubuntu PGDG
-# ship it as the libpq-oauth package, Arch includes it in postgresql-libs,
-# and on macOS Homebrew's postgresql@18 formula builds it (--with-libcurl;
-# the libpq formula does not). postgresql@18 is keg-only, so the script also
-# looks for its versioned `psql-18` link.
+# APP sets namespace/Cluster/database by convention (APP, APP-db, APP);
+# -n/-c/-d override them. Everything after `--` goes to psql verbatim. The
+# local psql must be 18+ with libpq's OAuth module (PGDG libpq-oauth, Arch
+# postgresql-libs, or Homebrew postgresql@18, which lands on PATH as psql-18).
 #
 # Usage: ./psql-oauth.sh [-U ROLE] [-p PORT] [-i CLIENT_ID] [--print] APP [-- PSQL_ARGS...]
 #        ./psql-oauth.sh [-U ROLE] [-p PORT] [-i CLIENT_ID] [--print] -n NAMESPACE -c CLUSTER -d DBNAME [-- PSQL_ARGS...]
 #        ./psql-oauth.sh [-U ROLE] [-p PORT] [-i CLIENT_ID] --session start|stop|status APP
 #        ./psql-oauth.sh --session status
 #
-# ROLE defaults to $PGUSER, else the local part of `git config user.email`,
-# else $USER: the pg-oauth convention names roles after email local parts,
-# so the git identity is usually right — pass -U (or export PGUSER) when it
-# isn't. --print shows the equivalent manual commands and exits without
-# connecting.
+# ROLE defaults to $PGUSER, else `git config user.email`'s local part, else
+# $USER (pg-oauth names roles after email local parts). --print shows the
+# equivalent manual commands and exits.
 
 # https://vaneyckt.io/posts/safer_bash_scripts_with_set_euxo_pipefail/
 set -Eeuo pipefail
