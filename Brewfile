@@ -39,14 +39,15 @@ brew "jq"
 # runbooks/connect-cnpg-database.md and runbooks/restore-cnpg-database.md
 brew "kubectl-cnpg"
 
+# postgresql@18 - psql for psql-oauth.sh, which runs PostgreSQL 18's OAuth
+# device flow and so needs libpq's OAuth module. This formula builds it
+# (--with-libcurl, against the system libcurl; checked against 18.6); the
+# libpq formula does not. Keg-only: it lands on PATH as psql-18, which
+# psql-oauth.sh looks for. Arch gets it from postgresql-libs (pkglist.txt).
+brew "postgresql@18"
+
 # pre-commit - git hook framework used by .pre-commit-config.yaml
 brew "pre-commit"
-
-# psql - psql-oauth.sh runs PostgreSQL 18's OAuth device flow, which needs
-# libpq's OAuth module. Homebrew builds libpq/psql without libcurl (checked
-# against libpq 18.6: no curl dependency), so there is nothing to install
-# from here — psql-oauth.sh --docker runs a PGDG psql in a container
-# instead. Arch gets it natively; see postgresql-libs in pkglist.txt.
 
 # python - runs the local validate-flux pre-commit hook
 brew "python"
