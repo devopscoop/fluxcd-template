@@ -95,7 +95,7 @@ Requirements:
 - The dex issuer reachable from your machine.
 - Read-only SSO access (the `cluster-viewers` group) additionally needs `db-developer-rbac.yaml` from the cnpg-database template applied in the database's namespace — the built-in `view` role can neither read the Cluster CR nor open a port-forward. Cluster-admins need nothing extra.
 
-`./psql-oauth.sh <app>` does all of the below in one command — it discovers the issuer from the Cluster's `pg_hba`, port-forwards the `-rw` Service, runs the device flow, and tears the forward down on exit. Everything after `--` goes to psql, so `./psql-oauth.sh <app> -- -c 'select 1'` (or SQL on stdin) runs statements and exits instead of opening a prompt. In that batch mode the script also opens dex's verification page, code prefilled, in your browser the moment psql prints the device prompt — which is what lets an agent such as Claude Code drive it: the run blocks until you approve, then returns psql's output. Each fresh connection is one approval (libpq has no way to reuse a token across psql invocations), so either batch statements into one call or start a session: `./psql-oauth.sh --session start <app>` approves once and leaves the port-forward and a connected psql in the background, after which every batch run against that database is answered through it with no browser until `./psql-oauth.sh --session stop <app>` (`--session status` lists what is running). Session requests accept SQL via `-c`, `-f` or stdin plus the output flags `-A -t -x -F --csv -v`; anything else needs a fresh connection. A session holds a database connection open until stopped, and since the forward pins one pod a switchover ends it — the next request says so and connects afresh. `--docker` runs a PGDG psql in a container for machines without a suitable psql, and `-n`/`-c`/`-d` override the namespace/Cluster/database for clusters that don't follow the `<app>`/`<app>-db` naming. The manual equivalent: forward the read-write Service as in option 3, then:
+`./psql-oauth.sh <app>` does all of the below in one command — it discovers the issuer from the Cluster's `pg_hba`, port-forwards the `-rw` Service, runs the device flow, and tears the forward down on exit. Everything after `--` goes to psql, so `./psql-oauth.sh <app> -- -c 'select 1'` (or SQL on stdin) runs statements and exits instead of opening a prompt. In that batch mode the script also opens dex's verification page, code prefilled, in your browser the moment psql prints the device prompt — which is what lets an agent such as Claude Code drive it: the run blocks until you approve, then returns psql's output. For a run of several queries, start a [session](#sessions-many-queries-on-one-login) so you approve once rather than per query. `--docker` runs a PGDG psql in a container for machines without a suitable psql, and `-n`/`-c`/`-d` override the namespace/Cluster/database for clusters that don't follow the `<app>`/`<app>-db` naming. The manual equivalent: forward the read-write Service as in option 3, then:
 
 ```shell
 psql "host=localhost port=15432 dbname=<app> user=<email-local-part> sslmode=require oauth_issuer=https://dex.project1-dev.devops.coop oauth_client_id=psql oauth_scope='openid email'"
@@ -116,6 +116,23 @@ docker run --rm -it debian:trixie-slim bash -c "
 ```
 
 Privileges: the `developers` group grants `pg_read_all_data` by default — tables behind row-level security additionally need `bypassrls` on the login role, a per-app data-access decision recorded in the block's comments.
+
+### Sessions: many queries on one login
+
+Every plain `./psql-oauth.sh` run is a fresh psql connection, and libpq runs the device flow on each one — so a browser approval per query, which is a lot of clicking for a run of exploratory queries and awkward for an agent. libpq offers no way to reuse a token across psql processes (only the `PQsetAuthDataHook` C API, which psql does not expose), so a session reuses the *process* instead: it keeps one authenticated psql running and feeds each request to it.
+
+```shell
+./psql-oauth.sh --session start goalert                       # approve once, in the browser
+./psql-oauth.sh goalert -- -At -c 'select count(*) from alerts'   # no browser
+./psql-oauth.sh goalert -- -c '\dt'                               # no browser
+./psql-oauth.sh --session stop goalert                        # tear it down
+```
+
+`--session start` runs the device flow once, then leaves the port-forward and the connected psql running in the background (it ignores `SIGHUP`, so it outlives the terminal that started it). Every batch run against the same database afterwards is handed to that psql over a FIFO and returns with no browser, until `--session stop`. `--session status`, with or without an app, lists what is running.
+
+A session request accepts SQL through `-c` (repeatable), `-f FILE`, or stdin, plus the output flags `-A -t -x -F SEP --csv` and `-v NAME=VALUE`. Statements run one at a time with the formatting reset between requests, exactly as `psql -f` does, and the exit status is 1 when the server reported an error. Any other psql flag needs its own connection, so the script asks you to stop the session first; an interactive run (a terminal, no `-c`/`-f`) always connects afresh regardless of any session.
+
+The session is keyed by the whole target — namespace, Cluster, database, and role — so `-U` and any `-n`/`-c`/`-d` (or a differently named `<app>`) must match between `start` and the runs that use it. The `--session start` output prints the exact `stop` command for the session it created. Two things end a session: `--session stop`, and a CNPG switchover — the forward pins one pod (option 3's first caveat), so a failover drops the backing connection. The next request notices, reports it, and connects afresh with one approval; that fresh connection starts no new session, so run `--session start` again to get the no-browser path back.
 
 ## Related
 
