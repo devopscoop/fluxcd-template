@@ -169,7 +169,7 @@ spec:
   #   - Clients need psql 18 with libpq built against libcurl: Debian/Ubuntu
   #     PGDG ship it as the libpq-oauth package, Arch's postgresql-libs and
   #     Homebrew's postgresql@18 include it (Homebrew's libpq formula
-  #     doesn't); psql-oauth.sh --docker covers the rest.
+  #     doesn't).
   #   - Validator libraries are young. The oauth hba rule below is scoped to
   #     the developers group, so apps and break-glass access stay on CNPG's
   #     default scram catch-all (appended after these rules).

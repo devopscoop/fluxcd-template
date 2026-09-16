@@ -50,20 +50,17 @@
 #
 # The APP argument follows this repo's conventions (namespace = APP,
 # Cluster = APP-db, database = APP); -n/-c/-d override any of them for
-# clusters named differently. Everything after `--` goes to psql verbatim
-# (with --docker, feed files through stdin rather than -f: the container
-# sees none of the host filesystem).
+# clusters named differently. Everything after `--` goes to psql verbatim.
 #
 # The local psql must be 18+ with libpq's OAuth module: Debian/Ubuntu PGDG
 # ship it as the libpq-oauth package, Arch includes it in postgresql-libs,
 # and on macOS Homebrew's postgresql@18 formula builds it (--with-libcurl;
 # the libpq formula does not). postgresql@18 is keg-only, so the script also
-# looks for its versioned `psql-18` link. --docker runs a PGDG psql in a
-# debian container against the port-forward for machines with none of these.
+# looks for its versioned `psql-18` link.
 #
-# Usage: ./psql-oauth.sh [-U ROLE] [-p PORT] [-i CLIENT_ID] [--docker] [--print] APP [-- PSQL_ARGS...]
-#        ./psql-oauth.sh [-U ROLE] [-p PORT] [-i CLIENT_ID] [--docker] [--print] -n NAMESPACE -c CLUSTER -d DBNAME [-- PSQL_ARGS...]
-#        ./psql-oauth.sh [-U ROLE] [-p PORT] [-i CLIENT_ID] [--docker] --session start|stop|status APP
+# Usage: ./psql-oauth.sh [-U ROLE] [-p PORT] [-i CLIENT_ID] [--print] APP [-- PSQL_ARGS...]
+#        ./psql-oauth.sh [-U ROLE] [-p PORT] [-i CLIENT_ID] [--print] -n NAMESPACE -c CLUSTER -d DBNAME [-- PSQL_ARGS...]
+#        ./psql-oauth.sh [-U ROLE] [-p PORT] [-i CLIENT_ID] --session start|stop|status APP
 #        ./psql-oauth.sh --session status
 #
 # ROLE defaults to $PGUSER, else the local part of `git config user.email`,
@@ -83,7 +80,6 @@ usage() {
 role="${PGUSER:-}"
 port=15432
 client_id="psql"
-docker=false
 print_only=false
 session=""
 ns=""
@@ -100,7 +96,6 @@ while [[ $# -gt 0 ]]; do
     -U) role="$2"; shift 2 ;;
     -p) port="$2"; shift 2 ;;
     -i) client_id="$2"; shift 2 ;;
-    --docker) docker=true; shift ;;
     --print) print_only=true; shift ;;
     --session)
       case "${2:-}" in start|stop|status) session="$2" ;; *) usage ;; esac
@@ -134,7 +129,6 @@ session_kill() {  # $1: session dir — stop everything it started and remove it
   for f in client.pid watcher.pid pf.pid starting; do
     if [[ -s "$1/$f" ]]; then kill "$(cat "$1/$f")" 2>/dev/null || true; fi
   done
-  if [[ -s "$1/container" ]]; then docker kill "$(cat "$1/container")" >/dev/null 2>&1 || true; fi
   rm -rf "$1"
 }
 
@@ -364,21 +358,19 @@ fi
 # module; the libpq formula's lacks it and would fail later with "no OAuth
 # flows are available").
 psql_bin=""
-if ! $docker; then
-  found=""
-  for candidate in psql psql-18; do
-    command -v "$candidate" >/dev/null || continue
-    major="$("$candidate" -V | grep -oE '[0-9]+' | head -1 || true)"
-    [[ "$major" =~ ^[0-9]+$ ]] || continue
-    found="${found:+${found}, }${candidate} ${major}"
-    if ((major >= 18)); then psql_bin="$candidate"; break; fi
-  done
-  if [[ -z "$psql_bin" ]]; then
-    echo "No psql 18+ found${found:+ (on PATH: ${found})}. The OAuth device flow needs psql 18" >&2
-    echo "with libpq's OAuth module: PGDG postgresql-client-18 + libpq-oauth, Arch's" >&2
-    echo "postgresql-libs, or Homebrew's postgresql@18 — or use --docker." >&2
-    exit 1
-  fi
+found=""
+for candidate in psql psql-18; do
+  command -v "$candidate" >/dev/null || continue
+  major="$("$candidate" -V | grep -oE '[0-9]+' | head -1 || true)"
+  [[ "$major" =~ ^[0-9]+$ ]] || continue
+  found="${found:+${found}, }${candidate} ${major}"
+  if ((major >= 18)); then psql_bin="$candidate"; break; fi
+done
+if [[ -z "$psql_bin" ]]; then
+  echo "No psql 18+ found${found:+ (on PATH: ${found})}. The OAuth device flow needs psql 18" >&2
+  echo "with libpq's OAuth module: PGDG postgresql-client-18 + libpq-oauth, Arch's" >&2
+  echo "postgresql-libs, or Homebrew's postgresql@18." >&2
+  exit 1
 fi
 
 # Scratch space: a throwaway directory for a plain run, the session
@@ -416,9 +408,6 @@ cleanup() {
   kill "$pf_pid" 2>/dev/null || true
   if [[ -n "${client_pid:-}" ]]; then kill "$client_pid" 2>/dev/null || true; fi
   rm -rf "$tmp"
-  if [[ -n "${container:-}" ]]; then
-    docker kill "$container" >/dev/null 2>&1 || true
-  fi
 }
 trap cleanup EXIT
 
@@ -501,54 +490,23 @@ run_client() {  # backgrounded below: wire this client's stdio, then become it
 # queries, so during the device flow's /token polling the signal is
 # swallowed), and bash delivers a signal trap only after the foreground
 # child exits — the combination made Ctrl-C appear dead. `wait` IS
-# interruptible, and the trap kills the client directly (for --docker, the
-# named container — the docker CLI only proxies signals to the process that
-# ignores them).
+# interruptible, and the trap kills the client directly.
 #
 # Backgrounding a command in a non-interactive shell also rewires its stdin
-# to /dev/null, which breaks both clients — docker -i refuses ("cannot
-# attach stdin to a TTY-enabled container") and psql reads EOF — so
-# duplicate the script's original stdin (the terminal, or the piped SQL)
-# and hand it to the client explicitly.
+# to /dev/null, which makes psql read EOF — so duplicate the script's
+# original stdin (the terminal, or the piped SQL) and hand it to the client
+# explicitly.
 exec 9<&0
 [[ "$session" != start ]] || mkfifo "$sdir/in"
 interrupted=false
-if $docker; then
-  # Docker Desktop (macOS) reaches the host's loopback via
-  # host.docker.internal; on Linux the bridge can't see a 127.0.0.1-bound
-  # forward, so join the host network and dial loopback directly.
-  container="psql-oauth-$$"
-  docker_args=(run --rm -i --name "$container")
-  # A pty only when there is a terminal to attach it to: docker -t refuses
-  # a non-tty stdin, and interactive psql wants one.
-  $batch || docker_args+=(-t)
-  if [[ "$(uname -s)" == "Darwin" ]]; then
-    pg_host="host.docker.internal"
-  else
-    docker_args+=(--network host)
-    pg_host="127.0.0.1"
-  fi
-  trap 'interrupted=true; docker kill "$container" >/dev/null 2>&1 || true' INT TERM
-  # The conninfo and psql's arguments travel as positional parameters of the
-  # inner bash ("$@"), not spliced into its script, so their quoting survives.
-  run_client docker "${docker_args[@]}" debian:trixie-slim bash -c '
-    apt-get update -q >/dev/null &&
-    apt-get install -yq postgresql-common ca-certificates >/dev/null 2>&1 &&
-    /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y >/dev/null &&
-    apt-get install -yq postgresql-client-18 libpq-oauth >/dev/null 2>&1 &&
-    exec psql "$@"' psql "$(conninfo "$pg_host")" ${psql_args[@]+"${psql_args[@]}"} &
-  client_pid=$!
-else
-  trap 'interrupted=true; kill "$client_pid" 2>/dev/null || true' INT TERM
-  run_client "$psql_bin" "$(conninfo 127.0.0.1)" ${psql_args[@]+"${psql_args[@]}"} &
-  client_pid=$!
-fi
+trap 'interrupted=true; kill "$client_pid" 2>/dev/null || true' INT TERM
+run_client "$psql_bin" "$(conninfo 127.0.0.1)" ${psql_args[@]+"${psql_args[@]}"} &
+client_pid=$!
 
 if [[ "$session" == start ]]; then
   echo "$pf_pid" >"$sdir/pf.pid"
   echo "$watcher_pid" >"$sdir/watcher.pid"
   echo "$client_pid" >"$sdir/client.pid"
-  [[ -z "${container:-}" ]] || echo "$container" >"$sdir/container"
   printf 'ns=%s cluster=%s db=%s role=%s port=%s started=%s\n' \
     "$ns" "$cluster" "$db" "$role" "$port" "$(date '+%Y-%m-%d %H:%M:%S')" >"$sdir/info"
   # The first line psql prints proves the connection — and the device flow
@@ -599,9 +557,8 @@ wait "$client_pid" || rc=$?
 # lines land before the script exits.
 [[ -z "$watcher_pid" ]] || wait "$watcher_pid" || true
 $interrupted && exit 130
-if ((rc != 0)) && ! $docker; then
+if ((rc != 0)); then
   echo "psql failed (exit ${rc}). If it reported that no OAuth flow is available," >&2
-  echo "this psql's libpq lacks the OAuth module — see the header for what ships" >&2
-  echo "it, or retry with --docker." >&2
+  echo "this psql's libpq lacks the OAuth module — see the header for what ships it." >&2
 fi
 exit "$rc"
