@@ -307,29 +307,6 @@ fi
 hba="$(kubectl -n "$ns" get clusters.postgresql.cnpg.io "$cluster" \
   -o jsonpath='{range .spec.postgresql.pg_hba[*]}{@}{"\n"}{end}')"
 issuer="$(grep -om1 'issuer="[^"]*"' <<<"$hba" | cut -d'"' -f2 || true)"
-if [[ -z "$issuer" ]]; then
-  echo "No oauth issuer in ${cluster}'s pg_hba — is the pg-oauth block enabled on" >&2
-  echo "this Cluster? (./toggle_blocks.sh --enable pg-oauth; prerequisites in the" >&2
-  echo "block's comments and apps/dex/README.md.)" >&2
-  exit 1
-fi
-
-# The oauth hba rule only matches members of the developers group, so a role
-# outside it falls through to CNPG's scram catch-all and psql prompts for a
-# password that doesn't exist — a confusing dead end, and exactly what a
-# default ROLE that differs from your email local part produces. Catch it
-# here: pg-oauth login roles are declared in the Cluster's managed.roles.
-login_roles="$(kubectl -n "$ns" get clusters.postgresql.cnpg.io "$cluster" \
-  -o jsonpath='{range .spec.managed.roles[?(@.login==true)]}{.name}{"\n"}{end}')"
-if ! grep -qxF "$role" <<<"$login_roles"; then
-  echo "Role '${role}' is not a login role in ${cluster}'s managed.roles, so the" >&2
-  echo "oauth rule (+developers) won't match it — the server would ask for a" >&2
-  echo "password instead of starting the device flow. pg-oauth roles are named" >&2
-  echo "after email local parts; pass -U ROLE or export PGUSER. Login roles on" >&2
-  echo "this cluster:" >&2
-  echo "  $(tr '\n' ' ' <<<"$login_roles")" >&2
-  exit 1
-fi
 
 # sslmode=require, deliberately not verify-full: the oauth hba rule is
 # hostssl so TLS is mandatory, but the server certificate names the
@@ -353,25 +330,11 @@ if $print_only; then
   exit 0
 fi
 
-# psql lookup: PATH's psql first, then psql-18 — the versioned link Homebrew's
-# keg-only postgresql@18 puts on PATH (the only Homebrew psql with the OAuth
-# module; the libpq formula's lacks it and would fail later with "no OAuth
-# flows are available").
-psql_bin=""
-found=""
-for candidate in psql psql-18; do
-  command -v "$candidate" >/dev/null || continue
-  major="$("$candidate" -V | grep -oE '[0-9]+' | head -1 || true)"
-  [[ "$major" =~ ^[0-9]+$ ]] || continue
-  found="${found:+${found}, }${candidate} ${major}"
-  if ((major >= 18)); then psql_bin="$candidate"; break; fi
-done
-if [[ -z "$psql_bin" ]]; then
-  echo "No psql 18+ found${found:+ (on PATH: ${found})}. The OAuth device flow needs psql 18" >&2
-  echo "with libpq's OAuth module: PGDG postgresql-client-18 + libpq-oauth, Arch's" >&2
-  echo "postgresql-libs, or Homebrew's postgresql@18." >&2
-  exit 1
-fi
+# Prefer the versioned psql-18 that Homebrew's keg-only postgresql@18 puts on
+# PATH over a possibly-older plain psql; either must be 18+ with libpq's OAuth
+# module (see the header), and psql says so itself if it isn't.
+psql_bin=psql-18
+command -v psql-18 >/dev/null || psql_bin=psql
 
 # Scratch space: a throwaway directory for a plain run, the session
 # directory for --session start (whose contents must outlive this process).
@@ -557,8 +520,4 @@ wait "$client_pid" || rc=$?
 # lines land before the script exits.
 [[ -z "$watcher_pid" ]] || wait "$watcher_pid" || true
 $interrupted && exit 130
-if ((rc != 0)); then
-  echo "psql failed (exit ${rc}). If it reported that no OAuth flow is available," >&2
-  echo "this psql's libpq lacks the OAuth module — see the header for what ships it." >&2
-fi
 exit "$rc"
