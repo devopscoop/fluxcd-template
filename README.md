@@ -10,7 +10,7 @@ helm install nxrm-ha sonatype/nxrm-ha --create-namespace --namespace nxrm-ha --v
 
 ## Install required packages
 
-This repo ships package manifests that install every CLI tool it uses (`age`, `bash`, `curl`, `dyff`, `flux-operator`, `git`, `helm`, `jq`, `kubectl-cnpg`, `pre-commit`, `python`, `sops`, `vim`, and the Go `yq`):
+This repo ships package manifests that install every CLI tool it uses (`age`, `bash`, `curl`, `dyff`, `flux-operator`, `git`, `helm`, `jq`, `kubectl-cnpg`, `pre-commit`, `psql`, `python`, `sops`, `vim`, and the Go `yq`):
 
 - macOS, using [Homebrew](https://brew.sh/) and the `Brewfile`:
 
