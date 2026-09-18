@@ -4,8 +4,7 @@ Grafana Tempo as a trace store, deployed **monolithic** (the `tempo` chart
 only does single-binary mode) and backed by **S3-compatible object storage**.
 This is the traces piece of the VictoriaMetrics-based observability stack —
 deploy it alongside `apps/victoria-metrics`, `apps/victoria-logs` and
-`apps/otel-collector`. That stack is the either/or alternative to the
-kube-prometheus-stack/Alloy/Loki stack: run one or the other, not both.
+`apps/otel-collector`.
 
 Tempo only *stores* traces — `apps/otel-collector` ships spans into it.
 
@@ -68,8 +67,7 @@ keep working.
   at 1.24.4 and marked deprecated). This app made the promised 1.24.4 → 2.x
   jump; despite the major-version bump, no values keys changed — 2.x mainly
   added an optional Gateway API HTTPRoute and dropped the OpenCensus
-  receiver. Note this is a different HelmRepository than `apps/loki`'s
-  `grafana`.
+  receiver.
 - Retention is 30 days (`tempo.retention`, rendered into the compactor's
   `block_retention`), parity with the 30-day metrics retention in
   `apps/victoria-metrics` and the 31-day logs retention in

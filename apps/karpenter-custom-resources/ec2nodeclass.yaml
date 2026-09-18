@@ -63,7 +63,7 @@ spec:
   #
   # VantaNoAlert deactivates the resource in Vanta (marks it out of scope),
   # with the tag value recorded as the reason — the same mechanism
-  # aws-eks-template uses on the Loki/Tempo/flow-log buckets. Without it,
+  # aws-eks-template uses on the Tempo/flow-log buckets. Without it,
   # Vanta's "Server CPU monitored (AWS)" test flags every Karpenter node.
   # That test wants an AWS/EC2 CPUUtilization alarm dimensioned on either the
   # instance or its Auto Scaling group; aws-eks-template's node_cpu alarm

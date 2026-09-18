@@ -6,16 +6,15 @@ DaemonSet (one pod per node) that tails pod log files under `/var/log/pods`,
 receives OTLP pushed by workloads, enriches everything with Kubernetes
 metadata, and fans the three signals out to their stores.
 
-This is the direct replacement for `apps/alloy` — the two stacks are
-either/or: deploy this alongside `apps/victoria-logs`, `apps/victoria-metrics`
-and `apps/tempo`, or the Alloy/Loki/kube-prometheus-stack one. **Never run
-both log collectors**: each one independently tails every pod's log files, so
-running both double-ingests every line.
+Deploy it alongside `apps/victoria-logs`, `apps/victoria-metrics` and
+`apps/tempo`. **Never run a second log collector** next to it: each one
+independently tails every pod's log files, so two of them double-ingest every
+line.
 
 ## Pipelines
 
-All three pipelines get the `k8s_attributes` processor (node-scoped, like
-Alloy's `spec.nodeName` field selector) and `memory_limiter` + `batch`.
+All three pipelines get the `k8s_attributes` processor (node-scoped) and
+`memory_limiter` + `batch`.
 
 - **logs** — OTLP + `file_log` (pod stdout/stderr) →
   `http://victoria-logs-server.victoria-logs.svc.cluster.local:9428/insert/opentelemetry/v1/logs`
@@ -50,21 +49,18 @@ default), so pushes are handled by the collector on the sender's own node.
 There is no need to set per-signal endpoint variables — unrouted signals just
 end at this collector.
 
-## What this intentionally does not replicate from Alloy
+## What this intentionally does not do
 
-- **Ingest-time JSON parsing.** Alloy parsed JSON log lines at ingest and
-  promoted a lowercased `level` to a Loki index label; its README also
-  documented promoting org-specific fields (`organization_id`,
-  `correlation_id`, ...) to structured metadata. Here log bodies ship as-is
-  (the `file_log` receiver's `container` operator only unwraps the CRI
-  envelope, reassembles runtime-split lines and restores the real timestamp
-  — the `stage.cri` equivalent). VictoriaLogs parses JSON cheaply at query
-  time; if ingest-time promotion is ever needed, the OTel equivalent is a
-  `transform` or `attributes` processor in the logs pipeline — left for
-  users to add.
-- **Loki index labels.** Kubernetes metadata arrives as OTLP resource
-  attributes (which VictoriaLogs maps to stream fields), not hand-picked
-  Loki labels.
+- **Ingest-time JSON parsing.** Log bodies ship as-is: the `file_log`
+  receiver's `container` operator only unwraps the CRI envelope, reassembles
+  runtime-split lines and restores the real timestamp. VictoriaLogs parses
+  JSON cheaply at query time; if ingest-time promotion of fields (a
+  lowercased `level`, org-specific `organization_id`/`correlation_id`, ...)
+  is ever needed, the OTel equivalent is a `transform` or `attributes`
+  processor in the logs pipeline — left for users to add.
+- **Hand-picked index labels.** Kubernetes metadata arrives as OTLP resource
+  attributes (which VictoriaLogs maps to stream fields); nothing is curated
+  into a fixed label set.
 
 ## Scale-out note
 
@@ -82,6 +78,6 @@ Service at the gateway. See the mode comment in `values.yaml`.
   processor). Checkpointing runs the container as root — see `values.yaml`.
 - The cluster is IPv6-only: every listener endpoint is overridden to bracket
   `${env:MY_POD_IP}` — the chart's unbracketed defaults fail Go's host:port
-  parsing on IPv6 addresses. Background in `apps/loki/values.yaml`.
+  parsing on IPv6 addresses.
 - The Service name is pinned with `fullnameOverride` — the chart would
   otherwise render `otel-collector-opentelemetry-collector`.

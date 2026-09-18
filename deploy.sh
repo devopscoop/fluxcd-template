@@ -68,9 +68,7 @@ fi
 # bottom of the script.
 # Observability is the VictoriaMetrics stack (victoria-metrics, victoria-logs,
 # tempo, otel-collector, goalert; cnpg and cnpg-barman-plugin are here
-# because goalert's database and its S3 backups depend on them). The kube-prometheus-stack + alloy + loki alternative stays in
-# the repo but disabled -- the two stacks are either/or (see
-# apps/victoria-metrics/README.md), so to switch back, swap the two groups.
+# because goalert's database and its S3 backups depend on them).
 core_app_list="cert-manager-custom-resources.yaml cert-manager.yaml external-dns.yaml imagepolicies.yaml imagerepositories.yaml imageupdateautomation.yaml sops-age.secrets.yaml cnpg.yaml cnpg-barman-plugin.yaml victoria-metrics.yaml victoria-metrics-custom-resources.yaml victoria-logs.yaml tempo.yaml otel-collector.yaml goalert.yaml eg.yaml eg-custom-resources.yaml"
 case "$k8s_platform" in
   eks)
@@ -203,12 +201,12 @@ for f in apps/victoria-metrics-custom-resources/*-vm.yaml; do
 done
 commit_and_push "Removing monitoring for apps this cluster does not run"
 
-# Uncomment the Alertmanager -> Slack config in apps/kube-prometheus-stack and
-# apps/victoria-metrics (toggle_blocks.sh finds every slack block
-# repo-wide). The channel is set in each app's values.yaml; the webhook URL
-# (the secret half) comes from its helm_secrets.yaml.decrypted, which gets
-# SOPS-encrypted further down during bootstrap. Like the eks step above, this
-# runs on every invocation so later-added apps get their blocks opened too.
+# Uncomment the Alertmanager -> Slack config in apps/victoria-metrics
+# (toggle_blocks.sh finds every slack block repo-wide). values.yaml's block
+# holds the non-secret routing config; the channel and webhook URL live in
+# its helm_secrets.yaml.decrypted, which gets SOPS-encrypted further down
+# during bootstrap. Like the eks step above, this runs on every invocation
+# so later-added apps get their blocks opened too.
 # ${var:-} so set -u doesn't kill the script on a variables.sh from before this
 # variable existed.
 if [[ "${slack_alerts:-false}" == "true" ]]; then

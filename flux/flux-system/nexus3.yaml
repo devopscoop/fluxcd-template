@@ -6,7 +6,6 @@ metadata:
 spec:
   dependsOn:
     - name: cert-manager-custom-resources
-    - name: kube-prometheus-stack
   interval: 10m0s
   sourceRef:
     kind: GitRepository

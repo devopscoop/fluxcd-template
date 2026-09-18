@@ -9,9 +9,8 @@
 # apps/victoria-metrics queries back out on port 3200.
 
 tempo:
-  # The cluster is IPv6-only (see the long memberlist comment in
-  # apps/loki/values.yaml for the background). The chart's default OTLP
-  # endpoints bind 0.0.0.0 — an IPv4-only wildcard in Go — so the receivers
+  # The cluster is IPv6-only. The chart's default OTLP endpoints bind
+  # 0.0.0.0 — an IPv4-only wildcard in Go — so the receivers
   # would be unreachable from other pods, which only have IPv6 addresses;
   # "[::]" accepts both families. apps/otel-collector sends OTLP here on 4317
   # (gRPC) and 4318 (HTTP). The chart's default Jaeger receivers stay as they
@@ -28,8 +27,10 @@ tempo:
   # Only one instance runs, so swap the default memberlist ring kvstore for an
   # in-process one. With every active ring on inmemory, Tempo never
   # instantiates memberlist at all (dskit builds it lazily on first use),
-  # which sidesteps the IPv6 bind/advertise failures Loki needed POD_IP
-  # plumbing for — dskit's memberlist only scans for IPv4 addresses.
+  # which sidesteps dskit's memberlist IPv6 failures: it scans [eth0, en0,
+  # lo] for an IPv4 address, finds none on an IPv6-only node ("no useable
+  # address found"), and would need bind_addr/advertise_addr plumbed in by
+  # hand from the downward-API pod IP.
   # enable_inet6 fixes the ring lifecycler's own interface scan the same way
   # (GetFirstAddressOf finds no usable IPv4 on eth0 otherwise, and the
   # ingester refuses to start). The metrics-generator ring needs the same two
@@ -53,7 +54,7 @@ tempo:
       s3:
         bucket: devopscoop-project1-dev-tempo-traces
         region: us-east-2
-        # Unlike Loki's AWS-SDK client, Tempo requires an explicit endpoint.
+        # Tempo's S3 client (minio-go) requires an explicit endpoint.
         # The dualstack one is load-bearing: the cluster is IPv6-only and the
         # plain s3.<region> endpoint only publishes A records. AWS S3 uses
         # virtual-hosted-style addressing, so path-style stays off.

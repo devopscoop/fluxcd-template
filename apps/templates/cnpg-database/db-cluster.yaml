@@ -131,15 +131,13 @@ spec:
       memory: 512Mi
     limits:
       memory: 512Mi
-  # Deliberately no monitoring block. On the victoria-metrics stack, the
-  # fleet-wide cnpg-instances VMPodScrape in
-  # apps/victoria-metrics-custom-resources scrapes every pod labeled
-  # cnpg.io/podRole=instance, so databases are collected with no per-app
-  # config. Don't set monitoring.enablePodMonitor: it would duplicate that
-  # scrape (every cnpg_* series stored twice under a second job label), and
-  # the field is deprecated upstream ("will be removed in a future version of
-  # the operator"). On the kube-prometheus-stack alternative, create a
-  # PodMonitor manually — the deprecation notice recommends exactly that.
+  # Deliberately no monitoring block. The fleet-wide cnpg-instances
+  # VMPodScrape in apps/victoria-metrics-custom-resources scrapes every pod
+  # labeled cnpg.io/podRole=instance, so databases are collected with no
+  # per-app config. Don't set monitoring.enablePodMonitor: it would duplicate
+  # that scrape (every cnpg_* series stored twice under a second job label),
+  # and the field is deprecated upstream ("will be removed in a future
+  # version of the operator").
   # IRSA: the instance pods run as the app-template-db ServiceAccount (CNPG
   # names it after the Cluster), and this annotation lets their barman-cloud
   # sidecars reach the backup bucket. Role and bucket come from
