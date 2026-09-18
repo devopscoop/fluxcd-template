@@ -95,6 +95,11 @@ spec:
 #   CNPGFleetMetricsAbsent below keeps the one absence that is
 #   unconditionally wrong on this template (goalert-db is a core app, so
 #   zero cnpg series cluster-wide means collection itself broke).
+# - Rewrote the two physical-replication-lag rules onto
+#   cnpg_pg_stat_replication_* (why, in their own comment below):
+#   upstream reads cnpg_pg_replication_lag, which is a standby-side
+#   write-staleness clock, not a lag gauge, and sawtooths to tens of
+#   seconds on any database whose writes arrive in bursts.
 # - Added the WAL-archiving and backup rules at the bottom — upstream ships
 #   nothing for either, and they encode this repo's own incident history
 #   (the 2026-09-05 WAL-burst and the barman sidecar OOM documented in
@@ -181,6 +186,29 @@ spec:
           for: 5m
           labels:
             severity: warning
+        # Both lag rules read pg_stat_replication on the primary, not
+        # cnpg_pg_replication_lag. That metric is
+        # "now() - pg_last_xact_replay_timestamp()" evaluated on the
+        # standby, so it measures how long ago the last *write* was
+        # replayed: it climbs while the primary has nothing to send and
+        # resets on the next commit. A database whose writes arrive in
+        # bursts therefore sawtooths to tens of seconds with healthy
+        # standbys, and every standby spikes in lockstep because the cause
+        # is the primary going quiet. Measured on one such cluster: a 39s
+        # reading while pg_stat_replication put the same standbys 0.2s and
+        # 7KB behind.
+        #
+        # replay_lag is what the primary itself measured for the last WAL
+        # record the standby confirmed replaying, so an idle cluster
+        # reports the last real round-trip rather than a growing number.
+        # It does hold that value while no WAL flows, so a burst that ends
+        # on a high sample would keep firing; gate both rules on
+        # replay_diff_bytes (the primary's WAL position minus the
+        # standby's replay position), which drops to ~0 as soon as a
+        # standby is caught up, exceeding one 16MiB WAL segment. A standby
+        # that is gone rather than behind has no row in
+        # pg_stat_replication at all and is CNPGClusterHACritical's
+        # business, not these rules'.
         - alert: CNPGClusterPhysicalReplicationLagCritical
           annotations:
             summary: CNPG replication lag is over 15 seconds.
@@ -190,7 +218,11 @@ spec:
               {{ printf "%.0f" $value }}s. A failover now loses that much
               committed data; read replicas serve equally stale reads.
           expr: |-
-            max by (namespace, cnpg_cluster) (cnpg_pg_replication_lag) > 15
+            max by (namespace, cnpg_cluster) (
+              cnpg_pg_stat_replication_replay_lag_seconds
+              and on (namespace, cnpg_cluster, application_name)
+              cnpg_pg_stat_replication_replay_diff_bytes > 16777216
+            ) > 15
           for: 5m
           labels:
             severity: critical
@@ -200,10 +232,15 @@ spec:
             description: >-
               Replication lag on cluster
               {{ $labels.namespace }}/{{ $labels.cnpg_cluster }} has been
-              {{ printf "%.1f" $value }}s for 5m — the standbys aren't
-              keeping up with the primary's WAL rate.
+              {{ printf "%.1f" $value }}s for 5m, with the standby more
+              than a WAL segment behind — it isn't keeping up with the
+              primary's WAL rate.
           expr: |-
-            max by (namespace, cnpg_cluster) (cnpg_pg_replication_lag) > 1
+            max by (namespace, cnpg_cluster) (
+              cnpg_pg_stat_replication_replay_lag_seconds
+              and on (namespace, cnpg_cluster, application_name)
+              cnpg_pg_stat_replication_replay_diff_bytes > 16777216
+            ) > 1
           for: 5m
           labels:
             severity: warning
