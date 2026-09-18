@@ -4,11 +4,10 @@ metadata:
   name: victoria-logs
   namespace: flux-system
 spec:
-  # values.yaml enables the chart's VMServiceScrape, and unlike the loki
-  # chart's ServiceMonitor (which hides behind a Capabilities.APIVersions
-  # check) this chart renders it unconditionally — the apply fails on the
-  # missing CRD unless the VictoriaMetrics operator from victoria-metrics
-  # has landed first.
+  # values.yaml enables the chart's VMServiceScrape, an
+  # operator.victoriametrics.com CR the chart renders unconditionally — the
+  # apply fails on the missing CRD unless the VictoriaMetrics operator from
+  # victoria-metrics has landed first.
   dependsOn:
     - name: victoria-metrics
   interval: 10m0s

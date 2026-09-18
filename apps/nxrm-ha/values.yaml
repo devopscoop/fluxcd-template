@@ -33,8 +33,13 @@ persistence:
 
 metrics:
   enabled: true
+  # The chart's ServiceMonitor is a monitoring.coreos.com CR, and those CRDs
+  # are not installed here (see apps/victoria-metrics/README.md -> "CRD
+  # ownership"), so enabling it fails the apply. Scrape with a VMServiceScrape
+  # in apps/victoria-metrics-custom-resources instead, per AGENTS.md ->
+  # "Monitoring conventions".
   serviceMonitor:
-    enabled: true
+    enabled: false
 
 rootPassword:
   secret: nxrm-ha # pragma: allowlist secret -- a Secret's name, not a value

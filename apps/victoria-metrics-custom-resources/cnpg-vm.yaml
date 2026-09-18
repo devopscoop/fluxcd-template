@@ -11,11 +11,9 @@
 # Not CNPG's own monitoring hooks: a Cluster's
 # .spec.monitoring.enablePodMonitor (and the operator chart's
 # monitoring.podMonitorEnabled) create monitoring.coreos.com PodMonitors, and
-# those CRDs only exist on clusters running the kube-prometheus-stack
-# alternative — see the CRD-ownership note in apps/victoria-metrics/README.md.
-# Why this lives here rather than in apps/cnpg: same stack-agnosticism reason
-# as envoy-vm.yaml, and same CRD-ordering reason as
-# kustomization.yaml.
+# those CRDs are not installed here — see the CRD-ownership note in
+# apps/victoria-metrics/README.md. Why this lives here rather than in
+# apps/cnpg: same CRD-ordering reason as envoy-vm.yaml and kustomization.yaml.
 apiVersion: operator.victoriametrics.com/v1beta1
 kind: VMPodScrape
 metadata:

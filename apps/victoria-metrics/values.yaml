@@ -11,12 +11,12 @@ fullnameOverride: victoria-metrics
 # The VictoriaMetrics operator turns the VM* CRs below into running pods.
 victoria-metrics-operator:
   operator:
-    # This is the chart default, pinned because the either/or swap with
-    # kube-prometheus-stack depends on it: the operator mirrors
-    # prometheus-operator objects (ServiceMonitor, PodMonitor, PrometheusRule,
-    # Probe, ScrapeConfig) into their VM equivalents, so charts written for
-    # prometheus-operator plug into this stack unchanged. Note the chart does
-    # NOT install the prometheus-operator CRDs themselves -- see README.md.
+    # This is the chart default, pinned because it's load-bearing: the
+    # operator mirrors prometheus-operator objects (ServiceMonitor, PodMonitor,
+    # PrometheusRule, Probe, ScrapeConfig) into their VM equivalents, so
+    # charts written for prometheus-operator plug into this stack unchanged.
+    # Note the chart does NOT install the prometheus-operator CRDs themselves
+    # -- see README.md.
     disable_prometheus_converter: false
   # Initial guesses (resize with krr after 14d of usage); memory req=limit,
   # no CPU limit.
@@ -29,8 +29,8 @@ victoria-metrics-operator:
 
 vmsingle:
   spec:
-    # Keep 30 days of history, parity with the kube-prometheus-stack app (the
-    # chart default is "1", meaning one calendar month).
+    # Keep 30 days of history (the chart default is "1", meaning one calendar
+    # month).
     retentionPeriod: 30d
     # The cluster is IPv6-only, and every VictoriaMetrics binary listens and
     # dials tcp4-only unless this flag is set (lib/netutil hardcodes "tcp4"
@@ -113,7 +113,8 @@ alertmanager:
     # capacity, per the NodePool contract in
     # apps/karpenter-custom-resources/nodepool.yaml. (Gossip clustering only
     # starts at replicaCount > 1, so single-replica Alertmanager also sidesteps
-    # any memberlist-over-IPv6 concerns -- see apps/loki/values.yaml.)
+    # any memberlist-over-IPv6 concerns -- see the ring comments in
+    # apps/tempo/values.yaml.)
 # >>> karpenter: deploy.sh uncomments this block when k8s_platform=eks
 #     nodeSelector:
 #       karpenter.sh/capacity-type: on-demand
@@ -153,7 +154,7 @@ alertmanager:
 #
 # inhibit_rules implement the severity ladder the bundled alert rules assume
 # but the chart does not ship (its default values carry these rules only as a
-# commented-out example, unlike kube-prometheus-stack, which installs them):
+# commented-out example):
 # critical mutes warning+info for the same alertname+namespace, warning mutes
 # info likewise, and InfoInhibitor -- a bundled meta-alert that fires whenever
 # a severity=info alert is pending or firing in a namespace -- mutes every
@@ -307,8 +308,6 @@ grafana:
     server:
       # Public URL Grafana uses when generating absolute links (e.g. Explore
       # short links); without it they point at the default localhost:3000.
-      # Same hostname as the kube-prometheus-stack Grafana: the two stacks are
-      # either/or, so only one of them ever answers on it.
       root_url: https://grafana.project1-dev.devops.coop/
     # SSO through the optional dex app (apps/dex), via generic_oauth against
     # the dex issuer. The login form deliberately stays enabled: the local
@@ -602,8 +601,7 @@ grafana:
     # and the dashboard tracks that chart's pin with no vendored copy here.
     # The sidecar's ClusterRole already allows it. Trade-off: anything that
     # can create a labeled ConfigMap in some namespace can register a
-    # dashboard. Mirrored in apps/kube-prometheus-stack — the two stacks are
-    # either/or, so keep them interchangeable.
+    # dashboard.
     dashboards:
       searchNamespace: ALL
 
@@ -646,10 +644,9 @@ kubelet:
 
 # On EKS the scheduler, controller-manager, and etcd run inside the AWS-managed
 # control plane and expose no metrics endpoints, so none of these targets can
-# ever be scraped. Disable them so their scrape objects go away. (Unlike
-# kube-prometheus-stack, kube-proxy scraping is already off by default in this
-# chart.) On k0s/talos these components run on your own nodes, so leave them
-# enabled.
+# ever be scraped. Disable them so their scrape objects go away. (kube-proxy
+# scraping is already off by default in this chart.) On k0s/talos these
+# components run on your own nodes, so leave them enabled.
 # >>> eks: deploy.sh uncomments this block when k8s_platform=eks
 # kubeScheduler:
 #   enabled: false
@@ -662,8 +659,8 @@ kubelet:
 defaultRules:
   groups:
 # >>> eks: deploy.sh uncomments this block when k8s_platform=eks
-#     # Unlike kube-prometheus-stack, this chart does NOT gate the matching rule
-#     # groups on the kubeScheduler/kubeControllerManager flags above (it does
+#     # This chart does NOT gate the matching rule groups on the
+#     # kubeScheduler/kubeControllerManager flags above (it does
 #     # for etcd, but not for the scheduler or controller-manager), so their
 #     # absent(up{job=...}) alerts -- KubeSchedulerDown, KubeControllerManagerDown
 #     # -- fire forever even with the scrapes disabled. Disable those groups

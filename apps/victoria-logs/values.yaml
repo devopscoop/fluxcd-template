@@ -2,8 +2,7 @@
 # vim -O <(helm show values victoria-metrics/victoria-logs-single --version 0.13.9) values.yaml
 
 # Single-node VictoriaLogs (StatefulSet, one replica — the chart default).
-# This is the logs half of the VictoriaMetrics stack and the alternative to
-# apps/loki; run one or the other, not both.
+# This is the logs half of the VictoriaMetrics stack.
 server:
   # The chart's default fullname is <release>-<chart>-server, i.e. the
   # unwieldy victoria-logs-victoria-logs-single-server. Pin the name so the
@@ -13,14 +12,13 @@ server:
   # queries it).
   fullnameOverride: victoria-logs-server
 
-  # Keep logs from growing on disk forever. 31 days, matching the loki app's
-  # retention (limits_config.retention_period: 744h there). Units are
+  # Keep logs from growing on disk forever. 31 days (metrics in
+  # apps/victoria-metrics and traces in apps/tempo keep 30). Units are
   # h/d/w/y; a bare number means months (the chart default is 1 = 1 month).
   retentionPeriod: 31d
 
-  # The cluster is IPv6-only (see the memberlist comment in
-  # apps/loki/values.yaml for background). VictoriaLogs has no ring or
-  # memberlist, but its listener is IPv4-only unless told otherwise
+  # The cluster is IPv6-only. VictoriaLogs has no ring or memberlist, but its
+  # listener is IPv4-only unless told otherwise
   # (-enableTCP6: "Whether to enable IPv6 for listening and dialing. By
   # default, only IPv4 TCP and UDP are used") — without it the pod binds
   # 0.0.0.0 only and nothing can reach :9428 at the pod's IPv6 address.
@@ -30,8 +28,8 @@ server:
     enableTCP6: true
 
   persistentVolume:
-    # The key difference from Loki: open-source single-node VictoriaLogs
-    # stores to local disk only — there is no object-storage backend — so
+    # Open-source single-node VictoriaLogs stores to local disk only — there
+    # is no object-storage backend — so
     # durability rides entirely on this PV, and disk usage grows with
     # ingestion. Ships at the template's minimal 1Gi (chart default is 10Gi);
     # VictoriaLogs compresses aggressively, but grow this with real ingestion

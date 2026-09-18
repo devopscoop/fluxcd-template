@@ -65,7 +65,7 @@ spec:
         # c7a.medium's 940m allocatable CPU and 710Mi of its 1443Mi memory —
         # roughly half the node before it hosts anything of consequence. The
         # singletons that pin themselves to on-demand capacity (goalert,
-        # tempo, loki, victoria-metrics, nxrm-ha and friends) have little room
+        # tempo, victoria-metrics, nxrm-ha and friends) have little room
         # to absorb that, and several run memory request == limit.
         #
         # "large" (2 vCPU / 4 GiB) is the smallest size leaving real headroom.

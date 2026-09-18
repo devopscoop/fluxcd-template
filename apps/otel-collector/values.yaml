@@ -1,8 +1,8 @@
 # dyff between <(yq . <(helm show values open-telemetry/opentelemetry-collector --version 0.170.0)) <(yq eval '. * load("values.yaml")' <(helm show values open-telemetry/opentelemetry-collector --version 0.170.0))
 # vim -O <(helm show values open-telemetry/opentelemetry-collector --version 0.170.0) values.yaml
 
-# One collector per node, like the Alloy DaemonSet this replaces: each pod
-# tails its own node's log files AND receives OTLP pushed by that node's
+# One collector per node: each pod tails its own node's log files AND
+# receives OTLP pushed by that node's
 # workloads through the Service below. If app-pushed OTLP volume ever
 # outgrows per-node agents, split the roles: keep this DaemonSet for log
 # collection and add a second release of this chart as a gateway Deployment
@@ -27,12 +27,11 @@ image:
 fullnameOverride: otel-collector
 
 presets:
-  # Tail pod stdout/stderr under /var/log/pods — the replacement for Alloy's
-  # discovery.kubernetes + loki.source.file pipeline. The preset mounts the
+  # Tail pod stdout/stderr under /var/log/pods. The preset mounts the
   # hostPaths, appends the file_log receiver to the logs pipeline, and its
-  # `container` operator does what Alloy's stage.cri did: real timestamp from
-  # the CRI envelope, stream attribute, reassembly of runtime-split partial
-  # lines, plus namespace/pod/container attributes parsed from the file path.
+  # `container` operator unwraps the CRI envelope: real timestamp, stream
+  # attribute, reassembly of runtime-split partial lines, plus
+  # namespace/pod/container attributes parsed from the file path.
   logsCollection:
     enabled: true
     # Persist file_log read offsets on the host (/var/lib/otelcol) so a
@@ -41,19 +40,17 @@ presets:
     # the container then runs as root to write that hostPath.
     storeCheckpoints: true
   # Enrich all three signals with k8s.namespace.name / k8s.pod.name /
-  # k8s.container.name / owner-workload resource attributes — the parallel of
-  # Alloy's discovery.relabel labels. The preset creates the read RBAC,
-  # prepends the k8s_attributes processor to every pipeline, and in daemonset
-  # mode scopes its informer to the local node (filter.node_from_env_var) —
-  # the same watch-load fix as Alloy's spec.nodeName field selector, without
-  # which API-server watch load grows quadratically with cluster size.
+  # k8s.container.name / owner-workload resource attributes. The preset
+  # creates the read RBAC, prepends the k8s_attributes processor to every
+  # pipeline, and in daemonset mode scopes its informer to the local node
+  # (filter.node_from_env_var), without which API-server watch load grows
+  # quadratically with cluster size.
   kubernetesAttributes:
     enabled: true
 
 config:
-  # The cluster is IPv6-only (see the memberlist comment in
-  # apps/loki/values.yaml for background). The chart's defaults render every
-  # listen endpoint as ${env:MY_POD_IP}:<port>; the collector substitutes the
+  # The cluster is IPv6-only. The chart's defaults render every listen
+  # endpoint as ${env:MY_POD_IP}:<port>; the collector substitutes the
   # env var textually at startup, and with an IPv6 pod IP the result
   # (2600::5:4317) fails Go's host:port parsing — "too many colons in
   # address". Every listener actually used is re-declared here with the
@@ -252,7 +249,7 @@ config:
 # default. Workloads reach the collector through the Service, not node IPs,
 # so drop the hostPorts (null deletes the key): they are forbidden by the
 # "baseline" Pod Security level and invite node port conflicts — this keeps
-# the pod's security footprint at hostPath-mounts-only, same as apps/alloy.
+# the pod's security footprint at hostPath-mounts-only.
 # The jaeger/zipkin ports follow their receivers out.
 ports:
   otlp:
