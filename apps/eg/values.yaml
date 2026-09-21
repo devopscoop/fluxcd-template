@@ -15,7 +15,14 @@
 # rotations) move one controller at a time, and zone + hostname topology
 # spread so both replicas can't sit on one node. Declaring any spread
 # disables the kube-scheduler's cluster defaults, so both keys are restated
-# (maxSkew 1, ScheduleAnyway — same reasoning as envoyproxy-private.yaml).
+# (maxSkew 1). Hostname is DoNotSchedule: "both replicas can't sit on one
+# node" is the entire point, and ScheduleAnyway only SCORES that, leaving a
+# bin-packing autoscaler free to collapse both onto one node — an
+# involuntary loss of which drops both controllers at once, exactly the
+# failure the PDB prevents on the voluntary path. Zone stays ScheduleAnyway
+# so an AZ outage can't block the controller from scheduling at all. Same
+# split, and the same Pending-replica caveat on a fixed node pool smaller
+# than the replica count, as envoyproxy-private.yaml.
 # The control-plane label is set by the chart on this deployment's pods only,
 # regardless of release name.
 podDisruptionBudget:
@@ -41,7 +48,7 @@ deployment:
             control-plane: envoy-gateway
       - maxSkew: 1
         topologyKey: kubernetes.io/hostname
-        whenUnsatisfiable: ScheduleAnyway
+        whenUnsatisfiable: DoNotSchedule
         labelSelector:
           matchLabels:
             control-plane: envoy-gateway
