@@ -7,11 +7,32 @@
 #
 # High availability (both schemes): put one Envoy per AZ/node and keep every NLB
 # AZ node's IP live in DNS.
-#   - replicas: 3 with soft zone + hostname topology spread (maxSkew 1). Envoy
+#   - replicas: 3 with zone + hostname topology spread (maxSkew 1). Envoy
 #     Gateway sets no spread by default, and declaring our own DISABLES the
 #     kube-scheduler cluster defaults (which cover both zone AND hostname), so
-#     both keys are restated here, tightened to maxSkew 1. ScheduleAnyway keeps
-#     pods placeable during a zone/node capacity crunch.
+#     both keys are restated here, tightened to maxSkew 1. The two keys differ
+#     in strictness on purpose:
+#       * hostname is DoNotSchedule — one Envoy per node, enforced. Surviving
+#         the loss of a node is the whole point of replicas + a PDB, and a
+#         soft constraint does not deliver it: ScheduleAnyway only SCORES
+#         placement, so a bin-packing autoscaler (Karpenter consolidation) may
+#         collapse the entire fleet onto one node, and an involuntary loss of
+#         that node then takes the whole Gateway down — the exact outage the
+#         rest of this file's HA config exists to prevent. Seen in dev: all
+#         three eg-public replicas consolidated onto a single node, while
+#         eg-private happened to stay spread. A PDB does not help here; it
+#         bounds voluntary disruptions only.
+#       * zone stays ScheduleAnyway — a hard zone rule would let an AZ outage
+#         (or an AZ with no capacity) block scheduling outright, trading a
+#         rare correlated failure for a common one. Best-effort per-AZ on top
+#         of enforced per-node is the right split.
+#     Cost of the hard hostname rule: a replica stays Pending whenever no node
+#     is free of its siblings. With a node autoscaler that is precisely the
+#     signal to add a node — Karpenter provisions one and it self-resolves,
+#     while the surviving replicas keep serving. On a FIXED, small node pool
+#     (a non-Karpenter k0s/talos cluster with fewer nodes than replicas) it
+#     does NOT self-resolve: lower replicas to the node count, or put this one
+#     key back to ScheduleAnyway.
 #   - matchLabelKeys (owning-gateway-name): scope each constraint to a SINGLE
 #     Gateway's pods. Every Gateway on this class runs its own Envoy fleet;
 #     without this key the managed-by/name selector spans ALL fleets, so the
@@ -117,7 +138,7 @@ spec:
                   app.kubernetes.io/name: envoy
             - maxSkew: 1
               topologyKey: kubernetes.io/hostname
-              whenUnsatisfiable: ScheduleAnyway
+              whenUnsatisfiable: DoNotSchedule
               matchLabelKeys:
                 - gateway.envoyproxy.io/owning-gateway-name
               labelSelector:

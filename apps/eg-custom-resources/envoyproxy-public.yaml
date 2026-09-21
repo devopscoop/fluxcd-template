@@ -58,7 +58,7 @@ spec:
                   app.kubernetes.io/name: envoy
             - maxSkew: 1
               topologyKey: kubernetes.io/hostname
-              whenUnsatisfiable: ScheduleAnyway
+              whenUnsatisfiable: DoNotSchedule
               matchLabelKeys:
                 - gateway.envoyproxy.io/owning-gateway-name
               labelSelector:
