@@ -105,9 +105,14 @@ spec:
 # out that staleness plus normal retry/backoff churn.
 #
 # Deliberately no "controller down" rule: the pod scrape arms the bundled
-# TargetDown / KubeDeploymentReplicasMismatch alerts for the controllers,
-# and suspended resources are excluded everywhere — suspension is an
-# operator's deliberate act (e.g. runbooks/restore-cnpg-database.md step 1).
+# TargetDown / KubeDeploymentReplicasMismatch alerts for the controllers.
+#
+# Suspension is an operator's deliberate act (e.g.
+# runbooks/restore-cnpg-database.md step 1), so the readiness rules skip
+# suspended resources. FluxResourceSuspended covers the other half, a
+# suspension nobody resumed: while a resource is suspended Flux neither
+# reconciles it nor emits an event for it, so the cluster can drift from
+# git with nothing recording the change.
 apiVersion: operator.victoriametrics.com/v1beta1
 kind: VMRule
 metadata:
@@ -128,6 +133,21 @@ spec:
           expr: |-
             flux_resource_info{ready="False", suspended="False"} == 1
           for: 15m
+          labels:
+            severity: warning
+        - alert: FluxResourceSuspended
+          annotations:
+            summary: A Flux resource has been suspended for 2 hours.
+            description: >-
+              {{ $labels.kind }} {{ $labels.exported_namespace }}/{{
+              $labels.name }} has been suspended for 2h. Flux is not
+              reconciling it, so what it deploys can drift from git silently
+              and no deploy event is emitted for it. Resume with `flux resume
+              {{ $labels.kind | toLower }} -n {{ $labels.exported_namespace }}
+              {{ $labels.name }}`.
+          expr: |-
+            flux_resource_info{suspended="True"} == 1
+          for: 2h
           labels:
             severity: warning
         - alert: FluxInstanceNotReady
