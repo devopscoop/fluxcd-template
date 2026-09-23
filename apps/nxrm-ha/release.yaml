@@ -4,7 +4,7 @@ kind: Namespace
 metadata:
   annotations:
     kustomize.toolkit.fluxcd.io/prune: disabled
-  name: nxrm-ha
+  name: nexusrepo
 ---
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: HelmRepository
