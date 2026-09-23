@@ -124,18 +124,28 @@ jobs:
 
           # flate exits non-zero only when something fails to render; a diff by
           # itself is exit 0. Capture the code so the comment can report it and
-          # the job fails after posting. Anonymous chart pulls from shared runner
-          # IPs get rate-limited (public.ecr.aws answers 429), so retry fetches
-          # harder than the defaults; the flate action's cache keeps charts
-          # between runs, so this mostly matters on a cold cache.
+          # the job fails after posting.
+          #
+          # Anonymous chart pulls from shared runner IPs get rate-limited
+          # (public.ecr.aws answers 429 for the karpenter charts), and flate
+          # fails fast on that rather than retrying. Wait it out and rerun:
+          # everything that rendered is cached on disk, so a rerun only fetches
+          # what failed. The action's cache also keeps charts between runs.
           set +e
-          flate diff all \
-            --path "${GITHUB_WORKSPACE}/flux-diff-entry" \
-            --path-orig "${RUNNER_TEMP}/base/flux-diff-entry" \
-            --source-retry-attempts 6 --source-retry-min-wait 2s --source-retry-max-wait 30s \
-            --output github ${flags[@]+"${flags[@]}"} \
-            > "${RUNNER_TEMP}/diff.txt" 2> "${RUNNER_TEMP}/flate.log"
-          rc=$?
+          for attempt in 1 2 3 4; do
+            flate diff all \
+              --path "${GITHUB_WORKSPACE}/flux-diff-entry" \
+              --path-orig "${RUNNER_TEMP}/base/flux-diff-entry" \
+              --output github ${flags[@]+"${flags[@]}"} \
+              > "${RUNNER_TEMP}/diff.txt" 2> "${RUNNER_TEMP}/flate.log"
+            rc=$?
+            if [[ "${rc}" != 0 && "${attempt}" -lt 4 ]] && grep -q 'status code 429' "${RUNNER_TEMP}/flate.log"; then
+              echo "registry rate limit (429) on attempt ${attempt}; retrying in $((attempt * 30))s"
+              sleep $((attempt * 30))
+              continue
+            fi
+            break
+          done
           set -e
           cat "${RUNNER_TEMP}/flate.log"
 
@@ -174,6 +184,10 @@ jobs:
               if [[ "${FAIL}" == 1 ]]; then
                 echo "> [!CAUTION]"
                 echo "> flate exited ${FLATE_EXIT}: something on this PR's side failed to render. Flux would fail the same way, so fix it before merging. In the log, \"orig snapshot\" is the merge-base and \"current snapshot\" is this PR."
+                if grep -q 'status code 429' "${log}"; then
+                  echo ">"
+                  echo "> A chart pull hit a registry rate limit (429) even after retries; that is the runner's shared IP, not this PR. Re-run the job."
+                fi
               else
                 echo "> [!WARNING]"
                 echo "> The merge-base fails to render (log below); this PR's side renders clean, so the job passes. Resources that couldn't be rendered there appear below as \`diff suppressed\`."
