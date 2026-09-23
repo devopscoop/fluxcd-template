@@ -5,7 +5,11 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 # Setting namespace here will ensure that all objects managed by this Kustomization will explicitly be deployed to this namespace. You don't need to put specify `namespace:` anywhere else if you do this.
-namespace: nxrm-ha
+# nexusrepo is the chart's namespaces.nexusNs.name default, which it stamps on
+# every object it renders regardless of the release namespace, so the release
+# and its values live there too. release.yaml's Namespace owns the namespace;
+# values.yaml turns off the chart's own copy of it.
+namespace: nexusrepo
 
 resources:
   - release.yaml

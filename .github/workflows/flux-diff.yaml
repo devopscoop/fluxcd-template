@@ -1,0 +1,83 @@
+name: Flux diff
+
+# Shows reviewers what Flux would actually apply. flux_diff.sh renders the
+# cluster at the pull request's merge-base and at its head - offline, with
+# flate - and .github/scripts/flux-diff-comment.js posts the rendered diff as
+# one sticky PR comment plus a job summary. A render failure on the PR's side
+# fails the job; a diff is informational. README.md -> "Continuous integration"
+# explains how to read the output; flux_diff.sh's header explains what renders.
+
+on:
+  pull_request:
+    paths:
+      - "**/apps/**"
+      - "**/flux/**"
+      - "**/flux_diff.sh"
+      - ".github/workflows/flux-diff.yaml"
+      - ".github/scripts/flux-diff-comment.js"
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: flux-diff-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  # Where this template lives in the repo: "." in a fork, the prefix given to
+  # `git subtree add --prefix` (e.g. "fluxcd") in a subtree install.
+  FLUX_DIR: .
+
+jobs:
+  diff:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      # Check out the PR head itself, not GitHub's synthetic merge commit, so
+      # the merge-base below is the real fork point - the way GitHub's own diff
+      # view computes it. fetch-depth 0 brings the base branch along.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - uses: home-operations/flate/action@631b76b69c4e58c6f4d1cb01e23616fa61aebafa  # v0.6.5
+        with:
+          version: "0.6.5"
+          cache: "true"
+
+      # Exit codes: 0 rendered, 1 this PR fails to render, 2 only the merge-base
+      # does (main is already broken). The comment step reports all three; the
+      # last step fails the job on anything but 0 and 2.
+      - name: Render and diff
+        id: diff
+        run: |
+          base=$(git merge-base "origin/${GITHUB_BASE_REF}" HEAD)
+          rc=0
+          "${FLUX_DIR}/flux_diff.sh" -o github "${base}" \
+            > "${RUNNER_TEMP}/diff.txt" 2> "${RUNNER_TEMP}/flux_diff.log" || rc=$?
+          cat "${RUNNER_TEMP}/flux_diff.log"
+          { echo "exit=${rc}"; echo "base=${base}"; } >> "${GITHUB_OUTPUT}"
+
+      # Values reach the script through env, never `${{ }}` in its source: the
+      # diff is untrusted PR content. Dependabot and fork PRs run with a
+      # read-only token; the script warns instead of failing when it can't post.
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9.0.0
+        env:
+          DIFF_FILE: ${{ runner.temp }}/diff.txt
+          LOG_FILE: ${{ runner.temp }}/flux_diff.log
+          EXIT: ${{ steps.diff.outputs.exit }}
+          BASE_SHA: ${{ steps.diff.outputs.base }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        with:
+          script: |
+            const path = require('path');
+            const comment = require(path.join(process.env.GITHUB_WORKSPACE, process.env.FLUX_DIR, '.github/scripts/flux-diff-comment.js'));
+            await comment({ github, context, core });
+
+      - name: Fail on render errors
+        if: steps.diff.outputs.exit != '0' && steps.diff.outputs.exit != '2'
+        run: |
+          echo "::error::flux_diff.sh exited ${{ steps.diff.outputs.exit }}; see the 'Render and diff' step"
+          exit 1

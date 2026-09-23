@@ -1,6 +1,14 @@
 # dyff between <(yq . <(helm show values sonatype/nxrm-ha --version v82.0.0)) <(yq eval '. * load("values.yaml")' <(helm show values sonatype/nxrm-ha --version v82.0.0))
 # vim -O <(helm show values sonatype/nxrm-ha --version v82.0.0) values.yaml
 
+namespaces:
+  nexusNs:
+    # The chart stamps namespaces.nexusNs.name (default nexusrepo) on every
+    # object it renders, so the app lives there (see kustomization.yaml) and
+    # release.yaml's Namespace owns it. Don't let the chart create it too:
+    # Helm refuses to adopt a Namespace it didn't create.
+    enabled: false
+
 ingress:
   enabled: true
   annotations:

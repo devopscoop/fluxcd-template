@@ -3,7 +3,8 @@
 #
 # Requires an AUR helper (yay or paru) because autokuma-cli, dyff,
 # flux-operator, and kubectl-cnpg are AUR packages; everything else is in the
-# official repos.
+# official repos, except flate, which has no Arch package at all (see its
+# entry below for the manual install).
 #
 # Usage:
 #   grep -vE '^(#|$)' pkglist.txt | yay -S --needed -
@@ -24,6 +25,12 @@ curl
 
 # dyff — AUR; YAML diffing, referenced in apps/templates/helm/values.yaml
 dyff
+
+# flate — no Arch package (neither official nor AUR, checked 2026-09); renders
+# Flux Kustomizations and HelmReleases offline for flux_diff.sh and the
+# flux-diff GitHub workflow. Put a release binary from
+# https://github.com/home-operations/flate/releases on your PATH, or run
+# `go install github.com/home-operations/flate/cmd/flate@latest`.
 
 # flux-operator — AUR; the Flux Operator CLI used by deploy.sh (NOT the
 # standard `flux` CLI, which appears only in commented-out lines)

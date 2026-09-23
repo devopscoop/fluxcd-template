@@ -10,7 +10,7 @@ helm install nxrm-ha sonatype/nxrm-ha --create-namespace --namespace nxrm-ha --v
 
 ## Install required packages
 
-This repo ships package manifests that install every CLI tool it uses (`age`, `bash`, `curl`, `dyff`, `flux-operator`, `git`, `helm`, `jq`, `kubectl-cnpg`, `pre-commit`, `psql`, `python`, `sops`, `vim`, and the Go `yq`):
+This repo ships package manifests that install every CLI tool it uses (`age`, `bash`, `curl`, `dyff`, `flate`, `flux-operator`, `git`, `helm`, `jq`, `kubectl-cnpg`, `pre-commit`, `psql`, `python`, `sops`, `vim`, and the Go `yq`):
 
 - macOS, using [Homebrew](https://brew.sh/) and the `Brewfile`:
 
@@ -18,7 +18,7 @@ This repo ships package manifests that install every CLI tool it uses (`age`, `b
   brew bundle
   ```
 
-- Arch Linux, using the `pkglist.txt`. This requires an AUR helper such as [yay](https://github.com/Jguer/yay) or [paru](https://github.com/Morganamilo/paru), because `autokuma-cli`, `dyff`, `flux-operator`, and `kubectl-cnpg` are AUR packages:
+- Arch Linux, using the `pkglist.txt`. This requires an AUR helper such as [yay](https://github.com/Jguer/yay) or [paru](https://github.com/Morganamilo/paru), because `autokuma-cli`, `dyff`, `flux-operator`, and `kubectl-cnpg` are AUR packages (`flate` has no Arch package; see below):
 
   ```shell
   grep -vE '^(#|$)' pkglist.txt | yay -S --needed -
@@ -32,6 +32,12 @@ download the `kuma-mac` binary from the
 on your `PATH` as `kuma-cli`. It manages Uptime Kuma entities; see
 `apps/uptime-kuma/README.md`.
 
+`flate` has no Arch package: put a release binary from
+[home-operations/flate](https://github.com/home-operations/flate/releases) on
+your `PATH`, or run `go install github.com/home-operations/flate/cmd/flate@latest`.
+`flux_diff.sh` and the flux-diff GitHub workflow render the cluster with it; see
+"Continuous integration" below.
+
 ## Deploying Flux
 
 1. Choose an installation method - either Fork or Subtree:
@@ -40,11 +46,13 @@ on your `PATH` as `kuma-cli`. It manages Uptime Kuma entities; see
    - Subtree if you want to put this code in an existing infrastructure as code git repo:
       1. Change directory to your existing repo.
       1. Checkout a new branch, use subtree to add this repo to a subdirectory, then change directory to it:
-         ```
+
+         ```bash
          git checkout -b $branch_name
          git subtree add --prefix fluxcd git@github.com:devopscoop/aws-eks-template.git main
          cd fluxcd
          ```
+
 1. Create a GitHub App for Flux to authenticate with this repository:
    1. Go to your GitHub organization settings: **Settings → Developer settings → GitHub Apps**.
    1. Click **New GitHub App**.
@@ -63,30 +71,40 @@ on your `PATH` as `kuma-cli`. It manages Uptime Kuma entities; see
    1. Download the `*.pem` file - you will need it later. DO NOT COMMIT IT - IT IS A SECRET!
 1. Edit variables.sh.
 1. Source variables.sh:
-   ```
+
+   ```bash
    source variables.sh
    ```
+
 1. Ensure that sops dir exists:
+
    ```bash
    mkdir -p "${sops_dir}"
    ```
+
 1. Decrypt your existing SOPS age keys.txt file (if you have one):
-   ```
+
+   ```bash
    export decrypted_keys=$(mktemp --tmpdir=$HOME)
    age -d "${sops_dir}/keys.txt" > "${decrypted_keys}"
    ```
+
 1. Create a new key for this cluster:
-   ```
+
+   ```bash
    export new_key=$(mktemp --tmpdir=$HOME)
    age-keygen | tee -a "${new_key}"
    ```
 
 1. Add this new age public and private key to your organization's password manager.
 1. Add the new key to your existing keys.txt file:
-   ```
+
+   ```bash
    cat "${new_key}" >> "${decrypted_keys}"
    ```
+
 1. Re-encrypt your keys.txt:
+
    ```bash
    cp "${sops_dir}/keys.txt" "${sops_dir}/keys.txt.$(date +%s)"
    age -p "${decrypted_keys}" > "${sops_dir}/keys.txt"
@@ -94,7 +112,8 @@ on your `PATH` as `kuma-cli`. It manages Uptime Kuma entities; see
 
 1. Add the public age key to .sops.yaml.
 1. Encrypt the GitHub App `*.pem` file using your new SOPS key (this encrypted file will be committed later):
-   ```
+
+   ```bash
    age -r your_sops_public_key -o devopscoop-project1-dev-flux.2026-06-16.private-key.pem.age ~/Downloads/devopscoop-project1-dev-flux.2026-06-16.private-key.pem
    ```
 
@@ -111,7 +130,8 @@ on your `PATH` as `kuma-cli`. It manages Uptime Kuma entities; see
 
 1. Run `./deploy.sh`
 1. Clean up cleartext secrets once you're sure you've encrypted them and/or saved them in a password manager:
-   ```
+
+   ```bash
    rm -v "${decrypted_keys}" "${new_key}"
    ```
 
@@ -163,3 +183,30 @@ To disable image automation in a prod-like repo:
 1. Leave the `# {"$imagepolicy": ...}` markers in `apps/*/values.yaml` alone. They are plain comments; nothing rewrites them without the automation controllers, and keeping the files identical to dev keeps syncs conflict-free.
 
 Caveat: the synced values files reference images by full registry URL, so every environment that deploys them must be able to pull those exact name:tag pairs. Same-account registries, cross-account pull permissions, registry replication, or CI pushing to every environment's registry are all valid ways to get there — that part is up to you.
+
+## Continuous integration
+
+`.github/workflows/flux-diff.yaml` runs on every pull request that touches `apps/` or `flux/`. It runs `./flux_diff.sh`, which renders the cluster twice with [flate](https://github.com/home-operations/flate) — once at the PR's merge-base, once at its head — entirely offline (no kubeconfig, no cluster), and posts the rendered diff as one sticky PR comment, updated in place on every push, and in the job summary. That is the diff of what Flux would actually apply: HelmReleases are templated with their `values.yaml` and `helm_secrets.yaml`, so a chart bump or a values edit shows up as the resulting Deployment or ConfigMap change, not as a one-line version diff.
+
+Run the same diff before pushing. It compares your working tree, uncommitted changes included, against the merge-base with `origin/main`, renders from copies, and never modifies the working tree:
+
+```shell
+./flux_diff.sh                    # human-readable, against origin/main
+./flux_diff.sh -o github HEAD~3   # the PR comment's style, against another revision
+```
+
+How to read it:
+
+- Each `@@ <field> @@` block is one changed field of one rendered resource, named in the `# group/version/Kind/namespace/name` line under it. A resource appears only when something about it changed.
+- A values change also shows the generated `<app>-values-<hash>` ConfigMap as one document removed and one added, with the HelmRelease's `valuesFrom` names changing to match. That is accurate — kustomize's hash suffix gives the ConfigMap a new name — so skim past it to the workload diff.
+- "No rendered changes" means the PR changes nothing Flux would apply: comments, docs, scripts, or files of apps that aren't enabled.
+- A render failure on the PR's side (a broken kustomization, a chart version that doesn't exist, values that fail the chart's schema) is exit code 1: the job fails and the log is quoted at the top of the comment. Flux would fail the same way, so fix it before merging. In that log, "orig snapshot" is the merge-base and "current snapshot" is the PR. If only the merge-base fails to render (`main` is already broken and the PR may be the fix), that is exit code 2: the comment says so and the job passes. A non-empty diff never fails the job.
+- Dependabot and fork PRs run with a read-only token, so the comment can't be posted there; the diff is still in the job summary.
+
+What gets rendered — the header comment of `flux_diff.sh` is the full account:
+
+- Only the apps enabled in the `resources` list of `flux/flux-system/kustomization.yaml`, exactly as in the cluster. flate ignores kustomize `resources` lists when pointed at a directory, so the script hands it a generated root Kustomization whose `spec.path` is that directory — the same object the FluxInstance's sync creates in the cluster.
+- In this template repo the list is empty (deploy.sh fills it in at bootstrap), so the script renders every Kustomization in `flux/flux-system/` whose `spec.path` exists instead, after copying the tracked `*.decrypted` boilerplate to the filenames the kustomizations reference. Kustomizations whose path is missing are skipped with a warning (an annotation on the run). Template mode also renders with `--skip-schema-validation`, because placeholders such as falcon-platform's `CHANGEME-CID` fail chart values schemas and flate fails the whole run on any app it can't render; cluster repos, where the values are real, keep the schema check, so a schema violation surfaces on the PR that carries the change there.
+- Secrets never reach the output. flate excludes `Secret` objects from rendered output by default and cannot decrypt SOPS, so an encrypted `helm_secrets.yaml` still renders its HelmRelease (with placeholder values), and neither plaintext nor ciphertext appears in the diff.
+
+In a subtree install, copy only `.github/workflows/flux-diff.yaml` into the host repo's `.github/workflows/` and set its `FLUX_DIR` to the subtree prefix. The workflow loads `.github/scripts/flux-diff-comment.js` from under `FLUX_DIR`, so the subtree's own copy is used, and `flux_diff.sh` finds the Flux entry with `git ls-files`, so the prefix needs no other configuration.
