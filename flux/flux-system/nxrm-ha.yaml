@@ -1,7 +1,7 @@
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
-  name: nexus3
+  name: nxrm-ha
   namespace: flux-system
 spec:
   dependsOn:
@@ -10,7 +10,7 @@ spec:
   sourceRef:
     kind: GitRepository
     name: flux-system
-  path: apps/nexus3
+  path: apps/nxrm-ha
   prune: true
   wait: true
   timeout: 5m0s

@@ -40,11 +40,13 @@ on your `PATH` as `kuma-cli`. It manages Uptime Kuma entities; see
    - Subtree if you want to put this code in an existing infrastructure as code git repo:
       1. Change directory to your existing repo.
       1. Checkout a new branch, use subtree to add this repo to a subdirectory, then change directory to it:
-         ```
+
+         ```bash
          git checkout -b $branch_name
          git subtree add --prefix fluxcd git@github.com:devopscoop/aws-eks-template.git main
          cd fluxcd
          ```
+
 1. Create a GitHub App for Flux to authenticate with this repository:
    1. Go to your GitHub organization settings: **Settings → Developer settings → GitHub Apps**.
    1. Click **New GitHub App**.
@@ -63,30 +65,40 @@ on your `PATH` as `kuma-cli`. It manages Uptime Kuma entities; see
    1. Download the `*.pem` file - you will need it later. DO NOT COMMIT IT - IT IS A SECRET!
 1. Edit variables.sh.
 1. Source variables.sh:
-   ```
+
+   ```bash
    source variables.sh
    ```
+
 1. Ensure that sops dir exists:
+
    ```bash
    mkdir -p "${sops_dir}"
    ```
+
 1. Decrypt your existing SOPS age keys.txt file (if you have one):
-   ```
+
+   ```bash
    export decrypted_keys=$(mktemp --tmpdir=$HOME)
    age -d "${sops_dir}/keys.txt" > "${decrypted_keys}"
    ```
+
 1. Create a new key for this cluster:
-   ```
+
+   ```bash
    export new_key=$(mktemp --tmpdir=$HOME)
    age-keygen | tee -a "${new_key}"
    ```
 
 1. Add this new age public and private key to your organization's password manager.
 1. Add the new key to your existing keys.txt file:
-   ```
+
+   ```bash
    cat "${new_key}" >> "${decrypted_keys}"
    ```
+
 1. Re-encrypt your keys.txt:
+
    ```bash
    cp "${sops_dir}/keys.txt" "${sops_dir}/keys.txt.$(date +%s)"
    age -p "${decrypted_keys}" > "${sops_dir}/keys.txt"
@@ -94,7 +106,8 @@ on your `PATH` as `kuma-cli`. It manages Uptime Kuma entities; see
 
 1. Add the public age key to .sops.yaml.
 1. Encrypt the GitHub App `*.pem` file using your new SOPS key (this encrypted file will be committed later):
-   ```
+
+   ```bash
    age -r your_sops_public_key -o devopscoop-project1-dev-flux.2026-06-16.private-key.pem.age ~/Downloads/devopscoop-project1-dev-flux.2026-06-16.private-key.pem
    ```
 
@@ -111,7 +124,8 @@ on your `PATH` as `kuma-cli`. It manages Uptime Kuma entities; see
 
 1. Run `./deploy.sh`
 1. Clean up cleartext secrets once you're sure you've encrypted them and/or saved them in a password manager:
-   ```
+
+   ```bash
    rm -v "${decrypted_keys}" "${new_key}"
    ```
 
