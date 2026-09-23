@@ -163,3 +163,23 @@ To disable image automation in a prod-like repo:
 1. Leave the `# {"$imagepolicy": ...}` markers in `apps/*/values.yaml` alone. They are plain comments; nothing rewrites them without the automation controllers, and keeping the files identical to dev keeps syncs conflict-free.
 
 Caveat: the synced values files reference images by full registry URL, so every environment that deploys them must be able to pull those exact name:tag pairs. Same-account registries, cross-account pull permissions, registry replication, or CI pushing to every environment's registry are all valid ways to get there — that part is up to you.
+
+## Continuous integration
+
+`.github/workflows/flux-diff.yaml` runs on every pull request that touches `apps/` or `flux/`. It renders the cluster twice with [flate](https://github.com/home-operations/flate) — once at the PR's merge-base, once at its head — entirely offline (no kubeconfig, no cluster), and posts the rendered diff as a sticky PR comment and in the job summary. That is the diff of what Flux would actually apply: HelmReleases are templated with their `values.yaml` and `helm_secrets.yaml`, so a chart bump or a values edit shows up as the resulting Deployment or ConfigMap change, not as a one-line version diff.
+
+How to read it:
+
+- Each `@@ <field> @@` block is one changed field of one rendered resource, named in the `# group/version/Kind/namespace/name` line under it. A resource appears only when something about it changed.
+- A values change also shows the generated `<app>-values-<hash>` ConfigMap as one document removed and one added, with the HelmRelease's `valuesFrom` names changing to match. That is accurate — kustomize's hash suffix gives the ConfigMap a new name — so skim past it to the workload diff.
+- "No rendered changes" means the PR changes nothing Flux would apply: comments, docs, scripts, or files of apps that aren't enabled.
+- A render failure on the PR's side (a broken kustomization, a chart version that doesn't exist, values that fail the chart's schema) fails the job and is quoted at the top of the comment. Flux would fail the same way, so fix it before merging. In that log, "orig snapshot" is the merge-base and "current snapshot" is the PR. If only the merge-base fails to render (`main` is already broken and the PR may be the fix), the comment says so and the job passes. A non-empty diff never fails the job.
+- Dependabot and fork PRs run with a read-only token, so the comment can't be posted there; the diff is still in the job summary.
+
+What gets rendered:
+
+- Only the apps enabled in the `resources` list of `flux/flux-system/kustomization.yaml`, exactly as in the cluster. flate ignores kustomize `resources` lists when pointed at a directory, so the job hands it a generated root Kustomization (`flux-diff-entry/`, gitignored) whose `spec.path` is that directory — the same object the FluxInstance's sync creates in the cluster.
+- In this template repo the list is empty (deploy.sh fills it in at bootstrap), so the job renders every Kustomization in `flux/flux-system/` whose `spec.path` exists instead, after copying the tracked `*.decrypted` boilerplate to the filenames the kustomizations reference. Kustomizations whose path is missing are skipped with a warning annotation on the run. Template mode also renders with `--skip-schema-validation`, because placeholders such as falcon-platform's `CHANGEME-CID` fail chart values schemas and flate fails the whole run on any app it can't render; cluster repos, where the values are real, keep the schema check, so a schema violation surfaces on the PR that carries the change there.
+- Secrets never reach the output. flate excludes `Secret` objects from rendered output by default and cannot decrypt SOPS, so an encrypted `helm_secrets.yaml` still renders its HelmRelease (with placeholder values), and neither plaintext nor ciphertext appears in the diff.
+
+The workflow lives at the repo root, so in a subtree install copy it into the host repo's `.github/workflows/`; its path filters and its `flux/flux-system` lookup handle the subtree prefix. To reproduce a run locally, install flate (`brew install --cask home-operations/tap/flate`), run the `prepare` function from the workflow's "Render and diff" step against your checkout and against a `git worktree` of `main`, then run the same `flate diff all` command.

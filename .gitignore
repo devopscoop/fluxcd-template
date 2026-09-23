@@ -1,3 +1,4 @@
 bin/*
 *.decrypted
 falcon-container-sensor-pull.sh
+flux-diff-entry/
