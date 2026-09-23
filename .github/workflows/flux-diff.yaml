@@ -1,17 +1,20 @@
 name: Flux diff
 
-# Shows reviewers what Flux would actually apply: renders the cluster at the
-# pull request's merge-base and at its head - offline, with flate - and posts
-# the rendered diff as a sticky PR comment plus a job summary. Render failures
-# fail the job; a non-empty diff is informational. README.md -> "Continuous
-# integration" explains how to read the output and what gets rendered.
+# Shows reviewers what Flux would actually apply. flux_diff.sh renders the
+# cluster at the pull request's merge-base and at its head - offline, with
+# flate - and .github/scripts/flux-diff-comment.js posts the rendered diff as
+# one sticky PR comment plus a job summary. A render failure on the PR's side
+# fails the job; a diff is informational. README.md -> "Continuous integration"
+# explains how to read the output; flux_diff.sh's header explains what renders.
 
 on:
   pull_request:
     paths:
       - "**/apps/**"
       - "**/flux/**"
+      - "**/flux_diff.sh"
       - ".github/workflows/flux-diff.yaml"
+      - ".github/scripts/flux-diff-comment.js"
 
 permissions:
   contents: read
@@ -20,6 +23,11 @@ permissions:
 concurrency:
   group: flux-diff-${{ github.event.pull_request.number }}
   cancel-in-progress: true
+
+env:
+  # Where this template lives in the repo: "." in a fork, the prefix given to
+  # `git subtree add --prefix` (e.g. "fluxcd") in a subtree install.
+  FLUX_DIR: .
 
 jobs:
   diff:
@@ -39,202 +47,37 @@ jobs:
           version: "0.6.5"
           cache: "true"
 
-      - name: Materialize the merge-base
-        id: base
-        run: |
-          set -euo pipefail
-          sha=$(git merge-base "origin/${GITHUB_BASE_REF}" HEAD)
-          git worktree add --detach "${RUNNER_TEMP}/base" "${sha}"
-          echo "sha=${sha}" >> "${GITHUB_OUTPUT}"
-
+      # Exit codes: 0 rendered, 1 this PR fails to render, 2 only the merge-base
+      # does (main is already broken). The comment step reports all three; the
+      # last step fails the job on anything but 0 and 2.
       - name: Render and diff
         id: diff
-        env:
-          FLATE_NO_PROGRESS: "1"
         run: |
-          set -euo pipefail
-          # The flate action exports FLATE_BASE=<default branch>, which flate
-          # reads as --base; that is mutually exclusive with the --path-orig
-          # tree prepared below (the base needs the same preparation).
-          unset FLATE_BASE
+          base=$(git merge-base "origin/${GITHUB_BASE_REF}" HEAD)
+          rc=0
+          "${FLUX_DIR}/flux_diff.sh" -o github "${base}" \
+            > "${RUNNER_TEMP}/diff.txt" 2> "${RUNNER_TEMP}/flux_diff.log" || rc=$?
+          cat "${RUNNER_TEMP}/flux_diff.log"
+          { echo "exit=${rc}"; echo "base=${base}"; } >> "${GITHUB_OUTPUT}"
 
-          # Where the Flux Kustomizations live: flux/flux-system in a fork of the
-          # template, <prefix>/flux/flux-system after a `git subtree add`.
-          ks_dir=$(git ls-files 'flux/flux-system/kustomization.yaml' '*/flux/flux-system/kustomization.yaml' | head -1)
-          [[ -n "${ks_dir}" ]] || { echo "::error::no flux/flux-system/kustomization.yaml in this repo"; exit 1; }
-          ks_dir=$(dirname "${ks_dir}")
-          echo "Flux entry: ${ks_dir}"
-
-          # flate loads every YAML file in --path and ignores kustomize
-          # `resources` lists, so pointing it at ${ks_dir} would render disabled
-          # apps too. Give it what the FluxInstance gives the cluster instead: a
-          # root Kustomization whose spec.path is ${ks_dir}. flate kustomize-builds
-          # that directory, so only the enabled apps are followed.
-          prepare() {  # $1 = tree root
-            local root=$1 entry=$1/flux-diff-entry ks=$1/${ks_dir}/kustomization.yaml f p
-            mkdir -p "${entry}"
-            cat > "${entry}/flux-system.yaml" <<EOF
-          apiVersion: kustomize.toolkit.fluxcd.io/v1
-          kind: Kustomization
-          metadata:
-            name: flux-system
-            namespace: flux-system
-          spec:
-            interval: 10m
-            path: ./${ks_dir}
-            prune: true
-            sourceRef:
-              kind: GitRepository
-              name: flux-system
-          EOF
-
-            # Template mode. fluxcd-template ships resources: [] (deploy.sh fills
-            # it in at bootstrap), so nothing would render. Enable every
-            # Kustomization whose spec.path exists instead. Placeholders such as
-            # falcon-platform's CHANGEME-CID fail chart values schemas, so
-            # template mode also renders with --skip-schema-validation (below);
-            # cluster repos, where the values are real, keep the schema check.
-            if [[ "$(yq '.resources | length' "${ks}")" == 0 ]]; then
-              echo "${root}: resources is empty (template repo), rendering every Kustomization"
-              template_mode=1
-              for f in "${root}/${ks_dir}"/*.yaml; do
-                [[ "$(basename "${f}")" != app-template.yaml ]] || continue  # the scaffold deploy_new_app.sh copies
-                [[ "$(yq '.apiVersion' "${f}")" == kustomize.toolkit.fluxcd.io/* ]] || continue  # Flux Kustomizations, not kustomization.yaml
-                p=$(yq '.spec.path' "${f}")
-                if [[ -d "${root}/${p}" ]]; then
-                  yq -i ".resources += [\"$(basename "${f}")\"]" "${ks}"
-                elif [[ "${root}" == "${GITHUB_WORKSPACE}" ]]; then
-                  echo "::warning file=${ks_dir}/$(basename "${f}")::spec.path ${p} does not exist; skipped"
-                fi
-              done
-            fi
-
-            # The template tracks plaintext boilerplate as *.decrypted (gitignored
-            # and encrypted into the real filename at bootstrap); stand it in for
-            # the files the kustomizations reference. A bootstrapped repo has none.
-            while IFS= read -r f; do
-              [[ -e "${f%.decrypted}" ]] || cp "${f}" "${f%.decrypted}"  # never clobber a real encrypted file
-            done < <(find "${root}" -name '*.decrypted' -not -path '*/templates/*' -not -path '*/.git/*')
-          }
-          template_mode=0
-          prepare "${GITHUB_WORKSPACE}"
-          prepare "${RUNNER_TEMP}/base"
-          flags=()
-          [[ "${template_mode}" == 0 ]] || flags+=(--skip-schema-validation)
-
-          # flate exits non-zero only when something fails to render; a diff by
-          # itself is exit 0. Capture the code so the comment can report it and
-          # the job fails after posting.
-          #
-          # Anonymous chart pulls from shared runner IPs get rate-limited
-          # (public.ecr.aws answers 429 for the karpenter charts), and flate
-          # fails fast on that rather than retrying. Wait it out and rerun:
-          # everything that rendered is cached on disk, so a rerun only fetches
-          # what failed. The action's cache also keeps charts between runs.
-          set +e
-          for attempt in 1 2 3 4; do
-            flate diff all \
-              --path "${GITHUB_WORKSPACE}/flux-diff-entry" \
-              --path-orig "${RUNNER_TEMP}/base/flux-diff-entry" \
-              --output github ${flags[@]+"${flags[@]}"} \
-              > "${RUNNER_TEMP}/diff.txt" 2> "${RUNNER_TEMP}/flate.log"
-            rc=$?
-            if [[ "${rc}" != 0 && "${attempt}" -lt 4 ]] && grep -q 'status code 429' "${RUNNER_TEMP}/flate.log"; then
-              echo "registry rate limit (429) on attempt ${attempt}; retrying in $((attempt * 30))s"
-              sleep $((attempt * 30))
-              continue
-            fi
-            break
-          done
-          set -e
-          cat "${RUNNER_TEMP}/flate.log"
-
-          # A failure only on the merge-base side (main is already broken, and
-          # this PR may be the fix) is worth reporting but not failing the PR
-          # over; a failure on the PR's side is.
-          fail=0
-          if [[ "${rc}" != 0 ]]; then
-            fail=1
-            if grep -q '^flate error: orig snapshot:' "${RUNNER_TEMP}/flate.log" && ! grep -q 'current snapshot' "${RUNNER_TEMP}/flate.log"; then
-              fail=0
-              echo "::warning::the merge-base fails to render (see the log above); this PR's side renders clean"
-            fi
-          fi
-          { echo "exit=${rc}"; echo "fail=${fail}"; } >> "${GITHUB_OUTPUT}"
-
-      - name: Write the comment and job summary
+      # Values reach the script through env, never `${{ }}` in its source: the
+      # diff is untrusted PR content. Dependabot and fork PRs run with a
+      # read-only token; the script warns instead of failing when it can't post.
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9.0.0
         env:
-          FLATE_EXIT: ${{ steps.diff.outputs.exit }}
-          FAIL: ${{ steps.diff.outputs.fail }}
-          BASE_SHA: ${{ steps.base.outputs.sha }}
+          DIFF_FILE: ${{ runner.temp }}/diff.txt
+          LOG_FILE: ${{ runner.temp }}/flux_diff.log
+          EXIT: ${{ steps.diff.outputs.exit }}
+          BASE_SHA: ${{ steps.diff.outputs.base }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          set -euo pipefail
-          diff=${RUNNER_TEMP}/diff.txt
-          log=${RUNNER_TEMP}/flate.log
-          run_url=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
-          limit=60000  # GitHub caps a comment at 65536 characters
-          empty=0; [[ -z "$(tr -d '[:space:]' < "${diff}")" ]] && empty=1
-          {
-            echo "## Flux diff"
-            echo
-            echo "What Flux would apply differently at \`${HEAD_SHA::7}\` than at the merge-base \`${BASE_SHA::7}\`, rendered offline by [flate](https://github.com/home-operations/flate) ([workflow run](${run_url}); README.md -> \"Continuous integration\" explains how to read it)."
-            echo
-            if [[ "${FLATE_EXIT}" != 0 ]]; then
-              if [[ "${FAIL}" == 1 ]]; then
-                echo "> [!CAUTION]"
-                echo "> flate exited ${FLATE_EXIT}: something on this PR's side failed to render. Flux would fail the same way, so fix it before merging. In the log, \"orig snapshot\" is the merge-base and \"current snapshot\" is this PR."
-                if grep -q 'status code 429' "${log}"; then
-                  echo ">"
-                  echo "> A chart pull hit a registry rate limit (429) even after retries; that is the runner's shared IP, not this PR. Re-run the job."
-                fi
-              else
-                echo "> [!WARNING]"
-                echo "> The merge-base fails to render (log below); this PR's side renders clean, so the job passes. Resources that couldn't be rendered there appear below as \`diff suppressed\`."
-              fi
-              echo
-              echo '````text'
-              tail -n 60 "${log}"
-              echo '````'
-              echo
-            fi
-            if [[ "${empty}" == 1 ]]; then
-              echo "No rendered changes."
-            else
-              if [[ "$(wc -c < "${diff}")" -gt "${limit}" ]]; then
-                echo "> [!NOTE]"
-                echo "> Truncated to ${limit} bytes; the full diff is in the [job summary](${run_url})."
-                echo
-              fi
-              echo '````diff'
-              head -c "${limit}" "${diff}"
-              echo
-              echo '````'
-            fi
-          } > "${RUNNER_TEMP}/comment.md"
-          {
-            echo "## Flux diff"
-            echo
-            if [[ "${empty}" == 1 ]]; then
-              echo "No rendered changes."
-            else
-              echo '````diff'
-              head -c 1000000 "${diff}"  # the summary caps at 1 MiB
-              echo
-              echo '````'
-            fi
-          } >> "${GITHUB_STEP_SUMMARY}"
-
-      # Dependabot and fork PRs run with a read-only token, so posting fails
-      # there; the job summary still carries the diff, so don't fail the job.
-      - uses: marocchino/sticky-pull-request-comment@5770ad5eb8f42dd2c4f34da00c94c5381e49af88  # v3.0.5
-        continue-on-error: true
         with:
-          header: flux-diff
-          path: ${{ runner.temp }}/comment.md
+          script: |
+            const path = require('path');
+            const comment = require(path.join(process.env.GITHUB_WORKSPACE, process.env.FLUX_DIR, '.github/scripts/flux-diff-comment.js'));
+            await comment({ github, context, core });
 
       - name: Fail on render errors
-        if: steps.diff.outputs.fail == '1'
+        if: steps.diff.outputs.exit != '0' && steps.diff.outputs.exit != '2'
         run: |
-          echo "::error::this PR's side fails to render (flate exited ${{ steps.diff.outputs.exit }}); see the 'Render and diff' step"
+          echo "::error::flux_diff.sh exited ${{ steps.diff.outputs.exit }}; see the 'Render and diff' step"
           exit 1

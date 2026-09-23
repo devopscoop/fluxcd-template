@@ -4,6 +4,7 @@
 # Usage: brew bundle
 
 tap "controlplaneio-fluxcd/tap"
+tap "home-operations/tap"
 
 # age (includes age-keygen) - encrypting/decrypting the SOPS age key
 brew "age"
@@ -16,6 +17,10 @@ brew "curl"
 
 # dyff - YAML diffing, referenced in apps/templates/helm/values.yaml
 brew "dyff"
+
+# flate - renders Flux Kustomizations and HelmReleases offline; flux_diff.sh
+# (and the flux-diff GitHub workflow) diff the rendered cluster with it
+cask "home-operations/tap/flate"
 
 # flux-operator - the Flux Operator CLI used by deploy.sh (NOT the standard
 # `flux` CLI, which appears only in commented-out lines)
