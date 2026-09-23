@@ -40,6 +40,16 @@
 # objects by default and cannot decrypt SOPS, so an encrypted helm_secrets.yaml
 # still renders its HelmRelease (with placeholder values) and neither plaintext
 # nor ciphertext appears in the diff.
+#
+# Values files reach their HelmReleases as kustomize-generated ConfigMaps and
+# Secrets with a content-hash suffix in the name, so a one-line values change
+# would render as the whole old ConfigMap removed, the whole new one added, and
+# the HelmRelease's valuesFrom renamed - hundreds of lines for a one-line edit.
+# The copies rendered here disable that suffix
+# (generatorOptions.disableNameSuffixHash), so the ConfigMap keeps its name and
+# diffs in place, line by line. Nothing changes in the cluster: the committed
+# kustomizations keep the hash, which is what makes helm-controller see a new
+# ConfigMap and upgrade the release.
 
 set -euo pipefail
 
@@ -143,6 +153,14 @@ EOF
   while IFS= read -r f; do
     [[ -e "${f%.decrypted}" ]] || cp "${f}" "${f%.decrypted}"
   done < <(find "${root}" -name '*.decrypted' -not -path '*/templates/*')
+
+  # Render the generated values ConfigMaps and Secrets without kustomize's
+  # content-hash suffix (see the header), so they diff in place rather than as
+  # one document removed and another added.
+  while IFS= read -r f; do
+    [[ "$(yq '(.configMapGenerator // []) + (.secretGenerator // []) | length' "${f}")" == 0 ]] ||
+      yq -i '.generatorOptions.disableNameSuffixHash = true' "${f}"
+  done < <(find "${root}" -name kustomization.yaml -not -path '*/templates/*')
 }
 prepare "${tmp}/head" head
 prepare "${tmp}/base" base
