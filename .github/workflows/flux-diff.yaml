@@ -53,6 +53,10 @@ jobs:
           FLATE_NO_PROGRESS: "1"
         run: |
           set -euo pipefail
+          # The flate action exports FLATE_BASE=<default branch>, which flate
+          # reads as --base; that is mutually exclusive with the --path-orig
+          # tree prepared below (the base needs the same preparation).
+          unset FLATE_BASE
 
           # Where the Flux Kustomizations live: flux/flux-system in a fork of the
           # template, <prefix>/flux/flux-system after a `git subtree add`.
@@ -109,7 +113,7 @@ jobs:
             # and encrypted into the real filename at bootstrap); stand it in for
             # the files the kustomizations reference. A bootstrapped repo has none.
             while IFS= read -r f; do
-              cp -n "${f}" "${f%.decrypted}"
+              [[ -e "${f%.decrypted}" ]] || cp "${f}" "${f%.decrypted}"  # never clobber a real encrypted file
             done < <(find "${root}" -name '*.decrypted' -not -path '*/templates/*' -not -path '*/.git/*')
           }
           template_mode=0
