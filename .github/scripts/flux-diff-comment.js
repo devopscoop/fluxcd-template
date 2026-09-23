@@ -14,7 +14,7 @@
 const fs = require('fs');
 
 const MARKER = '<!-- flux-diff -->';
-const COMMENT_LIMIT = 60000; // GitHub caps a comment at 65536 characters
+const COMMENT_LIMIT = 65000; // GitHub caps a comment at 65536 characters; the rest is headroom
 const SUMMARY_LIMIT = 1000000; // and a job summary at 1 MiB
 
 const fence = (lang, text) => '````' + lang + '\n' + text + '\n````';
@@ -62,10 +62,17 @@ module.exports = async ({ github, context, core }) => {
   if (empty) {
     parts.push('No rendered changes.');
   } else {
-    if (diff.length > COMMENT_LIMIT) {
-      parts.push(`> [!NOTE]\n> Truncated to ${COMMENT_LIMIT} characters; the full diff is in the [job summary](${runUrl}).`);
+    // The diff gets whatever the cap leaves after the header, the notes, and
+    // the log tail (flate's error lines run long), so budget from the rest
+    // rather than from a fixed number.
+    const note = `> [!NOTE]\n> Truncated; the full diff is in the [job summary](${runUrl}).`;
+    const room = () => COMMENT_LIMIT - [...parts, fence('diff', '')].join('\n\n').length;
+    if (diff.length > room()) {
+      parts.push(note);
+      parts.push(fence('diff', diff.slice(0, Math.max(0, room()))));
+    } else {
+      parts.push(fence('diff', diff));
     }
-    parts.push(fence('diff', diff.slice(0, COMMENT_LIMIT)));
   }
   const body = parts.join('\n\n');
 
