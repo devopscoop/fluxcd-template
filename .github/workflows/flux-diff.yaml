@@ -124,11 +124,15 @@ jobs:
 
           # flate exits non-zero only when something fails to render; a diff by
           # itself is exit 0. Capture the code so the comment can report it and
-          # the job fails after posting.
+          # the job fails after posting. Anonymous chart pulls from shared runner
+          # IPs get rate-limited (public.ecr.aws answers 429), so retry fetches
+          # harder than the defaults; the flate action's cache keeps charts
+          # between runs, so this mostly matters on a cold cache.
           set +e
           flate diff all \
             --path "${GITHUB_WORKSPACE}/flux-diff-entry" \
             --path-orig "${RUNNER_TEMP}/base/flux-diff-entry" \
+            --source-retry-attempts 6 --source-retry-min-wait 2s --source-retry-max-wait 30s \
             --output github ${flags[@]+"${flags[@]}"} \
             > "${RUNNER_TEMP}/diff.txt" 2> "${RUNNER_TEMP}/flate.log"
           rc=$?
