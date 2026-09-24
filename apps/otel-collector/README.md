@@ -81,3 +81,10 @@ Service at the gateway. See the mode comment in `values.yaml`.
   parsing on IPv6 addresses.
 - The Service name is pinned with `fullnameOverride` — the chart would
   otherwise render `otel-collector-opentelemetry-collector`.
+- The collector's own `:8888` metrics carry **no** `_total` or unit suffix
+  (`otelcol_exporter_sent_log_records`, not `..._log_records_total`), and
+  declaring `service.telemetry.metrics.readers` does not change that — the
+  collector re-applies its `without_type_suffix`/`without_units` defaults to
+  any reader you declare. Upstream's chart alert rules use the suffixed
+  spelling and cannot match; `vmrule.yaml` explains the mechanism and carries
+  `OtelcolSelfMetricsAbsent` to catch the spelling moving (ENG-2284).
