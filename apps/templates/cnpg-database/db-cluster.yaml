@@ -42,8 +42,8 @@ spec:
   # primary over ahead of the drain, and at 3+ instances the replica PDB
   # (minAvailable: instances - 2) releases one replica at a time — a standby
   # exists to fail over to even mid-drain, which 2 instances can't guarantee.
-  # Replication is async (CNPG default); clients connect through the -rw
-  # Service, so switchovers are invisible to them.
+  # Replication is synchronous (postgresql.synchronous below); clients
+  # connect through the -rw Service, so switchovers are invisible to them.
   instances: 3
   # A database must not ride Karpenter capacity: consolidation and drift
   # drains force a switchover whenever the bin-packer rearranges nodes (the
@@ -114,6 +114,37 @@ spec:
 #     storageClass: gp3-dangerous
 # <<< eks
   postgresql:
+    # Quorum synchronous replication: a commit returns only once at least one
+    # of the two replicas has flushed its WAL, so a failover can always
+    # promote a replica holding every acknowledged commit. Under CNPG's async
+    # default, an unclean primary death (node or zone loss, OOM kill, all
+    # three pods down with the primary slowest to return) lets the operator
+    # promote a replica that is behind, and the old primary's unreplicated
+    # commits are discarded (pg_rewind) when it rejoins as a replica.
+    #
+    # The cost is one round trip to the faster replica plus its WAL fsync on
+    # every commit — a millisecond or two across AZs. Serial single-
+    # connection writers feel it most; concurrent load amortizes it through
+    # group commit, and a long transaction pays it once, at COMMIT.
+    #
+    # `any`, not `first`: whichever replica answers first satisfies the
+    # quorum, so one slow or lagging replica doesn't slow the primary.
+    # dataDurability `required` (CNPG's default, spelled out) keeps the
+    # guarantee strict: with both replicas down, writes pause — they hang,
+    # they don't error — until one is back, rather than silently degrading to
+    # async as `preferred` would. Three instances is what makes that
+    # survivable: drains and rolling updates take one replica at a time (the
+    # replica PDB above), and the other keeps acknowledging.
+    #
+    # Not covered: if the primary and the replica holding the newest commits
+    # fail together, the operator can still promote the other replica.
+    # Closing that gap takes failoverQuorum (experimental in CNPG 1.28),
+    # which refuses automatic promotion unless it can prove the candidate
+    # has every acknowledged commit. Changing this block needs no restart.
+    synchronous:
+      method: any
+      number: 1
+      dataDurability: required
     parameters:
       # Compress full-page images before they are written to WAL. The first
       # write to a page after each checkpoint copies the whole 8 KiB page
