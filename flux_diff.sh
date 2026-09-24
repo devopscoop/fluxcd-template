@@ -37,9 +37,15 @@
 #
 # Both trees are rendered from copies under a temporary directory; the working
 # tree is never modified. Secrets never reach the output: flate excludes Secret
-# objects by default and cannot decrypt SOPS, so an encrypted helm_secrets.yaml
-# still renders its HelmRelease (with placeholder values) and neither plaintext
-# nor ciphertext appears in the diff.
+# objects by default and cannot decrypt SOPS. It also wipes any Secret whose
+# source still contains ENC[ - the encrypted comment lines included - so a
+# HelmRelease's valuesFrom would arrive empty and a chart that validates its
+# credentials (falcon-platform's image analyzer) fails to template at all. The
+# copies rendered here therefore rewrite every SOPS-encrypted *secrets.yaml:
+# the sops block goes, every ENC[...] value becomes a placeholder of the same
+# type (a string, 0, or false), and comments go. The chart renders with
+# placeholder credentials, and neither plaintext nor ciphertext appears in the
+# diff.
 #
 # Values files reach their HelmReleases as kustomize-generated ConfigMaps and
 # Secrets with a content-hash suffix in the name, so a one-line values change
@@ -153,6 +159,20 @@ EOF
   while IFS= read -r f; do
     [[ -e "${f%.decrypted}" ]] || cp "${f}" "${f%.decrypted}"
   done < <(find "${root}" -name '*.decrypted' -not -path '*/templates/*')
+
+  # Stand typed placeholders in for SOPS-encrypted values (see the header).
+  # Comments go too: sops encrypts them as well, and flate keys its wipe off
+  # the ENC[ marker wherever it appears in the file.
+  while IFS= read -r f; do
+    yq -i '
+      del(.sops)
+      | (.. | select(tag == "!!str" and test("^ENC\\[.*,type:int\\]$")))   = 0
+      | (.. | select(tag == "!!str" and test("^ENC\\[.*,type:float\\]$"))) = 0.0
+      | (.. | select(tag == "!!str" and test("^ENC\\[.*,type:bool\\]$")))  = false
+      | (.. | select(tag == "!!str" and test("^ENC\\[")))                  = "flux-diff-placeholder"
+      | ... comments = ""
+    ' "${f}"
+  done < <(grep -rlF 'ENC[' "${root}" --include='*secrets.yaml' --exclude-dir=templates)
 
   # Render the generated values ConfigMaps and Secrets without kustomize's
   # content-hash suffix (see the header), so they diff in place rather than as
