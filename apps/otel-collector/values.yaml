@@ -238,6 +238,17 @@ config:
         # Same IPv6 bracket fix as the receivers above: the self-telemetry
         # reader joins host and port with a bare "%s:%d", so an unbracketed
         # IPv6 host fails to listen.
+        #
+        # Declaring readers replaces the collector's default reader list
+        # wholesale — but not its Prometheus naming defaults. The collector
+        # re-applies without_type_suffix / without_units / without_scope_info
+        # (all true) to any pull/prometheus reader declared here
+        # (service/telemetry/otelconftelemetry/internal/migration/v0.3.0.go →
+        # applyPrometheusDefaults, v0.158.0), so :8888 serves UNSUFFIXED
+        # names — otelcol_exporter_sent_log_records, not ..._total — whatever
+        # this block says. vmrule.yaml's exprs depend on that; read its
+        # header before touching this, and expect
+        # OtelcolSelfMetricsAbsent to fire if the spelling ever moves.
         readers:
           - pull:
               exporter:

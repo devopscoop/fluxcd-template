@@ -6,6 +6,9 @@
 # https://opentelemetry.io/docs/collector/internal-telemetry/), which can't
 # be enabled directly for the same monitoring.coreos.com CRD reason as
 # vmservicescrape.yaml. Deliberate deviations:
+# - Dropped upstream's "_total" suffixes: the collector does not emit them
+#   (see the metric-name note below), so upstream's exprs match nothing on
+#   a v0.158.0 collector.
 # - Collapsed the per-signal triplets into one rule each via a __name__
 #   regex (the envoy-vm.yaml circuit-breaker pattern) — the signal is
 #   readable from the description's rate split, and nine near-identical
@@ -15,12 +18,27 @@
 #   (apps/victoria-metrics/README.md → "Alert routing").
 # - Dropped upstream's per-signal SendQueueFailed names
 #   ("SendQueueFailedspans" etc. — the chart's literal, unreadable output).
+# - Added OtelcolSelfMetricsAbsent, which has no upstream equivalent: the
+#   guard on the naming assumption every other rule here rests on. Its own
+#   comment explains why it watches the counters it does.
 #
-# IMPORTANT metric-name gotcha, verified for this config: because
-# values.yaml declares service.telemetry.metrics.readers explicitly, the
-# collector emits the suffixed names (otelcol_..._total) — which is what
-# both these exprs and the upstream rules use. Don't "fix" them to the
-# unsuffixed doc names.
+# IMPORTANT metric-name gotcha, and it is the opposite of what this comment
+# used to claim. The :8888 endpoint exposes the collector's counters
+# WITHOUT the Prometheus "_total" suffix (and without unit suffixes):
+# otelcol_exporter_sent_log_records, never ..._log_records_total. Declaring
+# service.telemetry.metrics.readers explicitly in values.yaml does not
+# change that. The collector's default telemetry config sets
+# without_type_suffix / without_units / without_scope_info to true
+# (service/telemetry/otelconftelemetry/factory.go), and because an explicit
+# "readers" list replaces that default reader wholesale, the collector
+# re-applies all three to any pull/prometheus reader the config declares
+# (service/telemetry/otelconftelemetry/internal/migration/v0.3.0.go →
+# applyPrometheusDefaults, v0.158.0 — the comment there spells out that it
+# exists precisely for this case). So the names are unsuffixed either way,
+# and upstream's chart rules keeping the _total spelling are simply wrong
+# for this collector. Three of the four rules below carried that spelling
+# from the day this file was added (2026-09-11) until ENG-2284; over the
+# week measured against dev (2026-09-18 to 2026-09-24) they matched nothing.
 apiVersion: operator.victoriametrics.com/v1beta1
 kind: VMRule
 metadata:
@@ -43,7 +61,7 @@ spec:
               the sender retries.
           expr: |-
             sum by (receiver, pod) (
-              rate({__name__=~"otelcol_receiver_refused_(spans|metric_points|log_records)_total"}[5m])
+              rate({__name__=~"otelcol_receiver_refused_(spans|metric_points|log_records)"}[5m])
             ) > 0
           for: 10m
           labels:
@@ -51,6 +69,14 @@ spec:
         # send_failed counts batches that failed for good (retries
         # exhausted) — logs/traces/metrics are being lost between the
         # collector and VictoriaLogs/Tempo/vmsingle.
+        #
+        # This counter is only recorded when a send fails permanently
+        # (exporter/exporterhelper/internal/obs_report_sender.go, endOp:
+        # the instrument is skipped while numFailedToSend is 0), so the
+        # series does not exist at all until the first such failure. A
+        # healthy collector and a misspelled metric name therefore look
+        # identical here — OtelcolSelfMetricsAbsent below is what tells
+        # them apart.
         - alert: OtelcolExporterFailing
           annotations:
             summary: A collector exporter is dropping telemetry.
@@ -61,14 +87,16 @@ spec:
               per the exporter name) and the collector's own logs.
           expr: |-
             sum by (exporter, pod) (
-              rate({__name__=~"otelcol_exporter_send_failed_(spans|metric_points|log_records)_total"}[5m])
+              rate({__name__=~"otelcol_exporter_send_failed_(spans|metric_points|log_records)"}[5m])
             ) > 0
           for: 10m
           labels:
             severity: critical
         # Enqueue failures mean the sending queue is full and new data is
         # dropped immediately — the leading edge of OtelcolExporterFailing
-        # when a backend goes away.
+        # when a backend goes away. Recorded only on a failed Offer
+        # (exporter/exporterhelper/internal/queue/obs_queue.go), so like
+        # send_failed above it has no series until the first drop.
         - alert: OtelcolExporterQueueDropping
           annotations:
             summary: A collector exporter's queue is rejecting data.
@@ -78,11 +106,14 @@ spec:
               full and new data is dropped at the door.
           expr: |-
             sum by (exporter, pod) (
-              rate({__name__=~"otelcol_exporter_enqueue_failed_(spans|metric_points|log_records)_total"}[5m])
+              rate({__name__=~"otelcol_exporter_enqueue_failed_(spans|metric_points|log_records)"}[5m])
             ) > 0
           for: 5m
           labels:
             severity: warning
+        # The only rule here that survived the suffix bug: queue_size and
+        # queue_capacity are gauges, and neither a type suffix nor a unit
+        # suffix applies to them under any of the settings above.
         - alert: OtelcolExporterQueueNearFull
           annotations:
             summary: A collector exporter's queue is over 80% full.
@@ -96,3 +127,50 @@ spec:
           for: 5m
           labels:
             severity: warning
+        # ---- Guard on the naming assumption (no upstream equivalent) ----
+        # Every counter rule above rests on the unsuffixed spelling, and
+        # nothing in vmalert notices when that stops being true: a rule
+        # whose expr matches no series reports health "ok" with no
+        # evaluation error, indistinguishable from a rule that is simply
+        # quiet. That is exactly how the suffixed exprs survived from
+        # 2026-09-11 to ENG-2284 with all four rules loaded, health ok, and
+        # no evaluation error.
+        #
+        # The guard cannot watch the failure counters themselves — they are
+        # absent whenever nothing has failed, which is the normal state. It
+        # watches one always-recorded counter from each naming family
+        # instead: every receive records receiver_refused_* even when the
+        # refused count is zero (receiver/receiverhelper/obsreport.go,
+        # recordMetrics) and every send records exporter_sent_*
+        # (obs_report_sender.go, endOp), so on a working cluster both
+        # series exist from the first batch. Both are counters, so both
+        # gain "_total" the moment the suffix behaviour flips — which is
+        # the change this is here to catch.
+        #
+        # Deliberately not gated on up{job=...}: a cluster-wide collector
+        # outage trips this too (TargetDown pages for that as well, so it
+        # is a duplicate page in that case), but gating would add a second
+        # silent naming assumption of exactly the kind being guarded
+        # against. Same trade-off as CNPGFleetMetricsAbsent in
+        # apps/victoria-metrics-custom-resources/cnpg-vm.yaml.
+        - alert: OtelcolSelfMetricsAbsent
+          annotations:
+            summary: The collector's own counters are missing from VictoriaMetrics.
+            description: >-
+              otelcol_exporter_sent_log_records and/or
+              otelcol_receiver_refused_log_records has no series
+              cluster-wide. Both are recorded unconditionally by every
+              collector pod, so one of three things is true: the collector
+              changed how it spells its metric names (a chart or collector
+              bump flipping the suffix defaults — then every counter rule
+              in this group is blind until its expr is updated, see this
+              file's header), the vmservicescrape.yaml scrape broke, or no
+              collector pod is running. List the otelcol_ names in vmui
+              before assuming which.
+          expr: |-
+            absent(otelcol_exporter_sent_log_records) == 1
+              or
+            absent(otelcol_receiver_refused_log_records) == 1
+          for: 10m
+          labels:
+            severity: critical
