@@ -113,6 +113,33 @@ spec:
 # >>> eks: deploy.sh uncomments this block when k8s_platform=eks
 #     storageClass: gp3-dangerous
 # <<< eks
+  postgresql:
+    parameters:
+      # Compress full-page images before they are written to WAL. The first
+      # write to a page after each checkpoint copies the whole 8 KiB page
+      # into WAL (full_page_writes defaults on, and should stay on — it is
+      # what makes a torn page recoverable), so on a write-heavy database
+      # those page images, not the row data, dominate WAL volume. A fork's
+      # production database measured this: ~60 GB of data generating 36-42
+      # GiB of WAL a day, which barman's gzip then took to roughly a quarter
+      # of its size in S3 — a ratio only uncompressed page images produce.
+      #
+      # Compressing them here shrinks the same bytes everywhere they cost
+      # something: the walStorage volume above, what the archiver has to ship
+      # (see wal.maxParallel on the ObjectStore below — the two attack the
+      # same bottleneck from opposite ends), and replica streaming and
+      # catch-up traffic.
+      #
+      # lz4 rather than zstd because this sits in the WAL insert path of
+      # every backend: lz4 costs single-digit microseconds per record, where
+      # zstd trades more CPU for a ratio that pays off in the archive rather
+      # than on the hot path (the ObjectStore below uses zstd for exactly
+      # that reason). Needs a build with --with-lz4, which the upstream
+      # cloudnative-pg images are; on a build without it Postgres refuses the
+      # value at reload and keeps the old one, so use `on` (pglz) there.
+      # Reload-only: no restart and no switchover. Applies to newly written
+      # WAL, and replicas and pg_waldump read either form transparently.
+      wal_compression: lz4
   # Continuous WAL archiving + base backups through the Barman Cloud Plugin
   # (apps/cnpg-barman-plugin). The bucket, retention, and sidecar tuning live
   # in the ObjectStore below; the daily cadence in the ScheduledBackup at the
@@ -250,7 +277,15 @@ spec:
     s3Credentials:
       inheritFromIAMRole: true
     wal:
-      compression: gzip
+      # zstd, not gzip: the archiver's job is to keep up, and gzip is the
+      # slowest option the plugin offers. It is also now compressing segments
+      # that Postgres already handed over lz4-compressed (wal_compression on
+      # the Cluster above), so gzip's remaining ratio advantage is small.
+      # zstd is severalfold faster at a better ratio, and archive throughput
+      # is what bounds how long the WAL volume can absorb a write burst.
+      # Barman records compression per object, so an archive written with
+      # both still restores and this can be changed on a live cluster.
+      compression: zstd
       # Ship up to 8 WAL segments per archiver invocation. Archive throughput
       # is what keeps the WAL volume's backlog bounded (WAL that isn't
       # archived can't be recycled), and single-segment uploads have already
@@ -258,7 +293,12 @@ spec:
       # above.
       maxParallel: 8
     data:
-      compression: gzip
+      # zstd here is about restore time rather than the backup window: a
+      # restore has to decompress the base backup before the database exists
+      # again, and zstd decompresses several times faster than gzip. Smaller
+      # objects come with it. Per-object like the WAL setting above, so
+      # existing gzip backups keep restoring.
+      compression: zstd
   # Recovery-window retention: barman keeps enough base backups and WAL to
   # restore to any point in the last 30 days, and deletes obsolete objects
   # itself after each successful backup — which is why the bucket has no
