@@ -136,15 +136,24 @@ spec:
     # survivable: drains and rolling updates take one replica at a time (the
     # replica PDB above), and the other keeps acknowledging.
     #
-    # Not covered: if the primary and the replica holding the newest commits
-    # fail together, the operator can still promote the other replica.
-    # Closing that gap takes failoverQuorum (experimental in CNPG 1.28),
-    # which refuses automatic promotion unless it can prove the candidate
-    # has every acknowledged commit. Changing this block needs no restart.
+    # failoverQuorum closes the gap sync alone leaves: if the primary and the
+    # replica holding the newest commits fail together, a plain sync cluster
+    # can still promote the other replica. With it, the operator promotes
+    # only when enough replicas report in to prove one of them has every
+    # acknowledged commit (R + W > N — here W = 1 of N = 2 replicas, so both
+    # must be reachable). The price is availability: lose the primary and a
+    # replica at once and there is no automatic failover; the operator waits
+    # for one of them to return, and `kubectl cnpg promote` is the manual
+    # override, knowingly accepting the loss this guards against. It started
+    # as the experimental alpha.cnpg.io/failoverQuorum annotation, which
+    # still takes precedence if set; the operator tracks its state in a
+    # FailoverQuorum resource named after the Cluster, which it owns — don't
+    # edit that by hand. Changing this block needs no restart.
     synchronous:
       method: any
       number: 1
       dataDurability: required
+      failoverQuorum: true
     parameters:
       # Compress full-page images before they are written to WAL. The first
       # write to a page after each checkpoint copies the whole 8 KiB page
