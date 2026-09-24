@@ -333,12 +333,16 @@ spec:
       # above.
       maxParallel: 8
     data:
-      # zstd here is about restore time rather than the backup window: a
-      # restore has to decompress the base backup before the database exists
-      # again, and zstd decompresses several times faster than gzip. Smaller
-      # objects come with it. Per-object like the WAL setting above, so
-      # existing gzip backups keep restoring.
-      compression: zstd
+      # gzip, not zstd: the ObjectStore CRD (plugin v0.14.0) accepts only
+      # bzip2, gzip, lz4 or snappy for base backups — zstd and xz are
+      # WAL-only — and an unsupported value fails the dry-run of the whole
+      # Kustomization, not just this object. gzip is the middle ground:
+      # smaller objects than lz4 or snappy, far faster than bzip2. Switch to
+      # lz4 if restore time (decompressing the base backup before the
+      # database exists again) ever matters more than bucket size.
+      # Per-object like the WAL setting above, so a change on a live cluster
+      # leaves existing backups restorable.
+      compression: gzip
   # Recovery-window retention: barman keeps enough base backups and WAL to
   # restore to any point in the last 30 days, and deletes obsolete objects
   # itself after each successful backup — which is why the bucket has no
