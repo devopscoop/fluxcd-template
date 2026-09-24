@@ -63,7 +63,7 @@ jobs:
       # Values reach the script through env, never `${{ }}` in its source: the
       # diff is untrusted PR content. Dependabot and fork PRs run with a
       # read-only token; the script warns instead of failing when it can't post.
-      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9.0.0
+      - uses: actions/github-script@d746ffe35508b1917358783b479e04febd2b8f71 # v9.0.0
         env:
           DIFF_FILE: ${{ runner.temp }}/diff.txt
           LOG_FILE: ${{ runner.temp }}/flux_diff.log
