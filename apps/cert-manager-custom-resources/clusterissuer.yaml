@@ -44,6 +44,34 @@ spec:
       #         name: eg-public
       #         namespace: envoy-gateway-system
 
+      # acme-dns (apps/acme-dns) -- self-hosted, provider-agnostic DNS-01.
+      #
+      # Worth considering when the zone lives somewhere with no cert-manager
+      # solver, or when handing cert-manager zone-wide API credentials is not
+      # acceptable: validation is delegated by CNAMEing _acme-challenge.<domain>
+      # into an acme-dns server, and the credential below can only ever write
+      # that one delegated label. It is also the only option here that issues
+      # the wildcards these Gateways request without a cloud DNS account.
+      #
+      # The cost is that acme-dns is itself a nameserver, so it needs inbound
+      # UDP/53 from the internet. Read apps/acme-dns/README.md before enabling.
+      #
+      # host is the in-cluster API (ClusterIP, plain HTTP) -- the credential
+      # never leaves the pod network, and acme-dns must not need a certificate
+      # that acme-dns is required to issue.
+      #
+      # The account secret's JSON keys are the domains being VALIDATED, one
+      # entry each, and a wildcard validates at its base domain. Do not alias
+      # several keys onto one credential: acme-dns stores at most 2 TXT values
+      # per credential, so 3+ certificates renewing at once clobber each other.
+      # https://cert-manager.io/docs/configuration/acme/dns01/acme-dns/
+      # - dns01:
+      #     acmeDNS:
+      #       host: http://acme-dns-api.acme-dns.svc:8080
+      #       accountSecretRef:
+      #         name: acme-dns-account
+      #         key: acmedns.json
+
       # Cloudflare
       # - dns01:
       #     cloudflare:
