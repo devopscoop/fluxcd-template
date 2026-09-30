@@ -16,7 +16,7 @@ Each Cluster runs one primary and two read-only streaming replicas (`instances: 
 The two ways in authenticate differently:
 
 - **Exec into a pod** (options 1 and 2): psql talks over the pod-local Unix socket as the `postgres` OS user, which peer authentication maps to the `postgres` superuser. No password exists or is asked for — which is also why this is the *only* superuser path: CNPG's `enableSuperuserAccess` defaults to false, so the `postgres` role has no password and there is no `goalert-db-superuser` Secret.
-- **Over TCP** (option 3): you authenticate as the application role — the database owner — with the password CNPG generates into the `goalert-db-app` Secret (`<cluster>-app`). On a database created from the current `apps/templates/cnpg-database` (mTLS client-cert auth), pg_hba rejects that password — option 3 carries a cert variant.
+- **Over TCP** (option 3): you authenticate as the application role — the database owner — with the app's mTLS client certificate on cert-auth databases (goalert, and anything from the current `apps/templates/cnpg-database`), or with the password CNPG generates into the `<cluster>-app` Secret on databases that predate cert auth.
 
 ## Option 1: the kubectl cnpg plugin
 
@@ -56,14 +56,20 @@ kubectl -n goalert get pods -l cnpg.io/cluster=goalert-db,cnpg.io/instanceRole=r
 
 ## Option 3: port-forwarding, for local clients (DBeaver etc.)
 
-Superuser access over TCP is disabled, so local clients connect as the application role. CNPG generates and maintains its credentials in the `goalert-db-app` Secret:
+Superuser access over TCP is disabled, so local clients connect as the application role. Username and database name are both the app name (`goalert`) by this repo's convention. On a cert-auth database — goalert, and anything created from the current `apps/templates/cnpg-database` — pg_hba rejects the app role's password, so the client presents the app's certificate. Extract it and lock down the key (libpq refuses group/world-readable keys):
 
 ```shell
-kubectl -n goalert get secret goalert-db-app -o jsonpath='{.data.username}' | base64 -d; echo
-kubectl -n goalert get secret goalert-db-app -o jsonpath='{.data.password}' | base64 -d; echo
+kubectl -n goalert get secret goalert-db-client-cert -o jsonpath='{.data.tls\.crt}' | base64 -d > /tmp/goalert-db.crt
+kubectl -n goalert get secret goalert-db-client-cert -o jsonpath='{.data.tls\.key}' | base64 -d > /tmp/goalert-db.key
+chmod 600 /tmp/goalert-db.key
 ```
 
-Username and database name are both the app name (`goalert`) by this repo's convention. The Secret also carries ready-made `uri` and `jdbc-uri` keys, but they point at the in-cluster Service DNS name — for a port-forward, use localhost and the individual pieces.
+On a database that predates cert auth, the password flow still applies — CNPG generates and maintains credentials in the `<cluster>-app` Secret (its `uri`/`jdbc-uri` keys name the in-cluster Service, so for a port-forward use localhost and the individual pieces):
+
+```shell
+kubectl -n <app> get secret <app>-db-app -o jsonpath='{.data.username}' | base64 -d; echo
+kubectl -n <app> get secret <app>-db-app -o jsonpath='{.data.password}' | base64 -d; echo
+```
 
 Forward the read-write Service to a local port (15432 here, so a Postgres already running on your machine doesn't collide):
 
@@ -71,11 +77,13 @@ Forward the read-write Service to a local port (15432 here, so a Postgres alread
 kubectl -n goalert port-forward svc/goalert-db-rw 15432:5432
 ```
 
-Then connect from DBeaver (or anything else): host `localhost`, port `15432`, database `goalert`, and the username/password from above. The psql equivalent:
+Then connect from DBeaver (or anything else): host `localhost`, port `15432`, database `goalert`, with the certificate files (or, pre-cert-auth, the username/password) from above — in DBeaver that's the connection's SSL tab. The psql equivalent:
 
 ```shell
-psql "host=localhost port=15432 user=goalert dbname=goalert"
+psql "host=localhost port=15432 user=goalert dbname=goalert sslmode=require sslcert=/tmp/goalert-db.crt sslkey=/tmp/goalert-db.key"
 ```
+
+`sslmode=require`, not `verify-full` — see the TLS caveat below. Prefer the per-developer SSO path (option 4) where it's enabled: the cert route acts as the app, so nothing attributes the session to you.
 
 Caveats:
 
@@ -83,16 +91,6 @@ Caveats:
 - **Read-only browsing:** forward `svc/goalert-db-ro` instead to land on a replica and keep exploratory load off the primary.
 - **TLS:** the server speaks TLS and psql's default `sslmode=prefer` works, but the certificate names the in-cluster Services, not localhost — so `sslmode=verify-full` fails through a port-forward. Anything up to `sslmode=require` is fine.
 - **Privileges:** the app role owns the `goalert` database and nothing more. If a task genuinely needs superuser, use option 1 or 2 rather than trying to get superuser over TCP.
-- **Cert-auth databases:** on a database created from the current `apps/templates/cnpg-database`, pg_hba rejects the app role's password outright — connecting as the app role over a port-forward means presenting its client certificate instead. Extract it, lock down the key (libpq refuses group/world-readable keys), and pass the files:
-
-  ```shell
-  kubectl -n <app> get secret <app>-db-client-cert -o jsonpath='{.data.tls\.crt}' | base64 -d > /tmp/<app>-db.crt
-  kubectl -n <app> get secret <app>-db-client-cert -o jsonpath='{.data.tls\.key}' | base64 -d > /tmp/<app>-db.key
-  chmod 600 /tmp/<app>-db.key
-  psql "host=localhost port=15432 user=<app> dbname=<app> sslmode=require sslcert=/tmp/<app>-db.crt sslkey=/tmp/<app>-db.key"
-  ```
-
-  `sslmode=require`, not `verify-full`, for the TLS-through-a-port-forward reason above. Prefer the per-developer SSO path (option 4) where it's enabled — the cert route acts as the app, so nothing attributes the session to you.
 
 ## Option 4: OAuth developer SSO, for databases with the pg-oauth block enabled
 

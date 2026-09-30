@@ -29,15 +29,17 @@ service:
   port: 8081
 
 env:
-  # CNPG generates this Secret from db-cluster.yaml; `uri` is a ready-made
-  # libpq connection string for the goalert database. GoAlert applies its
-  # schema migrations against it at startup. (The at-rest encryption key
-  # rides in via the chart's envSecret — see helm_secrets.yaml.)
+  # Cert-based database login (db-client-cert.yaml): the URL carries no
+  # password, just the paths of the mounted client cert, key, and the
+  # database's server CA — GoAlert hands it to pgx, which loads the files
+  # and presents the cert; the pg_hba rules in db-cluster.yaml accept
+  # nothing else for this role. verify-full also pins the server's
+  # identity, against the CA in the operator-managed `goalert-db-ca`
+  # Secret. GoAlert applies its schema migrations over the same URL at
+  # startup. (The at-rest encryption key rides in via the chart's
+  # envSecret — see helm_secrets.yaml.)
   - name: GOALERT_DB_URL
-    valueFrom:
-      secretKeyRef:
-        name: goalert-db-app
-        key: uri
+    value: "postgres://goalert@goalert-db-rw.goalert.svc.cluster.local:5432/goalert?sslmode=verify-full&sslcert=/etc/db-client-cert/tls.crt&sslkey=/etc/db-client-cert/tls.key&sslrootcert=/etc/db-server-ca/ca.crt"
   # Externally routable URL — GoAlert uses it to build links in
   # notifications, validate auth callbacks, and render the webhook URLs shown
   # next to integration keys.
@@ -93,6 +95,28 @@ httpRoute:
         - path:
             type: PathPrefix
             value: /
+
+# The database client certificate (db-client-cert.yaml) and the server CA,
+# at the paths GOALERT_DB_URL names. 0644 rather than the
+# apps/templates/cnpg-database README's 0640: GoAlert's driver is pgx, which
+# enforces no libpq-style key-permission check, and the upstream image runs
+# as a nonroot user whose uid/gid the image doesn't pin — world-readable
+# inside the pod sidesteps the fsGroup guesswork, and the pod is the same
+# trust boundary that holds the envSecret encryption key.
+volumes:
+  - name: db-client-cert
+    secret:
+      secretName: goalert-db-client-cert # pragma: allowlist secret — the Secret's name, not a value
+  - name: db-server-ca
+    secret:
+      secretName: goalert-db-ca # pragma: allowlist secret — the Secret's name, not a value
+volumeMounts:
+  - name: db-client-cert
+    mountPath: /etc/db-client-cert
+    readOnly: true
+  - name: db-server-ca
+    mountPath: /etc/db-server-ca
+    readOnly: true
 
 # Initial guesses — resize with krr after some real usage; memory req=limit,
 # no CPU limit.

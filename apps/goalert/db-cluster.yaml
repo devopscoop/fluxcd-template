@@ -1,17 +1,18 @@
 # GoAlert's PostgreSQL, run by the CloudNativePG operator (apps/cnpg — the
 # flux Kustomization for this app dependsOn it). GoAlert applies its own
-# schema migrations at startup, so CNPG only has to provide an empty database
-# and credentials.
+# schema migrations at startup, so CNPG only has to provide an empty database.
 #
 # Three documents: the Cluster, the ObjectStore its barman backups land in,
 # and the daily ScheduledBackup. One file so the database's whole story reads
 # top to bottom — apps/templates/cnpg-database holds the reusable copy for
 # creating new databases.
 #
-# CNPG auto-creates a `goalert-db-app` Secret (`<cluster>-app`) for the owner
-# of the database below; its `uri` key is a ready-made libpq connection string
-# pointing at the read-write Service (goalert-db-rw). deployment.yaml feeds
-# that key straight into GOALERT_DB_URL.
+# Auth model: GoAlert logs in with the client certificate from
+# db-client-cert.yaml (CN = the owner role below); the pg_hba rules under
+# postgresql: make the cert the ONLY way in for that role. CNPG still
+# auto-creates the `goalert-db-app` Secret (`<cluster>-app`) with a password
+# and a `uri` key, but the reject rule makes them unusable — values.yaml
+# builds GOALERT_DB_URL from the cert files instead.
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
@@ -63,6 +64,33 @@ spec:
       # migrations run CREATE EXTENSION IF NOT EXISTS pgcrypto themselves,
       # and pgcrypto is a trusted extension since PostgreSQL 13, so the
       # (non-superuser) database owner above is allowed to create it.
+  # Hand the CLIENT CA to cert-manager so the app's client cert can be issued
+  # and auto-renewed (db-client-cert.yaml). Providing clientCASecret means
+  # the operator stops signing client certs itself, so the streaming_replica
+  # cert must be provided too; one cert-manager secret serves both fields,
+  # since clientCASecret only reads its ca.crt key and cert-manager writes
+  # ca.crt into every secret it issues. Server certs stay operator-managed
+  # (the `goalert-db-ca` secret holds the server CA — values.yaml mounts its
+  # ca.crt for sslmode=verify-full). One operational note: kubectl cnpg
+  # certificate can't mint client certs on this cluster — issue a Certificate
+  # from the goalert-db-client-ca Issuer instead.
+  certificates:
+    clientCASecret: goalert-db-replication-cert # pragma: allowlist secret — the Secret's name, not a value
+    replicationTLSSecret: goalert-db-replication-cert # pragma: allowlist secret — the Secret's name, not a value
+  postgresql:
+    pg_hba:
+      # Possession of a client cert signed by this cluster's client CA
+      # (certificates.clientCASecret above, issued by db-client-cert.yaml)
+      # IS GoAlert's login — the cert method requires TLS and CN == role.
+      # pg_hba is first-match per (type, db, user, address), so this rule
+      # owns every TLS connection from the owner role.
+      - hostssl all goalert all cert
+      # ... and the reject closes the only other path: a non-TLS connection
+      # falling through to CNPG's default scram catch-all, where the
+      # password in the auto-generated `<cluster>-app` Secret would still
+      # work. With both rules the app role has exactly one way in. Other
+      # roles (break-glass, per-developer) keep the scram catch-all.
+      - host all goalert all reject
   storage:
     size: 1Gi
   # On EKS these volumes opt out of the DLM snapshot policy: barman owns this
