@@ -17,6 +17,9 @@ resources:
   # beyond cnpg itself and cnpg-barman-plugin. New databases start from the
   # reusable copy in apps/templates/cnpg-database.
   - db-cluster.yaml
+  # The client CA chain and certs behind the cert-based login above — needs
+  # the cert-manager CRDs, hence that dependsOn too.
+  - db-client-cert.yaml
   # Self-monitoring for the paging system (operator.victoriametrics.com CRs;
   # the flux Kustomization's dependsOn victoria-metrics provides the CRDs).
   - vmpodscrape.yaml

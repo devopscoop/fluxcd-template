@@ -1,0 +1,119 @@
+# mTLS client-certificate auth for the database in db-cluster.yaml: the app
+# authenticates to Postgres with a certificate instead of a password.
+# Possession of a cert signed by the CA below IS the login — the pg_hba
+# `cert` rule in db-cluster.yaml requires TLS and a certificate whose CN
+# equals the Postgres role. cert-manager issues and renews everything, so
+# nothing static lives in git or sops, rotation is automatic, and
+# values.yaml (GOALERT_DB_URL plus the volume mounts) shows the app
+# consuming it; the generic walkthrough is
+# apps/templates/cnpg-database/README.md.
+#
+# Adapted from apps/templates/cnpg-database/db-client-cert.yaml, the
+# reusable copy for new databases. Everything here is namespace-local:
+# the app and its database share a namespace in this repo's pattern, so
+# plain Issuers suffice — no ClusterIssuer, and no secret parked in
+# cert-manager's namespace. The app's flux Kustomization needs a dependsOn
+# for cert-manager (the Issuer/Certificate CRDs).
+#
+# The chain, in order: a selfsigned bootstrap Issuer signs one long-lived CA
+# certificate; a CA Issuer then mints the two leaf certs from it — the
+# streaming_replica cert CNPG's replicas authenticate with (required the
+# moment db-cluster.yaml provides its own clientCASecret), and the app's
+# client cert.
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: goalert-db-selfsigned
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: goalert-db-client-ca
+spec:
+  isCA: true
+  commonName: goalert-db-client-ca
+  secretName: goalert-db-client-ca # pragma: allowlist secret — the Secret's name, not a value
+  # 5 years, renewed a year out. The keypair is NOT rotated on renewal
+  # (rotationPolicy defaults to Never), so a renewed CA cert keeps
+  # validating every leaf the old one signed — renewal is a non-event.
+  # Rotating the CA keypair, by contrast, is a coordinated migration
+  # (server and every consumer must swap together); don't set
+  # privateKey.rotationPolicy: Always here.
+  duration: 43800h
+  renewBefore: 8760h
+  issuerRef:
+    name: goalert-db-selfsigned
+    kind: Issuer
+    group: cert-manager.io
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: goalert-db-client-ca
+spec:
+  ca:
+    secretName: goalert-db-client-ca # pragma: allowlist secret — the Secret's name, not a value
+---
+# The replication client certificate. Handing CNPG an external client CA
+# (spec.certificates.clientCASecret in db-cluster.yaml) means the operator
+# no longer signs client certs itself, so the streaming_replica cert the
+# replicas authenticate with must be provided too. This one secret serves
+# both certificates fields on the Cluster: clientCASecret only reads its
+# ca.crt key, which cert-manager writes into every secret it issues, while
+# replicationTLSSecret reads tls.crt/tls.key.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: goalert-db-replication
+spec:
+  # CNPG requires exactly this CN on the replication cert.
+  commonName: streaming_replica
+  secretName: goalert-db-replication-cert # pragma: allowlist secret — the Secret's name, not a value
+  usages:
+    - client auth
+  # cert-manager defaults (90d, renew at 60d) are fine here, unlike the
+  # 1-year app cert below: the CNPG instance manager re-reads certificates
+  # from disk (the cnpg.io/reload label), so renewal needs no pod restart.
+  duration: 2160h
+  renewBefore: 720h
+  privateKey:
+    rotationPolicy: Always
+  secretTemplate:
+    labels:
+      # Make the instances pick up renewed certs without a restart.
+      cnpg.io/reload: "true"
+  issuerRef:
+    name: goalert-db-client-ca
+    kind: Issuer
+    group: cert-manager.io
+---
+# The app's client certificate. The CN is the Postgres role — the database
+# owner initdb creates in db-cluster.yaml — because under the `cert` hba
+# method the certificate CN IS the login. values.yaml mounts the secret and
+# builds GOALERT_DB_URL from it.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: goalert-db-client
+spec:
+  commonName: goalert
+  secretName: goalert-db-client-cert # pragma: allowlist secret — the Secret's name, not a value
+  usages:
+    - client auth
+  # 1 year, renewed a month early. Deliberately long: most apps read the
+  # cert files once, when they build their connection config, so an on-disk
+  # renewal only reaches the process at the next pod restart. A pod must
+  # outlive the renewal margin before its in-memory cert can expire — if
+  # your pods can run for months without a restart, alert on pod uptime
+  # approaching the margin, or restart them on secret change
+  # (apps/templates/cnpg-database/README.md).
+  duration: 8760h
+  renewBefore: 720h
+  privateKey:
+    rotationPolicy: Always
+  issuerRef:
+    name: goalert-db-client-ca
+    kind: Issuer
+    group: cert-manager.io

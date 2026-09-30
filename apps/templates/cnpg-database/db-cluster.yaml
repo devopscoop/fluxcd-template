@@ -1,9 +1,8 @@
 # A CloudNativePG PostgreSQL database with mTLS client-certificate auth for
 # the app and barman backups to S3, in three documents: the Cluster, the
-# ObjectStore its backups land in, and the daily ScheduledBackup. Originally
-# copied from apps/goalert's db-cluster.yaml, which remains the live example
-# of the base pattern but predates cert auth (goalert still authenticates
-# with the CNPG-generated password).
+# ObjectStore its backups land in, and the daily ScheduledBackup.
+# apps/goalert carries the live, deployed example of the whole pattern,
+# cert auth included.
 #
 # To give an app a database:
 #
