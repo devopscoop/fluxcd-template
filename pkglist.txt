@@ -54,6 +54,10 @@ jq
 # runbooks/connect-cnpg-database.md and runbooks/restore-cnpg-database.md
 kubectl-cnpg
 
+# openbao — the bao CLI, for apps/openbao/configure.sh and administering
+# OpenBao (apps/openbao/README.md)
+openbao
+
 # pre-commit — git hook framework used by .pre-commit-config.yaml
 pre-commit
 
