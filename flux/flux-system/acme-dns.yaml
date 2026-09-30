@@ -1,0 +1,29 @@
+# Opt-in. acme-dns is only needed if the ClusterIssuer uses its dns01.acmeDNS
+# solver (apps/cert-manager-custom-resources/clusterissuer.yaml) rather than
+# Cloudflare or Route53. It is not in deploy.sh's core_app_list; add
+# acme-dns.yaml to flux/flux-system/kustomization.yaml by hand when you choose
+# that solver.
+#
+# Deliberately no dependsOn. The PVC binds with the cluster's default storage
+# class, so there is nothing app-specific to wait for -- and naming an opt-in
+# app like longhorn here would wedge this Kustomization on a dependency that
+# never reconciles when that app is not enabled.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: acme-dns
+  namespace: flux-system
+spec:
+  interval: 10m0s
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  path: apps/acme-dns
+  prune: true
+  wait: true
+  timeout: 5m0s
+  decryption:
+    provider: sops
+    secretRef:
+      name: sops-age
+  suspend: false

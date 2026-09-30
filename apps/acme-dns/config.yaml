@@ -1,0 +1,74 @@
+# acme-dns v2 configuration. Two format notes, because the v1 examples still in
+# circulation are wrong on both: `engine` is "sqlite" (not "sqlite3"), and
+# `port` under [api] is a STRING.
+#
+# DELEGATION SHAPE. acme-dns is authoritative for one subdomain and nothing
+# else. The parent zone needs two records:
+#
+#     acme-ns.project1-dev.devops.coop.   A    198.51.100.1
+#     auth.project1-dev.devops.coop.      NS   acme-ns.project1-dev.devops.coop.
+#
+# Replace 198.51.100.1 (RFC 5737 documentation address) with the public address
+# that reaches service-dns.yaml.
+#
+# The NS target deliberately sits OUTSIDE the delegated zone, so it resolves
+# from the parent normally and no glue record is needed. Upstream's example uses
+# an in-bailiwick ns1.auth.example.org, which does need glue; this shape avoids
+# that and has been verified end-to-end against Google's and Cloudflare's
+# resolvers.
+#
+# Then one CNAME per certificate, pointing at the subdomain /register returns:
+#
+#     _acme-challenge.project1-dev.devops.coop.  CNAME  <subdomain>.auth.project1-dev.devops.coop.
+#
+# A wildcard is validated at its BASE domain, so the *.project1-dev.devops.coop
+# certificate the Gateways request (apps/eg-custom-resources/gateway-*.yaml) is
+# validated at project1-dev.devops.coop -- that is the CNAME's owner name above,
+# and the JSON key in the account secret.
+#
+# THE FRAGILE PART is the A record. If that address changes, Let's Encrypt can
+# no longer find this server, renewals fail, and nothing visibly breaks until
+# the certificate actually expires. CertManagerCertNotReady in
+# apps/victoria-metrics-custom-resources/cert-manager-vmrule.yaml is what
+# catches it; do not plan on noticing by hand.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: acme-dns-config
+data:
+  config.cfg: |
+    [general]
+    # 5353, not 53: service-dns.yaml maps :53 -> :5353 so the container never
+    # needs to bind a privileged port.
+    listen = "0.0.0.0:5353"
+    protocol = "both"
+    domain = "auth.project1-dev.devops.coop"
+    nsname = "acme-ns.project1-dev.devops.coop"
+    # @ is substituted with . -- this is hostmaster@devops.coop
+    nsadmin = "hostmaster.devops.coop"
+    records = [
+        "auth.project1-dev.devops.coop. NS acme-ns.project1-dev.devops.coop.",
+    ]
+    debug = false
+
+    [database]
+    engine = "sqlite"
+    connection = "/var/lib/acme-dns/acme-dns.db"
+
+    [api]
+    ip = "0.0.0.0"
+    # See service-api.yaml: the API is ClusterIP-only, so the registration
+    # endpoint is unreachable from the internet and needs no TLS of its own.
+    disable_registration = false
+    port = "8080"
+    tls = "none"
+    corsorigins = [
+        "*"
+    ]
+    use_header = false
+    header_name = "X-Forwarded-For"
+
+    [logconfig]
+    loglevel = "info"
+    logtype = "stdout"
+    logformat = "text"

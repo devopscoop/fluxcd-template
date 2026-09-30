@@ -1,0 +1,18 @@
+# acme-dns keeps its registrations in SQLite. The database is small but it is
+# NOT disposable: each row ties a username/password to the subdomain that an
+# _acme-challenge CNAME points at. Lose it and every CNAME must be re-pointed
+# and every domain re-registered.
+#
+# No storageClassName, so this binds with the cluster's default class -- which
+# is whatever the platform provides (apps/eks-storage-classes on EKS,
+# apps/longhorn elsewhere). Set one explicitly if the default is not durable.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: acme-dns-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
