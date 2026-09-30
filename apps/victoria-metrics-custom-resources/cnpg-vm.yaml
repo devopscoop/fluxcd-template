@@ -108,6 +108,9 @@ spec:
 #   Cloud Plugin sidecar via the instance exporter (the in-core
 #   cnpg_collector_first_recoverability_point twins are deprecated and stay
 #   zero on plugin-based clusters like these).
+# - Added CNPGVacuumHeldBackByStandby, which upstream lacks too, over a
+#   series only databases running hot_standby_feedback export (why, in its
+#   own comment below).
 apiVersion: operator.victoriametrics.com/v1beta1
 kind: VMRule
 metadata:
@@ -241,6 +244,58 @@ spec:
               and on (namespace, cnpg_cluster, application_name)
               cnpg_pg_stat_replication_replay_diff_bytes > 16777216
             ) > 1
+          for: 5m
+          labels:
+            severity: warning
+        # hot_standby_feedback trades replica query cancellations for bloat
+        # on the primary: each standby reports the oldest snapshot it still
+        # needs, and the primary's vacuum keeps every row version that
+        # snapshot could read. A long replica query (an export, a dashboard)
+        # holds vacuum back on the primary for as long as it runs, and
+        # nothing else shows it.
+        #
+        # The series is a custom query, not one of CNPG's defaults. A standby
+        # streaming through a replication slot (CNPG's HA slots) reports its
+        # xmin on the slot, and Postgres then leaves
+        # pg_stat_replication.backend_xmin NULL, so the default
+        # cnpg_pg_stat_replication_backend_xmin_age reads 0 however far back
+        # vacuum is held (checked on PG 18, 2026-09-30). A database that turns
+        # feedback on adds a query named hot_standby_feedback to its
+        # Cluster's monitoring.customQueriesConfigMap, run with primary: true,
+        # that exports COALESCE(age(xmin), 0) AS xmin_age per physical slot,
+        # labeled slot_name. Nothing in this template turns feedback on, so
+        # here the rule stays idle.
+        #
+        # XIDs rather than time, because the cost is the dead rows vacuum
+        # can't remove, and those scale with what the primary writes
+        # meanwhile: a quiet database can hold for hours harmlessly, a busy
+        # one not for minutes. 100k is sized on the busiest database running
+        # feedback, which burned 35-100 XID/s hour to hour in the week to
+        # 2026-09-30 (44/s median), so it fires about 30-45 minutes into a
+        # hold. That database's largest routine hold is its nightly base
+        # backup, which runs on a standby as one statement of up to ~23
+        # minutes (~63k XIDs); app queries on its replicas peak near 43k.
+        - alert: CNPGVacuumHeldBackByStandby
+          annotations:
+            summary: A standby is holding back vacuum on the primary.
+            description: >-
+              Replication slot {{ $labels.slot_name }} on
+              {{ $labels.namespace }}/{{ $labels.cnpg_cluster }} is holding
+              the primary's vacuum horizon {{ printf "%.0f" $value }} XIDs
+              back (threshold 100k) through hot_standby_feedback. A long
+              query or transaction on that standby (CNPG names each HA slot
+              after its instance, _cnpg_<instance> with dashes as
+              underscores) is pinning it, and dead rows pile up on the
+              primary until it ends. On the standby, `SELECT pid, usename,
+              application_name,
+              now() - xact_start AS xact_age, state, left(query, 80) FROM
+              pg_stat_activity WHERE backend_xmin IS NOT NULL ORDER BY
+              age(backend_xmin) DESC` names it, and
+              pg_terminate_backend(pid) releases the horizon.
+          expr: |-
+            max by (namespace, cnpg_cluster, slot_name) (
+              cnpg_hot_standby_feedback_xmin_age
+            ) > 100000
           for: 5m
           labels:
             severity: warning
