@@ -1,16 +1,20 @@
-# A CloudNativePG PostgreSQL database with barman backups to S3, in three
-# documents: the Cluster, the ObjectStore its backups land in, and the daily
-# ScheduledBackup. Copied (not scaffolded by a script — copy it by hand) from
-# apps/goalert's db-cluster.yaml, the live example of this pattern.
+# A CloudNativePG PostgreSQL database with mTLS client-certificate auth for
+# the app and barman backups to S3, in three documents: the Cluster, the
+# ObjectStore its backups land in, and the daily ScheduledBackup. Originally
+# copied from apps/goalert's db-cluster.yaml, which remains the live example
+# of the base pattern but predates cert auth (goalert still authenticates
+# with the CNPG-generated password).
 #
 # To give an app a database:
 #
-# 1. Copy this file into apps/<app>/ and replace every "app-template" with
-#    the app's name, e.g.:
-#      sed -i "s/app-template/myapp/g" apps/myapp/db-cluster.yaml
-# 2. Add the file to that app's kustomization.yaml resources, and give the
-#    app's Kustomization in flux/flux-system/ dependsOn entries for cnpg and
-#    cnpg-barman-plugin.
+# 1. Copy this file, db-client-cert.yaml, and README.md into apps/<app>/ and
+#    replace every "app-template" with the app's name, e.g.:
+#      sed -i "s/app-template/myapp/g" apps/myapp/db-cluster.yaml \
+#        apps/myapp/db-client-cert.yaml apps/myapp/README.md
+# 2. Add both yaml files to that app's kustomization.yaml resources, and
+#    give the app's Kustomization in flux/flux-system/ dependsOn entries for
+#    cnpg, cnpg-barman-plugin, and cert-manager (the Issuer/Certificate CRDs
+#    db-client-cert.yaml needs).
 # 3. Add the database to local.cnpg_databases in aws-eks-template
 #    cluster/cnpg-backups.tf ({ <app> = "<app>-db" }); the apply stamps out
 #    the S3 bucket and IRSA role, and its outputs carry the bucket name for
@@ -20,15 +24,19 @@
 #    postgres major version, initdb extensions, and resources.
 # 5. The eks marker blocks ship commented; the next deploy.sh run opens them
 #    when k8s_platform=eks.
+# 6. Wire the app to its client certificate — README.md in this directory
+#    has the full example (volume mount, env vars or DSN, verification).
 #
 # Connecting a psql or GUI client: runbooks/connect-cnpg-database.md.
 # Restoring from backup: runbooks/restore-cnpg-database.md.
 # Moving to a new postgres major: runbooks/upgrade-cnpg-database.md.
 #
-# CNPG auto-creates an `app-template-db-app` Secret (`<cluster>-app`) for the
-# owner of the database below; its `uri` key is a ready-made libpq connection
-# string pointing at the read-write Service (app-template-db-rw) — feed that
-# key to the app instead of hand-assembling credentials.
+# Auth model: the app logs in with the client certificate from
+# db-client-cert.yaml (CN = the owner role below); the pg_hba rules under
+# postgresql: make the cert the ONLY way in for that role. CNPG still
+# auto-creates the `app-template-db-app` Secret (`<cluster>-app`) with a
+# password and a `uri` key, but the reject rule makes them unusable — don't
+# feed them to the app.
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
@@ -83,6 +91,19 @@ spec:
       # can be created by the non-superuser owner above — apps that run
       # CREATE EXTENSION IF NOT EXISTS in their own migrations need nothing
       # here. Anything untrusted needs postInitSQL.
+  # Hand the CLIENT CA to cert-manager so the app's client cert can be issued
+  # and auto-renewed (db-client-cert.yaml). Providing clientCASecret means
+  # the operator stops signing client certs itself, so the streaming_replica
+  # cert must be provided too; one cert-manager secret serves both fields,
+  # since clientCASecret only reads its ca.crt key and cert-manager writes
+  # ca.crt into every secret it issues. Server certs stay operator-managed
+  # (the `app-template-db-ca` secret holds the server CA — mount its ca.crt
+  # for sslmode=verify-full, see README.md). One operational note: kubectl
+  # cnpg certificate can't mint client certs on this cluster — issue a
+  # Certificate from the app-template-db-client-ca Issuer instead.
+  certificates:
+    clientCASecret: app-template-db-replication-cert # pragma: allowlist secret — the Secret's name, not a value
+    replicationTLSSecret: app-template-db-replication-cert # pragma: allowlist secret — the Secret's name, not a value
   storage:
     size: 1Gi
   # On EKS these volumes opt out of the DLM snapshot policy: barman owns this
@@ -180,6 +201,45 @@ spec:
       # Reload-only: no restart and no switchover. Applies to newly written
       # WAL, and replicas and pg_waldump read either form transparently.
       wal_compression: lz4
+# >>> pg-oauth: NOT auto-enabled — enable per adoption after building a validator image (see apps/dex/README.md)
+#       oauth_validator_libraries: "pg_oidc_validator"
+#       pg_oidc_validator.authn_field: "email"
+#     extensions:
+#       - name: pg-oidc-validator
+#         image:
+#           reference: ghcr.io/devopscoop/pg-oidc-validator:18-trixie
+#         # system/ in the image carries libcurl and its dependency chain:
+#         # the validator links libcurl, and the postgres image ships none.
+#         ld_library_path:
+#           - system
+# <<< pg-oauth
+    pg_hba:
+      # Possession of a client cert signed by this cluster's client CA
+      # (certificates.clientCASecret above, issued by db-client-cert.yaml)
+      # IS the app's login — the cert method requires TLS and CN == role.
+      # pg_hba is first-match per (type, db, user, address), so this rule
+      # owns every TLS connection from the owner role.
+      - hostssl all app-template all cert
+      # ... and the reject closes the only other path: a non-TLS connection
+      # falling through to CNPG's default scram catch-all, where the
+      # password in the auto-generated `<cluster>-app` Secret would still
+      # work. With both rules the app role has exactly one way in. Other
+      # roles (break-glass, per-developer) keep the scram catch-all.
+      - host all app-template all reject
+# >>> pg-oauth: NOT auto-enabled — enable per adoption after building a validator image (see apps/dex/README.md)
+#       # scope="" disables pg_oidc_validator's scope check — dex doesn't
+#       # write a scope claim into its tokens (validator README, Dex
+#       # section); the hba option is mandatory but may be empty. It also
+#       # requests nothing on the client's behalf: clients must ask for the
+#       # email scope themselves (oauth_scope='openid email', as in the psql
+#       # example above) or dex omits the email claim authn_field maps
+#       # roles from.
+#       - hostssl all +developers all oauth issuer="https://dex.project1-dev.devops.coop" scope="" map=oidc
+#     pg_ident:
+#       # Workspace email -> the role named after its local part
+#       # (alice@example.com logs in as alice; the role must exist below).
+#       - oidc /^(.*)@example\.com$ \1
+# <<< pg-oauth
   # Continuous WAL archiving + base backups through the Barman Cloud Plugin
   # (apps/cnpg-barman-plugin). The bucket, retention, and sidecar tuning live
   # in the ObjectStore below; the daily cadence in the ScheduledBackup at the
@@ -235,9 +295,10 @@ spec:
   #     PGDG ship it as the libpq-oauth package, Arch's postgresql-libs and
   #     Homebrew's postgresql@18 include it (Homebrew's libpq formula
   #     doesn't).
-  #   - Validator libraries are young. The oauth hba rule below is scoped to
-  #     the developers group, so apps and break-glass access stay on CNPG's
-  #     default scram catch-all (appended after these rules).
+  #   - Validator libraries are young. The oauth hba rule (in the pg_hba
+  #     marker block above) is scoped to the developers group; the app
+  #     authenticates by client cert regardless, and break-glass roles keep
+  #     CNPG's default scram catch-all (appended after these rules).
   #   - Read-only SSO roles (the cluster-viewers group) additionally need
   #     db-developer-rbac.yaml (alongside this file) in the app's
   #     kustomization: the `view` role can neither read this Cluster CR nor
@@ -250,31 +311,6 @@ spec:
   # prints a URL and code; the developer approves in the browser via the
   # upstream IdP and lands in their own audited role.
 # >>> pg-oauth: NOT auto-enabled — enable per adoption after building a validator image (see apps/dex/README.md)
-#   postgresql:
-#     extensions:
-#       - name: pg-oidc-validator
-#         image:
-#           reference: ghcr.io/devopscoop/pg-oidc-validator:18-trixie
-#         # system/ in the image carries libcurl and its dependency chain:
-#         # the validator links libcurl, and the postgres image ships none.
-#         ld_library_path:
-#           - system
-#     parameters:
-#       oauth_validator_libraries: "pg_oidc_validator"
-#       pg_oidc_validator.authn_field: "email"
-#     pg_hba:
-#       # scope="" disables pg_oidc_validator's scope check — dex doesn't
-#       # write a scope claim into its tokens (validator README, Dex
-#       # section); the hba option is mandatory but may be empty. It also
-#       # requests nothing on the client's behalf: clients must ask for the
-#       # email scope themselves (oauth_scope='openid email', as in the psql
-#       # example above) or dex omits the email claim authn_field maps
-#       # roles from.
-#       - hostssl all +developers all oauth issuer="https://dex.project1-dev.devops.coop" scope="" map=oidc
-#     pg_ident:
-#       # Workspace email -> the role named after its local part
-#       # (alice@example.com logs in as alice; the role must exist below).
-#       - oidc /^(.*)@example\.com$ \1
 #   managed:
 #     roles:
 #       # The group the oauth hba rule matches. Grant it what developers may
