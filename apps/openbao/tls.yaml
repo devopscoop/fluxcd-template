@@ -1,0 +1,77 @@
+# TLS for OpenBao's API listener, from a private CA that exists only for
+# this: a self-signed root, a CA Issuer backed by it, and the server
+# certificate the pods mount (server.volumes in values.yaml). The CA lives
+# as long as the cluster is likely to; the server cert renews every 60 days
+# and the tls-reloader sidecar makes OpenBao pick it up.
+#
+# Clients trust the CA through the ca.crt key that cert-manager writes next
+# to the server cert: the pods themselves (BAO_CACERT, retry_join) and the
+# ClusterSecretStore in apps/external-secrets-custom-resources.
+#
+# These are cert-manager CRs, so the flux Kustomization dependsOn
+# cert-manager.
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: openbao-selfsigned
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: openbao-ca
+spec:
+  isCA: true
+  commonName: openbao-ca
+  secretName: openbao-ca # pragma: allowlist secret -- a Secret's name, not a value
+  duration: 87600h # 10 years
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    kind: Issuer
+    name: openbao-selfsigned
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: openbao-ca
+spec:
+  ca:
+    secretName: openbao-ca # pragma: allowlist secret -- a Secret's name, not a value
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: openbao-server
+spec:
+  secretName: openbao-server-tls # pragma: allowlist secret -- a Secret's name, not a value
+  duration: 2160h # 90 days
+  renewBefore: 720h # 30 days
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  usages:
+    - server auth
+  dnsNames:
+    # The chart's Services: openbao (any node), openbao-active (the
+    # leader, what the ClusterSecretStore uses).
+    - openbao
+    - openbao.openbao.svc
+    - openbao.openbao.svc.cluster.local
+    - openbao-active
+    - openbao-active.openbao.svc
+    - openbao-active.openbao.svc.cluster.local
+    # Each pod through the headless Service: api_addr and retry_join.
+    - "*.openbao-internal"
+    - "*.openbao-internal.openbao.svc"
+    - "*.openbao-internal.openbao.svc.cluster.local"
+  ipAddresses:
+    # BAO_ADDR inside the pods, and the readiness probe's `bao status`.
+    - 127.0.0.1
+    - ::1
+  issuerRef:
+    kind: Issuer
+    name: openbao-ca

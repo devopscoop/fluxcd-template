@@ -1,0 +1,12 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# external-secrets.io custom resources, split out of apps/external-secrets so
+# the flux Kustomization can dependsOn it (that app's HelmRelease installs the
+# CRDs) -- same pattern as cert-manager-custom-resources. It also dependsOn
+# openbao, so the store's first health check finds OpenBao unsealed.
+#
+# ExternalSecrets themselves don't go here: they belong next to the app that
+# consumes the Secret. See apps/external-secrets/README.md.
+resources:
+  - clustersecretstore.yaml

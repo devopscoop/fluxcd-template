@@ -76,3 +76,9 @@ resources:
 ## valkey-vm.yaml, commented until the first ValkeyCluster ships -- see that
 ## file's header.
 # <<< valkey
+# >>> openbao: ./toggle_blocks.sh --enable openbao when enabling apps/openbao
+#   - openbao-vm.yaml
+# <<< openbao
+# >>> external-secrets: ./toggle_blocks.sh --enable external-secrets when enabling apps/external-secrets
+#   - external-secrets-vm.yaml
+# <<< external-secrets

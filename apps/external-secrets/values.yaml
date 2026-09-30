@@ -1,0 +1,53 @@
+# dyff between <(yq . <(helm show values external-secrets/external-secrets --version 2.11.0)) <(yq eval '. * load("values.yaml")' <(helm show values external-secrets/external-secrets --version 2.11.0))
+# vim -O <(helm show values external-secrets/external-secrets --version 2.11.0) values.yaml
+
+# Initial guesses (resize with krr after 14d of usage); memory req=limit, no
+# CPU limit. Same for the webhook and cert-controller below.
+resources:
+  requests:
+    cpu: 10m
+    memory: 128Mi
+  limits:
+    memory: 128Mi
+
+# Plain ClusterIP Services in front of each component's :8080 "metrics"
+# port, for the VMServiceScrape in
+# apps/victoria-metrics-custom-resources/external-secrets-vm.yaml. Not the
+# chart's serviceMonitor.enabled: the monitoring.coreos.com CRDs are
+# deliberately not installed here (see the CRD-ownership note in
+# apps/victoria-metrics/README.md). Scraping through Services rather than
+# pods matters: the upstream dashboard below filters every panel on
+# service=~".*external-secrets.*", a label only a service scrape carries.
+metrics:
+  service:
+    enabled: true
+
+# Package the upstream dashboard as a grafana_dashboard=1 ConfigMap in this
+# namespace; the Grafana dashboard sidecar in apps/victoria-metrics runs with
+# searchNamespace: ALL, so it's loaded from here and tracks this chart's pin.
+# It binds through its own $datasource variable, so no datasource rewrite is
+# needed.
+grafanaDashboard:
+  enabled: true
+
+webhook:
+  metrics:
+    service:
+      enabled: true
+  resources:
+    requests:
+      cpu: 10m
+      memory: 64Mi
+    limits:
+      memory: 64Mi
+
+certController:
+  metrics:
+    service:
+      enabled: true
+  resources:
+    requests:
+      cpu: 10m
+      memory: 128Mi
+    limits:
+      memory: 128Mi
