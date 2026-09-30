@@ -16,7 +16,7 @@ Each Cluster runs one primary and two read-only streaming replicas (`instances: 
 The two ways in authenticate differently:
 
 - **Exec into a pod** (options 1 and 2): psql talks over the pod-local Unix socket as the `postgres` OS user, which peer authentication maps to the `postgres` superuser. No password exists or is asked for — which is also why this is the *only* superuser path: CNPG's `enableSuperuserAccess` defaults to false, so the `postgres` role has no password and there is no `goalert-db-superuser` Secret.
-- **Over TCP** (option 3): you authenticate as the application role — the database owner — with the password CNPG generates into the `goalert-db-app` Secret (`<cluster>-app`).
+- **Over TCP** (option 3): you authenticate as the application role — the database owner — with the password CNPG generates into the `goalert-db-app` Secret (`<cluster>-app`). On a database created from the current `apps/templates/cnpg-database` (mTLS client-cert auth), pg_hba rejects that password — option 3 carries a cert variant.
 
 ## Option 1: the kubectl cnpg plugin
 
@@ -83,6 +83,16 @@ Caveats:
 - **Read-only browsing:** forward `svc/goalert-db-ro` instead to land on a replica and keep exploratory load off the primary.
 - **TLS:** the server speaks TLS and psql's default `sslmode=prefer` works, but the certificate names the in-cluster Services, not localhost — so `sslmode=verify-full` fails through a port-forward. Anything up to `sslmode=require` is fine.
 - **Privileges:** the app role owns the `goalert` database and nothing more. If a task genuinely needs superuser, use option 1 or 2 rather than trying to get superuser over TCP.
+- **Cert-auth databases:** on a database created from the current `apps/templates/cnpg-database`, pg_hba rejects the app role's password outright — connecting as the app role over a port-forward means presenting its client certificate instead. Extract it, lock down the key (libpq refuses group/world-readable keys), and pass the files:
+
+  ```shell
+  kubectl -n <app> get secret <app>-db-client-cert -o jsonpath='{.data.tls\.crt}' | base64 -d > /tmp/<app>-db.crt
+  kubectl -n <app> get secret <app>-db-client-cert -o jsonpath='{.data.tls\.key}' | base64 -d > /tmp/<app>-db.key
+  chmod 600 /tmp/<app>-db.key
+  psql "host=localhost port=15432 user=<app> dbname=<app> sslmode=require sslcert=/tmp/<app>-db.crt sslkey=/tmp/<app>-db.key"
+  ```
+
+  `sslmode=require`, not `verify-full`, for the TLS-through-a-port-forward reason above. Prefer the per-developer SSO path (option 4) where it's enabled — the cert route acts as the app, so nothing attributes the session to you.
 
 ## Option 4: OAuth developer SSO, for databases with the pg-oauth block enabled
 
