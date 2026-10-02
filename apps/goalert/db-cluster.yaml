@@ -31,6 +31,41 @@ spec:
   # (schedules, escalation policies, alert metadata), so the cost of HA is
   # just two more pods and PVCs.
   instances: 3
+  # A replica counts as started, and so becomes Ready, only once it is
+  # streaming from the primary rather than as soon as Postgres accepts
+  # connections. With CNPG's default pg_isready check, a replica coming back
+  # after a node rotation passes while it is still replaying WAL from the
+  # backup archive, minutes behind. The replica PDB above then counts it as
+  # available and releases the other replica's drain, and the operator's own
+  # waits for every instance to be ready (rolling updates, moving the primary
+  # off a cordoned node) go ahead with no caught-up standby. On a fork's EKS
+  # upgrade (2026-10-02) that left two of three instances down at once.
+  #
+  # The startup probe, not the readiness probe: this cluster is async, but the
+  # cnpg-database template turns on failoverQuorum, where only Ready replicas
+  # count toward the failover quorum, and a streaming readiness probe takes
+  # both replicas NotReady within ~30s of losing the primary. Kept identical to
+  # the template so the two don't drift. The startup probe runs once per
+  # container start; after it passes, readiness is the usual pg_isready, which
+  # stays up when the primary goes away.
+  #
+  # No maximumLag: a replica only connects for streaming once it has replayed
+  # what the archive holds, and the lag this probe measures is WAL received but
+  # not yet replayed, which the replica already holds. The probe gets CNPG's
+  # default startDelay (3600s) to pass before the kubelet restarts the
+  # container, room for a replica catching up on a long archive backlog. A
+  # primary passes at once.
+  #
+  # The edge it leaves: a replica whose container restarts while the primary is
+  # down can't stream, so it stays unready until the primary is back.
+  #
+  # Changing probes rolls every instance (CNPG diffs the startup probe in the
+  # pod spec): replicas first, each waiting for the last to pass this probe,
+  # then the primary, restarted in place by CNPG's default primaryUpdateMethod
+  # (restart).
+  probes:
+    startup:
+      type: streaming
   # A database must not ride Karpenter capacity: consolidation and drift
   # drains force a switchover whenever the bin-packer rearranges nodes (the
   # operator switches the primary over as soon as its node is cordoned, so
