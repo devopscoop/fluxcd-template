@@ -9,15 +9,17 @@ spec:
   # the instance profile for it itself.
   role: karpenter-node
 
-  # AMI selection. The alias tracks the latest AL2023 EKS-optimized AMI, which
-  # matches the getting-started guide but means new AMI releases roll out to
-  # newly-launched (and drifted) nodes without review. For production,
-  # karpenter.sh recommends pinning a version, e.g. "al2023@v20260801" —
-  # resolve the current one with:
-  #   aws ssm get-parameters-by-path --path /aws/service/eks/optimized-ami --recursive | grep amazon-linux-2023
+  # AMI selection. Pinned to one AL2023 EKS-optimized release, as karpenter.sh
+  # recommends for production, rather than al2023@latest: under @latest every
+  # AMI release AWS publishes drifts every node, and Karpenter replaces the
+  # whole fleet unreviewed. Bump with ./update_ami.sh, which pins the newest
+  # release for the cluster's Kubernetes version; merging the bump replaces
+  # every node at the pace nodepool.yaml's disruption budget allows. The
+  # release must exist for the cluster's Kubernetes minor, so rerun it after
+  # an EKS upgrade, alongside aws-eks-template's cluster/update_node_ami.sh.
   # https://karpenter.sh/docs/tasks/managing-amis/
   amiSelectorTerms:
-    - alias: al2023@latest
+    - alias: al2023@v20260930
 
   # Subnets and the node security group are discovered by tag. aws-eks-template
   # tags the private subnets and the EKS node security group with

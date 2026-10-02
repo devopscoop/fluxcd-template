@@ -9,6 +9,10 @@ tap "home-operations/tap"
 # age (includes age-keygen) - encrypting/decrypting the SOPS age key
 brew "age"
 
+# awscli - apps/karpenter-custom-resources/update_ami.sh reads the AL2023 EKS
+# AMI release from public SSM parameters
+brew "awscli"
+
 # bash - all repo scripts use `#!/usr/bin/env bash`
 brew "bash"
 

@@ -17,6 +17,11 @@ age
 # apps/autokuma
 autokuma-cli
 
+# aws-cli-v2 — `aws`; apps/karpenter-custom-resources/update_ami.sh reads the
+# AL2023 EKS AMI release from public SSM parameters (extra/aws-cli is the
+# legacy v1)
+aws-cli-v2
+
 # bash — all repo scripts use `#!/usr/bin/env bash`
 bash
 
