@@ -52,6 +52,12 @@ spec:
   # Replication is synchronous (postgresql.synchronous below); clients
   # connect through the -rw Service, so switchovers are invisible to them.
   instances: 3
+  # A restarted replica stays unready until it streams, so the replica PDB
+  # waits for it to catch up. Startup, not readiness: a streaming readiness
+  # probe would block failover under failoverQuorum.
+  probes:
+    startup:
+      type: streaming
   # A database must not ride Karpenter capacity: consolidation and drift
   # drains force a switchover whenever the bin-packer rearranges nodes (the
   # operator switches the primary over as soon as its node is cordoned, so
