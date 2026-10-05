@@ -1,0 +1,124 @@
+# Only the chart values this app overrides. See README.md for setup.
+
+cronjob:
+  # Renovate recommends hourly runs. A box ticked on a repo's dependency
+  # dashboard is acted on by the next run.
+  schedule: "0 * * * *"
+  concurrencyPolicy: Forbid
+  # The installation token below expires after one hour, so a run must end
+  # before it does. The next hourly run is the retry.
+  activeDeadlineSeconds: 3300
+  # Quoted because the chart skips a numeric 0 and Kubernetes then retries 6 times.
+  jobBackoffLimit: "0"
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  # Renovate authenticates with a GitHub App installation token, which it
+  # cannot mint from the app's private key. This container mints one per run,
+  # so the private key never reaches the Renovate container, which runs
+  # package-manager commands from the repos it updates.
+  initContainers:
+    - name: github-app-token
+      # Keep at the chart's appVersion.
+      image: ghcr.io/renovatebot/renovate:44.138.0
+      command:
+        - node
+        - --input-type=module
+        - -e
+        - |
+          import { sign } from "node:crypto";
+          import { readFileSync, writeFileSync } from "node:fs";
+          const b64 = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
+          const now = Math.floor(Date.now() / 1000);
+          const jwt = b64({ alg: "RS256", typ: "JWT" }) + "." +
+            b64({ iat: now - 60, exp: now + 540, iss: process.env.GITHUB_APP_ID });
+          const sig = sign("sha256", Buffer.from(jwt), readFileSync("/github-app/private-key"));
+          const url = `https://api.github.com/app/installations/${process.env.GITHUB_APP_INSTALLATION_ID}/access_tokens`;
+          const res = await fetch(url, {
+            method: "POST",
+            headers: {
+              Accept: "application/vnd.github+json",
+              Authorization: `Bearer ${jwt}.${sig.toString("base64url")}`,
+              "X-GitHub-Api-Version": "2022-11-28",
+            },
+          });
+          if (!res.ok) {
+            console.error(`GitHub returned ${res.status} minting the installation token: ${await res.text()}`);
+            process.exit(1);
+          }
+          writeFileSync("/run/renovate/token", (await res.json()).token, { mode: 0o600 });
+      env:
+        - name: GITHUB_APP_ID
+          valueFrom:
+            secretKeyRef:
+              name: renovate-github-app
+              key: app-id
+        - name: GITHUB_APP_INSTALLATION_ID
+          valueFrom:
+            secretKeyRef:
+              name: renovate-github-app
+              key: installation-id
+      volumeMounts:
+        - name: github-app
+          mountPath: /github-app
+          readOnly: true
+        - name: token
+          mountPath: /run/renovate
+      resources:
+        requests:
+          cpu: 50m
+          memory: 64Mi
+        limits:
+          memory: 128Mi
+  preCommand: |
+    RENOVATE_TOKEN="$(cat /run/renovate/token)"
+    export RENOVATE_TOKEN
+
+renovate:
+  # Global config. Repo-level options belong in each repo's renovate.json.
+  # autodiscover covers every repo the GitHub App is installed on, so the
+  # app's installation settings choose the repos.
+  config: |
+    {
+      "platform": "github",
+      "autodiscover": true,
+      "repositoryCache": "enabled",
+      "persistRepoData": true,
+      "onboardingConfig": {
+        "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+        "extends": ["config:recommended"],
+        "dependencyDashboardApproval": true
+      }
+    }
+  persistence:
+    cache:
+      enabled: true
+      # Go module and package caches for a large repo outgrow the chart's 512Mi.
+      storageSize: 5Gi
+
+# The image runs as uid 12021. fsGroup makes the cache volume writable for it.
+securityContext:
+  fsGroup: 12021
+
+extraVolumes:
+  - name: github-app
+    secret:
+      secretName: renovate-github-app # pragma: allowlist secret — the Secret's name, not a value
+      items:
+        - key: private-key
+          path: private-key
+  - name: token
+    emptyDir:
+      medium: Memory
+      sizeLimit: 1Mi
+
+extraVolumeMounts:
+  - name: token
+    mountPath: /run/renovate
+    readOnly: true
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 1Gi
+  limits:
+    memory: 4Gi

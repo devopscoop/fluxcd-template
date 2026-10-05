@@ -1,0 +1,15 @@
+# https://fluxcd.io/flux/components/helm/helmreleases/
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: renovate
+spec:
+  interval: 10m
+  valuesFrom:
+    - kind: ConfigMap
+      name: renovate-values
+    - kind: Secret
+      name: renovate-secrets
+  chartRef:
+    kind: OCIRepository
+    name: renovate-renovate
