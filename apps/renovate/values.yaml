@@ -1,9 +1,10 @@
 # Only the chart values this app overrides. See README.md for setup.
 
 cronjob:
-  # Weekdays at 03:33 UTC. A box ticked on a repo's dependency dashboard is
-  # acted on by the next run. README.md shows how to start a run by hand.
-  schedule: "33 3 * * 1-5"
+  # Weekdays at 10:33 UTC, early morning in US time zones. A box ticked on a
+  # repo's dependency dashboard is acted on by the next run. README.md shows
+  # how to start a run by hand.
+  schedule: "33 10 * * 1-5"
   concurrencyPolicy: Forbid
   # The installation token below expires after one hour, so a run must end
   # before it does. The next scheduled run is the retry.

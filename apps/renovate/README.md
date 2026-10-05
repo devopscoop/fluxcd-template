@@ -1,6 +1,6 @@
 # renovate
 
-[Renovate](https://docs.renovatebot.com/) keeps dependencies current. It finds the dependency files in a repo, looks up newer versions in their registries, and lists every available update on a Dependency Dashboard issue in that repo. This app runs it from the [official chart](https://github.com/renovatebot/helm-charts) as a CronJob. Every weekday at 03:33 UTC a Job starts one pod, which works through each repo and exits. Nothing runs between runs.
+[Renovate](https://docs.renovatebot.com/) keeps dependencies current. It finds the dependency files in a repo, looks up newer versions in their registries, and lists every available update on a Dependency Dashboard issue in that repo. This app runs it from the [official chart](https://github.com/renovatebot/helm-charts) as a CronJob. Every weekday at 10:33 UTC a Job starts one pod, which works through each repo and exits. Nothing runs between runs.
 
 New repos default to dashboard-only mode. Renovate opens a PR for an update only after someone ticks its box on the dashboard.
 
