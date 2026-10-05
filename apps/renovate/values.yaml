@@ -1,12 +1,12 @@
 # Only the chart values this app overrides. See README.md for setup.
 
 cronjob:
-  # Renovate recommends hourly runs. A box ticked on a repo's dependency
-  # dashboard is acted on by the next run.
-  schedule: "0 * * * *"
+  # Weekdays at 03:33 UTC. A box ticked on a repo's dependency dashboard is
+  # acted on by the next run. README.md shows how to start a run by hand.
+  schedule: "33 3 * * 1-5"
   concurrencyPolicy: Forbid
   # The installation token below expires after one hour, so a run must end
-  # before it does. The next hourly run is the retry.
+  # before it does. The next scheduled run is the retry.
   activeDeadlineSeconds: 3300
   # Quoted because the chart skips a numeric 0 and Kubernetes then retries 6 times.
   jobBackoffLimit: "0"
@@ -93,7 +93,7 @@ renovate:
     cache:
       enabled: true
       # Go module and package caches for a large repo outgrow the chart's 512Mi.
-      storageSize: 5Gi
+      storageSize: 1Gi
 
 # The image runs as uid 12021. fsGroup makes the cache volume writable for it.
 securityContext:
