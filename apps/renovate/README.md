@@ -26,7 +26,7 @@ This app is optional and not in `deploy.sh`'s app lists.
 
 2. Generate a private key on the app's General page. Install the app on the repos Renovate should manage. Renovate discovers repos through the installation, so the installation's repo list is the only list to maintain.
 
-3. Fill in `github-app.secrets.yaml.decrypted` with the App ID, the installation ID, and the full PEM private key. Encrypt it with `./encrypt_secrets.sh`.
+3. Set the App ID and installation ID in the `github-app-token` init container's `env` in `values.yaml`. Neither is secret. Put the full PEM private key in `github-app.secrets.yaml.decrypted` and encrypt it with `./encrypt_secrets.sh`.
 
 4. Register the app the same way `deploy_new_app.sh --deploy` would:
 

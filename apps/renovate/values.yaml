@@ -48,16 +48,13 @@ cronjob:
           }
           writeFileSync("/run/renovate/token", (await res.json()).token, { mode: 0o600 });
       env:
+        # The App ID is on the GitHub App's General settings page.
         - name: GITHUB_APP_ID
-          valueFrom:
-            secretKeyRef:
-              name: renovate-github-app
-              key: app-id
+          value: "000000"
+        # The number at the end of the app's installation URL:
+        # https://github.com/organizations/<org>/settings/installations/<id>
         - name: GITHUB_APP_INSTALLATION_ID
-          valueFrom:
-            secretKeyRef:
-              name: renovate-github-app
-              key: installation-id
+          value: "00000000"
       volumeMounts:
         - name: github-app
           mountPath: /github-app
