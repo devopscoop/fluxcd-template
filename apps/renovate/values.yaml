@@ -1,23 +1,12 @@
 # Only the chart values this app overrides. See README.md for setup.
 
 cronjob:
-  # Weekdays at 10:33 UTC, early morning in US time zones. A box ticked on a
-  # repo's dependency dashboard is acted on by the next run. README.md shows
-  # how to start a run by hand.
-  schedule: "33 10 * * 1-5"
   # Scheduled runs never overlap because of activeDeadlineSeconds. This
   # skips the scheduled run when a run started by hand is still going.
   concurrencyPolicy: Forbid
   # The installation token below expires after one hour, so a run must end
   # before it does. The deadline also covers the retries below.
   activeDeadlineSeconds: 3300
-  # Two retries cover a brief GitHub or network error. A failure that repeats
-  # still fails the Job within about a minute.
-  jobBackoffLimit: 2
-  # One finished Job is enough to read the last run's logs.
-  successfulJobsHistoryLimit: 1
-  # A failed Job keeps KubeJobFailed firing until it is deleted. One is enough.
-  failedJobsHistoryLimit: 1
   # Renovate authenticates with a GitHub App installation token, which it
   # cannot mint from the app's private key. This container mints one per run,
   # so the private key never reaches the Renovate container, which runs
