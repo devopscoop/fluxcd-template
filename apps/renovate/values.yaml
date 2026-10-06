@@ -1,10 +1,10 @@
 # Only the chart values this app overrides. See README.md for setup.
 
 cronjob:
-  # Hourly, on the hour. The chart's default is once a day at 01:00 UTC. A box
-  # ticked on a repo's dependency dashboard is acted on by the next run.
-  # README.md shows how to start a run by hand.
-  schedule: "0 * * * *"
+  # Hourly on weekdays, at 33 minutes past, in UTC. The chart's default is
+  # once a day at 01:00 UTC. A box ticked on a repo's dependency dashboard is
+  # acted on by the next run. README.md shows how to start a run by hand.
+  schedule: "33 * * * 1-5"
   # Scheduled runs never overlap because of activeDeadlineSeconds. This
   # skips the scheduled run when a run started by hand is still going.
   concurrencyPolicy: Forbid
