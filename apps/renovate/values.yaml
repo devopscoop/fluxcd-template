@@ -9,10 +9,11 @@ cronjob:
   # skips the scheduled run when a run started by hand is still going.
   concurrencyPolicy: Forbid
   # The installation token below expires after one hour, so a run must end
-  # before it does. The next scheduled run is the retry.
+  # before it does. The deadline also covers the retries below.
   activeDeadlineSeconds: 3300
-  # Quoted because the chart skips a numeric 0 and Kubernetes then retries 6 times.
-  jobBackoffLimit: "0"
+  # Two retries cover a brief GitHub or network error. A failure that repeats
+  # still fails the Job within about a minute.
+  jobBackoffLimit: 2
   # One finished Job is enough to read the last run's logs.
   successfulJobsHistoryLimit: 1
   # A failed Job keeps KubeJobFailed firing until it is deleted. One is enough.
