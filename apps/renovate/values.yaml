@@ -5,8 +5,8 @@ cronjob:
   # repo's dependency dashboard is acted on by the next run. README.md shows
   # how to start a run by hand.
   schedule: "33 10 * * 1-5"
-  # A run still going when the next one is due skips that run instead of
-  # racing it on the same repos and cache volume.
+  # Scheduled runs never overlap because of activeDeadlineSeconds. This
+  # skips the scheduled run when a run started by hand is still going.
   concurrencyPolicy: Forbid
   # The installation token below expires after one hour, so a run must end
   # before it does. The next scheduled run is the retry.
