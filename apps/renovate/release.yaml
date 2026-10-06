@@ -4,6 +4,13 @@ kind: HelmRelease
 metadata:
   name: renovate
 spec:
+  # Only the CronJob's pod mounts the cache PVC. A storage class that binds a
+  # volume only once a pod mounts it (gp3 on EKS) leaves the PVC Pending
+  # between runs, so waiting for it would time out every install and upgrade.
+  install:
+    disableWait: true
+  upgrade:
+    disableWait: true
   interval: 10m
   valuesFrom:
     - kind: ConfigMap
