@@ -1,11 +1,15 @@
 # Only the chart values this app overrides. See README.md for setup.
 
 cronjob:
+  # Hourly, on the hour. The chart's default is once a day at 01:00 UTC. A box
+  # ticked on a repo's dependency dashboard is acted on by the next run.
+  # README.md shows how to start a run by hand.
+  schedule: "0 * * * *"
   # Scheduled runs never overlap because of activeDeadlineSeconds. This
   # skips the scheduled run when a run started by hand is still going.
   concurrencyPolicy: Forbid
   # The installation token below expires after one hour, so a run must end
-  # before it does. The deadline also covers the retries below.
+  # before it does. The deadline also covers the Job's retries.
   activeDeadlineSeconds: 3300
   # Renovate authenticates with a GitHub App installation token, which it
   # cannot mint from the app's private key. This container mints one per run,
@@ -76,7 +80,18 @@ renovate:
   # app's installation settings choose the repos. repositoryCache and
   # persistRepoData keep each repo's cache and clone on the cache volume, so
   # later runs fetch less. onboardingConfig gives each new repo a
-  # dashboard-only renovate.json.
+  # dashboard-only renovate.json that assigns each PR to the CODEOWNERS of
+  # the files it changes. config:recommended already turns on the dashboard.
+  # lockFileMaintenance offers a weekly refresh of every lock file, by
+  # default before 04:00 UTC on Mondays. minimumReleaseAge holds each update
+  # until the release is 3 days old, as Renovate's security presets do, so a
+  # malicious or pulled release is likely caught first. An update whose
+  # registry gives no release date is held until the option is removed.
+  # Security fixes skip the wait and dashboard approval. Besides GitHub's
+  # alerts, osvVulnerabilityAlerts (experimental) finds them in osv.dev's
+  # database, kept on the cache volume (see env below). pinDigests pins
+  # container images and GitHub Actions to digests, so a moved tag can't
+  # change what runs.
   config: |
     {
       "platform": "github",
@@ -86,15 +101,28 @@ renovate:
       "onboardingConfig": {
         "$schema": "https://docs.renovatebot.com/renovate-schema.json",
         "extends": ["config:recommended"],
-        "dependencyDashboardApproval": true
+        "dependencyDashboardApproval": true,
+        "assigneesFromCodeOwners": true,
+        "lockFileMaintenance": { "enabled": true },
+        "minimumReleaseAge": "3 days",
+        "osvVulnerabilityAlerts": true,
+        "pinDigests": true
       }
     }
   persistence:
     cache:
       # Keeps Renovate's cache and repo clones between runs.
       enabled: true
-      # Go module and package caches for a large repo outgrow the chart's 512Mi.
-      storageSize: 1Gi
+      # Go module and package caches for a large repo outgrow the chart's
+      # 512Mi, and the osv.dev database below takes about 640Mi more.
+      storageSize: 2Gi
+
+# osvVulnerabilityAlerts downloads osv.dev's database (75 MiB, 561 MiB
+# unpacked) to /tmp/osv-offline by default, outside the cache volume, so every
+# run would download it again. On the volume, a run downloads it only when the
+# kept copy is a day old.
+env:
+  OSV_OFFLINE_ROOT_DIR: /tmp/renovate/osv-offline
 
 # The image runs as uid 12021. fsGroup makes the cache volume writable for it.
 securityContext:

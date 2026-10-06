@@ -1,8 +1,10 @@
 # renovate
 
-[Renovate](https://docs.renovatebot.com/) keeps dependencies current. It finds the dependency files in a repo, looks up newer versions in their registries, and lists every available update on a Dependency Dashboard issue in that repo. This app runs it from the [official chart](https://github.com/renovatebot/helm-charts) as a CronJob. Every weekday at 10:33 UTC a Job starts one pod, which works through each repo and exits. Nothing runs between runs.
+[Renovate](https://docs.renovatebot.com/) keeps dependencies current. It finds the dependency files in a repo, looks up newer versions in their registries, and lists every available update on a Dependency Dashboard issue in that repo. This app runs it from the [official chart](https://github.com/renovatebot/helm-charts) as a CronJob. Every hour, on the hour, a Job starts one pod, which works through each repo and exits. Nothing runs between runs.
 
-New repos default to dashboard-only mode. Renovate opens a PR for an update only after someone ticks its box on the dashboard.
+New repos default to dashboard-only mode. Renovate opens a PR for an update only after someone ticks its box on the dashboard, and assigns it to the code owners of the files it changes, from the repo's `CODEOWNERS` file. Lock file maintenance is on too: every Monday before 04:00 UTC the dashboard offers one PR that refreshes every lock file in the repo. Renovate holds back an update until its release is 3 days old, and offers to pin container images and GitHub Actions to digests, so a moved tag can't change what runs.
+
+Security fixes skip both the wait and the dashboard: Renovate opens them on its own as soon as it finds them, from GitHub's vulnerability alerts and from [osv.dev](https://osv.dev/)'s database.
 
 This app is optional and not in `deploy.sh`'s app lists.
 
