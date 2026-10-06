@@ -5,13 +5,17 @@ cronjob:
   # repo's dependency dashboard is acted on by the next run. README.md shows
   # how to start a run by hand.
   schedule: "33 10 * * 1-5"
+  # A run still going when the next one is due skips that run instead of
+  # racing it on the same repos and cache volume.
   concurrencyPolicy: Forbid
   # The installation token below expires after one hour, so a run must end
   # before it does. The next scheduled run is the retry.
   activeDeadlineSeconds: 3300
   # Quoted because the chart skips a numeric 0 and Kubernetes then retries 6 times.
   jobBackoffLimit: "0"
+  # One finished Job is enough to read the last run's logs.
   successfulJobsHistoryLimit: 1
+  # A failed Job keeps KubeJobFailed firing until it is deleted. One is enough.
   failedJobsHistoryLimit: 1
   # Renovate authenticates with a GitHub App installation token, which it
   # cannot mint from the app's private key. This container mints one per run,
@@ -21,6 +25,8 @@ cronjob:
     - name: github-app-token
       # Keep at the chart's appVersion.
       image: ghcr.io/renovatebot/renovate:44.138.0
+      # Signs a short-lived JWT with the app's private key and exchanges it
+      # for an installation token. Any GitHub error fails the Job.
       command:
         - node
         - --input-type=module
@@ -55,18 +61,21 @@ cronjob:
         # https://github.com/organizations/<org>/settings/installations/<id>
         - name: GITHUB_APP_INSTALLATION_ID
           value: "00000000"
+      # Reads the private key and writes the token where Renovate reads it.
       volumeMounts:
         - name: github-app
           mountPath: /github-app
           readOnly: true
         - name: token
           mountPath: /run/renovate
+      # One HTTPS request needs little.
       resources:
         requests:
           cpu: 50m
           memory: 64Mi
         limits:
           memory: 128Mi
+  # Hands the minted token to Renovate.
   preCommand: |
     RENOVATE_TOKEN="$(cat /run/renovate/token)"
     export RENOVATE_TOKEN
@@ -74,7 +83,10 @@ cronjob:
 renovate:
   # Global config. Repo-level options belong in each repo's renovate.json.
   # autodiscover covers every repo the GitHub App is installed on, so the
-  # app's installation settings choose the repos.
+  # app's installation settings choose the repos. repositoryCache and
+  # persistRepoData keep each repo's cache and clone on the cache volume, so
+  # later runs fetch less. onboardingConfig gives each new repo a
+  # dashboard-only renovate.json.
   config: |
     {
       "platform": "github",
@@ -89,6 +101,7 @@ renovate:
     }
   persistence:
     cache:
+      # Keeps Renovate's cache and repo clones between runs.
       enabled: true
       # Go module and package caches for a large repo outgrow the chart's 512Mi.
       storageSize: 1Gi
@@ -98,22 +111,27 @@ securityContext:
   fsGroup: 12021
 
 extraVolumes:
+  # The app's private key. Only the init container mounts it.
   - name: github-app
     secret:
       secretName: renovate-github-app # pragma: allowlist secret — the Secret's name, not a value
       items:
         - key: private-key
           path: private-key
+  # In memory, so the token never reaches disk. The init container writes it.
   - name: token
     emptyDir:
       medium: Memory
       sizeLimit: 1Mi
 
+# Renovate only reads the token.
 extraVolumeMounts:
   - name: token
     mountPath: /run/renovate
     readOnly: true
 
+# Renovate's memory grows with the size of the repos it scans. No CPU limit,
+# so a run is never throttled.
 resources:
   requests:
     cpu: 500m
