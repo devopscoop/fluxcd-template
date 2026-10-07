@@ -104,7 +104,7 @@ renovate:
         "dependencyDashboardApproval": true,
         "assigneesFromCodeOwners": true,
         "lockFileMaintenance": { "enabled": true },
-        "minimumReleaseAge": "3 days",
+        "minimumReleaseAge": "7 days",
         "osvVulnerabilityAlerts": true,
         "pinDigests": true
       }
