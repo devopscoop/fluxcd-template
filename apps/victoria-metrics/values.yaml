@@ -577,6 +577,23 @@ grafana:
 #           - name: DS_PROMETHEUS
 #             value: VictoriaMetrics
 # <<< uptime-kuma
+# >>> openbao: ./toggle_blocks.sh --enable openbao when enabling apps/openbao
+##       "OpenBao" — the openbao-helm chart's own dashboard: seal/active
+##       state, request and audit-log rates, token/lease/entity counts, kv
+##       secret counts per mount — fed by openbao-vm.yaml. Downloaded from
+##       the chart's tag rather than via its
+##       serverTelemetry.grafanaDashboard ConfigMap, which references a
+##       ${DS_PROMXY} input nothing resolves under sidecar provisioning
+##       (the datasource entry here rewrites it). Pinned to apps/openbao's
+##       chart pin; bump together. Known gaps: the Consul panels stay empty
+##       (this deployment uses Raft storage), and the route panels only list
+##       mounts that have served requests.
+#       openbao:
+#         url: https://raw.githubusercontent.com/openbao/openbao-helm/openbao-0.30.0/charts/openbao/grafana/dashboards/dashboard.json
+#         datasource:
+#           - name: DS_PROMXY
+#             value: VictoriaMetrics
+# <<< openbao
   # Memory req=limit, no CPU limit. Doubled to 384Mi after OOMKills
   # (2026-08-25), then OOMKilled again on 2026-08-26 once the kubelet
   # relabelConfigs fix below un-dropped the label-heavy cadvisor series

@@ -44,6 +44,10 @@ brew "jq"
 # runbooks/connect-cnpg-database.md and runbooks/restore-cnpg-database.md
 brew "kubectl-cnpg"
 
+# openbao - the bao CLI, for apps/openbao/configure.sh and administering
+# OpenBao (apps/openbao/README.md)
+brew "openbao"
+
 # postgresql@18 - psql for psql-oauth.sh, which runs PostgreSQL 18's OAuth
 # device flow and so needs libpq's OAuth module. This formula builds it
 # (--with-libcurl, against the system libcurl; checked against 18.6); the

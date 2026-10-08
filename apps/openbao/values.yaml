@@ -1,0 +1,244 @@
+# dyff between <(yq . <(helm show values openbao/openbao --version 0.30.0)) <(yq eval '. * load("values.yaml")' <(helm show values openbao/openbao --version 0.30.0))
+# vim -O <(helm show values openbao/openbao --version 0.30.0) values.yaml
+
+# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
+## Not a chart value. The seal section of server.ha.raft.config below reads
+## it (the chart runs that config through tpl) and picks the AWS KMS seal
+## when it is set, the static seal otherwise. The key and the IRSA role
+## (server.serviceAccount below) come from aws-eks-template; see
+## apps/openbao/README.md -> "Before deploying".
+# awskmsSeal:
+#   region: us-east-2
+#   kmsKeyId: alias/openbao-project1-dev
+# <<< eks
+
+global:
+  # TLS on the API listener (:8200), with the cert-manager certificate from
+  # tls.yaml. This is what ExternalSecrets read secret values over, so it is
+  # not optional. Raft traffic on :8201 is always TLS (OpenBao's own
+  # cluster certs), whatever this says.
+  tlsDisable: false
+
+# The agent injector is a mutating webhook that adds OpenBao Agent
+# sidecars to annotated pods. Nothing here uses it: apps get their secrets
+# as ordinary Kubernetes Secrets from apps/external-secrets.
+injector:
+  enabled: false
+
+server:
+  # Initial guesses (resize with krr after 14d of usage); memory req=limit,
+  # no CPU limit.
+  resources:
+    requests:
+      cpu: 50m
+      memory: 256Mi
+    limits:
+      memory: 256Mi
+
+# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
+##   IRSA for the AWS KMS seal: the role needs kms:Encrypt, kms:Decrypt
+##   and kms:DescribeKey on the key named in awskmsSeal above. Output
+##   openbao_role_arn from aws-eks-template.
+#   serviceAccount:
+#     annotations:
+#       eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT_ID:role/openbao"
+# <<< eks
+
+  # So `kubectl exec openbao-0 -- bao ...` trusts the listener's cert. The
+  # chart already points BAO_ADDR at https://127.0.0.1:8200, which is in the
+  # cert's SANs.
+  extraEnvironmentVars:
+    BAO_CACERT: /openbao/tls/ca.crt
+
+  volumes:
+    - name: tls
+      secret:
+        secretName: openbao-server-tls # pragma: allowlist secret -- a Secret's name, not a value
+    # The static seal's key, used when the AWS KMS seal is off. Created out
+    # of band, never committed (see README.md -> "Before deploying").
+    # Optional so that EKS clusters, which never create it, still start.
+    - name: unseal-key
+      secret:
+        secretName: openbao-unseal-key # pragma: allowlist secret -- a Secret's name, not a value
+        optional: true
+  volumeMounts:
+    - name: tls
+      mountPath: /openbao/tls
+      readOnly: true
+    - name: unseal-key
+      mountPath: /openbao/unseal
+      readOnly: true
+
+  # OpenBao refuses to start when plugin_directory (see the config below)
+  # doesn't exist, and nothing else creates it on a fresh volume.
+  extraInitContainers:
+    - name: plugin-directory
+      image: quay.io/openbao/openbao:2.7.0
+      command: ["mkdir", "-p", "/openbao/data/plugins"]
+      securityContext:
+        allowPrivilegeEscalation: false
+      volumeMounts:
+        - name: data
+          mountPath: /openbao/data
+
+  # OpenBao reads its listener cert at startup and on SIGHUP only, so a
+  # cert-manager renewal would otherwise go unnoticed until the pod
+  # restarted -- and with updateStrategyType OnDelete (the chart default),
+  # that can be longer than the cert's 90 days. The sidecar watches the
+  # mounted cert and sends SIGHUP to bao when it changes; the shared PID
+  # namespace is what lets it see the process. It reuses the server image
+  # (busybox sha256sum/pkill), so bump the tag together with the chart,
+  # like the plugin-directory init container's.
+  shareProcessNamespace: true
+  extraContainers:
+    - name: tls-reloader
+      image: quay.io/openbao/openbao:2.7.0
+      command:
+        - /bin/sh
+        - -c
+        - |
+          last=$(sha256sum /openbao/tls/tls.crt)
+          while sleep 60; do
+            cur=$(sha256sum /openbao/tls/tls.crt)
+            if [ "$cur" != "$last" ] && pkill -HUP -x bao; then
+              echo "tls.crt changed, sent SIGHUP to bao"
+              last=$cur
+            fi
+          done
+      resources:
+        requests:
+          cpu: 1m
+          memory: 8Mi
+        limits:
+          memory: 8Mi
+      securityContext:
+        allowPrivilegeEscalation: false
+      volumeMounts:
+        - name: tls
+          mountPath: /openbao/tls
+          readOnly: true
+
+  # Ready once the process answers, sealed or not initialized included.
+  # The chart's default probe (`bao status`) fails until the cluster is
+  # initialized, and with podManagementPolicy OrderedReady that keeps
+  # openbao-1 and -2 from ever starting, and helm-controller's install wait
+  # times out, before anyone can run `bao operator init`. Traffic is
+  # unaffected: clients use the openbao-active Service, which selects the
+  # unsealed leader only. A sealed pod pages through OpenBaoSealed
+  # (apps/victoria-metrics-custom-resources/openbao-vm.yaml) instead.
+  readinessProbe:
+    path: /v1/sys/health?standbyok=true&sealedcode=204&uninitcode=204
+
+  ha:
+    enabled: true
+    replicas: 3
+
+    # The chart defaults this to https://$(POD_IP):8200, which is not a
+    # valid URL on an IPv6-only cluster (the address needs brackets) and
+    # doesn't match any name in the listener cert. The pod's stable DNS name
+    # through the headless Service fixes both. BAO_K8S_POD_NAME is set
+    # earlier in the container's env than BAO_API_ADDR, so kubelet expands
+    # it.
+    apiAddr: https://$(BAO_K8S_POD_NAME).openbao-internal:8200
+
+    raft:
+      enabled: true
+      setNodeId: true
+      config: |
+        ui = true
+
+        # KMS seal plugins are downloaded here (see the seal section). On
+        # the data volume so the binary is cached across restarts and a
+        # registry outage doesn't stop a pod from unsealing.
+        plugin_directory     = "/openbao/data/plugins"
+        plugin_auto_download = true
+
+        listener "tcp" {
+          address         = "[::]:8200"
+          cluster_address = "[::]:8201"
+          tls_cert_file   = "/openbao/tls/tls.crt"
+          tls_key_file    = "/openbao/tls/tls.key"
+
+          # /v1/sys/metrics without a token, and on standbys too (the
+          # endpoint is active-node-only otherwise), for the VMServiceScrape
+          # in apps/victoria-metrics-custom-resources/openbao-vm.yaml. It
+          # exposes counts and timings, never secret values.
+          telemetry {
+            unauthenticated_metrics_access = true
+          }
+        }
+
+        storage "raft" {
+          path = "/openbao/data"
+
+          retry_join {
+            leader_api_addr     = "https://openbao-0.openbao-internal:8200"
+            leader_ca_cert_file = "/openbao/tls/ca.crt"
+          }
+          retry_join {
+            leader_api_addr     = "https://openbao-1.openbao-internal:8200"
+            leader_ca_cert_file = "/openbao/tls/ca.crt"
+          }
+          retry_join {
+            leader_api_addr     = "https://openbao-2.openbao-internal:8200"
+            leader_ca_cert_file = "/openbao/tls/ca.crt"
+          }
+        }
+
+        # Labels each pod openbao-active=true|false, which the
+        # openbao-active Service selects on.
+        service_registration "kubernetes" {}
+
+        telemetry {
+          disable_hostname = true
+          # How long a gauge stays on /v1/sys/metrics after its last update
+          # (default 24h). Leader-only gauges (vault_autopilot_*) and the
+          # cluster-labelled vault_core_* series linger on a pod after it
+          # stops being leader or restarts, and the alert rules in
+          # openbao-vm.yaml would read that stale value for a day. 15m still
+          # outlives usage_gauge_period (10m), so the usage gauges behind the
+          # dashboard's token/kv/entity counts never drop out between
+          # updates.
+          prometheus_retention_time = "15m"
+        }
+
+        # Every request and response, HMAC'd (secret values never appear
+        # in clear), to stdout, where the stack's log collector ships it to
+        # VictoriaLogs. Declared here rather than through the API because
+        # OpenBao only allows audit devices in config by default.
+        audit "file" "stdout" {
+          options {
+            file_path = "stdout"
+          }
+        }
+
+        # Auto-unseal, so a restarted pod unseals itself and no human holds
+        # unseal keys. `bao operator init` then yields recovery keys instead
+        # (README.md -> "First start").
+        {{- if .Values.awskmsSeal }}
+        # AWS KMS: the root key is wrapped by a KMS key that never leaves
+        # KMS; the pod authenticates through IRSA. Since OpenBao 2.7 this
+        # seal is a plugin, pinned by digest here and downloaded from
+        # ghcr.io at first start.
+        plugin "kms" "awskms" {
+          image = "ghcr.io/openbao/openbao-plugin-kms-aws:v0.1.0@sha256:fe9fb94872048c9474156c044ea8852bb5c2e968fc9304a3725e4d434b488541"
+        }
+        seal "awskms" {
+          region     = "{{ .Values.awskmsSeal.region }}"
+          kms_key_id = "{{ .Values.awskmsSeal.kmsKeyId }}"
+        }
+        {{- else }}
+        # Static key from the openbao-unseal-key Secret (mounted above).
+        # Weaker than a KMS: whoever can read that Secret, plus a copy of
+        # the Raft data, can decrypt everything. It is still never in git.
+        # To rotate, see README.md -> "Rotating the static unseal key".
+        seal "static" {
+          current_key_id = "unseal-1"
+          current_key    = "file:///openbao/unseal/key"
+        }
+        {{- end }}
+
+# The chart's own dashboard, as a download entry under grafana.dashboards in
+# apps/victoria-metrics/values.yaml, not this chart's
+# serverTelemetry.grafanaDashboard: that ConfigMap references a ${DS_PROMXY}
+# input, which nothing resolves when Grafana's sidecar provisions it.

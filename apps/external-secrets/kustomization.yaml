@@ -1,0 +1,30 @@
+# https://fluxcd.io/flux/guides/helmreleases/#refer-to-values-in-configmaps-generated-with-kustomize
+# https://fluxcd.io/flux/guides/helmreleases/#refer-to-values-in-secret-generated-with-kustomize-and-sops
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Setting namespace here will ensure that all objects managed by this Kustomization will explicitly be deployed to this namespace. You don't need to put specify `namespace:` anywhere else if you do this.
+namespace: external-secrets
+
+resources:
+
+  # Don't put a ClusterSecretStore, ExternalSecret, or any other
+  # external-secrets.io custom resource here: the chart below installs those
+  # CRDs, so flux's dry-run of this Kustomization would fail on a fresh
+  # cluster. They go in apps/external-secrets-custom-resources, which
+  # dependsOn this app (same split as cert-manager-custom-resources).
+  - namespace.yaml
+  - helmrepo.yaml
+  - release.yaml
+
+configMapGenerator:
+  - name: external-secrets-values
+    files:
+      - values.yaml=values.yaml
+secretGenerator:
+  - name: external-secrets-secrets
+    files:
+      - values.yaml=helm_secrets.yaml
+configurations:
+  - kustomizeconfig.yaml

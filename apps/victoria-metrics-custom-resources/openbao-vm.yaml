@@ -1,0 +1,112 @@
+# Scrape every OpenBao server pod's /v1/sys/metrics (Prometheus format)
+# through the chart's headless openbao-internal Service, port "https"
+# (:8200). Deviates from the chart's own ServiceMonitor, which only scrapes
+# the openbao-active Service: standbys serve the endpoint too
+# (unauthenticated_metrics_access in apps/openbao/values.yaml), and a sealed
+# or not-yet-joined standby is exactly what OpenBaoSealed below has to see.
+# The headless Service publishes not-ready addresses, so a pod that can't
+# unseal is still a target. job="openbao-internal" is what the vendored
+# dashboard's job variable picks up.
+#
+# TLS: the listener's cert comes from the private CA in
+# apps/openbao/tls.yaml, whose secret lives in the openbao namespace, out
+# of reach of a scrape object in this one. So verification is skipped, as in
+# the chart's own ServiceMonitor; the endpoint carries counts and timings,
+# never secret values.
+#
+# Opt-in, like the app: gated by the openbao marker block in
+# kustomization.yaml (./toggle_blocks.sh --enable openbao when enabling
+# apps/openbao).
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMServiceScrape
+metadata:
+  name: openbao
+spec:
+  namespaceSelector:
+    matchNames:
+      - openbao
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: openbao
+      openbao-internal: "true"
+  endpoints:
+    - port: https
+      scheme: https
+      path: /v1/sys/metrics
+      params:
+        format:
+          - prometheus
+      tlsConfig:
+        insecureSkipVerify: true
+---
+# Alerting rules for OpenBao, evaluated by this stack's vmalert over the
+# series collected by the scrape above. Upstream ships only two example
+# latency rules (the chart's commented serverTelemetry.prometheusRules);
+# these are modeled on the Vault set in samber/awesome-prometheus-alerts
+# plus OpenBao's telemetry docs, which call out the audit failure counters
+# as the crucial ones. Deviations and gotchas:
+# - Dropped a "no active node" rule: vault_core_active is only
+#   cluster-labelled on the leader, so it reads stale after a leader change,
+#   and the ExternalSecrets side (ExternalSecretsClusterStoreNotReady in
+#   external-secrets-vm.yaml) pages for the same outage from the clients'
+#   point of view. A dead pod is the bundled TargetDown's job.
+# - vault_core_unsealed exists twice on the leader, with cluster="" (kept
+#   from before it knew the cluster name) and cluster="vault-cluster-...".
+#   max without (cluster) folds them, so a stale 0 from startup can't fire
+#   the rule.
+# - vault_autopilot_* are only updated on the leader but stay on a former
+#   leader until prometheus_retention_time (15m, apps/openbao/values.yaml)
+#   expires them, hence for: 20m on that rule.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  name: openbao
+spec:
+  groups:
+    - name: openbao
+      rules:
+        - alert: OpenBaoSealed
+          annotations:
+            summary: An OpenBao node is sealed.
+            description: >-
+              {{ $labels.pod }} has been sealed for 5m. Auto-unseal should
+              make this impossible, so the seal itself is failing: on EKS the
+              AWS KMS key or the IRSA role (kubectl -n openbao logs
+              {{ $labels.pod }} -c openbao), elsewhere the
+              openbao-unseal-key Secret. The other nodes keep serving, but
+              every node that restarts now stays sealed too.
+          expr: |-
+            max by (namespace, pod) (
+              max without (cluster) (vault_core_unsealed{namespace="openbao"})
+            ) == 0
+          for: 5m
+          labels:
+            severity: critical
+        - alert: OpenBaoRaftUnhealthy
+          annotations:
+            summary: OpenBao's Raft cluster has an unhealthy node.
+            description: >-
+              Autopilot on the OpenBao leader has reported a Raft peer
+              unhealthy for 20m, so the cluster is one failure from losing
+              quorum. `bao operator raft autopilot state` (as the admin
+              role, apps/openbao/README.md) names the node and why.
+          expr: |-
+            min by (namespace) (vault_autopilot_healthy{namespace="openbao"}) == 0
+          for: 20m
+          labels:
+            severity: warning
+        - alert: OpenBaoAuditLogFailing
+          annotations:
+            summary: OpenBao cannot write its audit log.
+            description: >-
+              {{ $labels.pod }} failed to audit-log
+              {{ printf "%.0f" $value }} requests/responses in the last 5m.
+              OpenBao refuses any request it cannot audit, so those requests
+              failed. The only device is the stdout file device in
+              apps/openbao/values.yaml; check the pod's logs.
+          expr: |-
+            sum by (namespace, pod) (
+              increase({__name__=~"vault_audit_log_(request|response)_failure", namespace="openbao"}[5m])
+            ) > 0
+          labels:
+            severity: critical
