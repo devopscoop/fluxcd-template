@@ -111,6 +111,10 @@ spec:
 # - Added CNPGVacuumHeldBackByStandby, which upstream lacks too, over a
 #   series only databases running hot_standby_feedback export (why, in its
 #   own comment below).
+# - Added CNPGClusterNoPrimary, which upstream also lacks: the HA rules
+#   count standbys and took 9–11 minutes to fire when prod's primary pod
+#   was killed and never recreated on 2026-10-08 (why, in its own comment
+#   below).
 apiVersion: operator.victoriametrics.com/v1beta1
 kind: VMRule
 metadata:
@@ -119,6 +123,47 @@ spec:
   groups:
     - name: cnpg
       rules:
+        # A cluster with no primary serves no writes, and the two HA rules
+        # below do not say so quickly: they count standbys, and in the
+        # 2026-10-08 prod outage (primary pod hard-killed by a node-group
+        # replacement; the operator then deadlocked and never recreated it)
+        # they took 9–11 minutes to fire. This rule reads the same
+        # pg_replication collector: every instance exports
+        # cnpg_pg_replication_in_recovery (0 on the primary, 1 on a
+        # standby), so a cluster whose instances all report 1 — or whose
+        # primary's series went stale because its pod is gone — has no
+        # primary. The outer count keeps one series per cluster; `unless`
+        # removes every cluster that still has an in_recovery == 0 series.
+        # for: 2m, not 1m: a switchover briefly has two standbys, and an
+        # in-place primary restart (primaryUpdateMethod: restart, the CNPG
+        # default) leaves the cluster primary-less for about a minute
+        # (prod's core-db took about that on 2026-10-08). With vmalert's
+        # 1m evaluation interval this pages 2–3 minutes after the primary
+        # vanishes, which is still a quarter of what the HA rules managed.
+        # It needs at least one instance that answers the collector: a
+        # cluster whose every instance is mid-crash-recovery exports
+        # nothing, and TargetDown / CNPGFleetMetricsAbsent cover that.
+        - alert: CNPGClusterNoPrimary
+          annotations:
+            summary: A CNPG cluster has no primary.
+            description: >-
+              Cluster {{ $labels.namespace }}/{{ $labels.cnpg_cluster }}
+              has had no instance out of recovery for 2m — nothing is
+              serving writes. Check `kubectl cnpg status
+              {{ $labels.cnpg_cluster }} -n {{ $labels.namespace }}`
+              (runbooks/connect-cnpg-database.md). If status.currentPrimary
+              names an instance with no pod and the replicas sit unready
+              waiting for WAL, the operator is deadlocked: delete the
+              orphaned replica pods (not their PVCs) and it recreates the
+              primary first — see prod-infra's
+              postmortems/2026-10-08-core-db-outage-node-group-replacement.md.
+          expr: |-
+            count by (namespace, cnpg_cluster) (cnpg_pg_replication_in_recovery)
+            unless
+            count by (namespace, cnpg_cluster) (cnpg_pg_replication_in_recovery == 0)
+          for: 2m
+          labels:
+            severity: critical
         # The two HA rules assume instances: 3, which db-cluster.yaml
         # documents as the repo floor (the replica PDB only releases a
         # replica at 3+). A deliberately 2-instance database would hold
