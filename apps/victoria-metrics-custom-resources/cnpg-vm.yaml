@@ -111,6 +111,13 @@ spec:
 # - Added CNPGVacuumHeldBackByStandby, which upstream lacks too, over a
 #   series only databases running hot_standby_feedback export (why, in its
 #   own comment below).
+# - Added CNPGLongRunningTransaction and a critical twin. The cluster chart
+#   has nothing for long transactions; these come from the LongRunningTransaction
+#   rule in CNPG's sample PrometheusRule
+#   (https://github.com/cloudnative-pg/cloudnative-pg/blob/main/docs/src/samples/monitoring/prometheusrule.yaml),
+#   restricted to the primary, grouped per culprit rather than per backend
+#   state, and moved from its 5m to 30m/2h (why, in their own comment
+#   below).
 apiVersion: operator.victoriametrics.com/v1beta1
 kind: VMRule
 metadata:
@@ -299,6 +306,92 @@ spec:
           for: 5m
           labels:
             severity: warning
+        # A transaction left open on the primary costs twice. Vacuum can't
+        # remove any row version its snapshot might still need, so dead rows
+        # pile up in every table of that database for as long as it runs.
+        # It also keeps every lock it took until it ends, so a migration's
+        # DDL queues behind it, and every later query on that table queues
+        # behind the DDL.
+        #
+        # Primary only (cnpg_pg_replication_in_recovery == 0). On a standby,
+        # CNPGVacuumHeldBackByStandby above covers the cost when
+        # hot_standby_feedback is on. When it's off, replay cancels a
+        # conflicting query after max_standby_streaming_delay, and a delay
+        # beyond that shows up in the lag rules. Leaving standbys out also
+        # skips the nightly base backup, which runs on a standby as one
+        # statement of up to ~23 minutes (see that rule's comment). If a
+        # backup ever runs on the primary instead, 30m still clears it.
+        #
+        # cnpg_backends_max_tx_duration_seconds comes from CNPG's default
+        # backends query: the oldest xact_start per (datname, usename,
+        # application_name, state). The rules aggregate state away, because
+        # a transaction that alternates between active and idle in
+        # transaction would otherwise move between series and restart the
+        # alert's for: timer at every switch. Sessions with no open
+        # transaction read 0. The query drops rows with no usename, so
+        # autovacuum and other background workers never appear.
+        #
+        # The thresholds are an estimate, not measured. Upstream's 5m would
+        # page on every long migration and pg_dump. 30m clears the backup
+        # statement, and at the busiest database's ~44 XID/s it is close to
+        # the hold CNPGVacuumHeldBackByStandby pages on from the standby
+        # side (100k XIDs is ~38m there). 2h is the critical threshold: a
+        # transaction that long builds large bloat on a busy database, and
+        # legitimate long work belongs on a replica. Re-size both once the
+        # series has some history.
+        - alert: CNPGLongRunningTransaction
+          annotations:
+            summary: A transaction on a CNPG primary has been open over 30 minutes.
+            description: >-
+              A transaction by {{ $labels.usename }} (application_name
+              "{{ $labels.application_name }}") in database
+              {{ $labels.datname }} on primary {{ $labels.pod }}
+              ({{ $labels.namespace }}/{{ $labels.cnpg_cluster }}) has been
+              open {{ humanizeDuration $value }}. Until it ends, vacuum can't
+              remove dead rows anywhere in that database, and its locks block
+              any DDL waiting on them, along with every query queued behind
+              that DDL. A long migration (CREATE INDEX CONCURRENTLY) can
+              legitimately run this long; a pg_dump should run on a replica
+              instead. To find it, open psql on the primary with
+              `kubectl cnpg psql {{ $labels.cnpg_cluster }} -n
+              {{ $labels.namespace }}` and run `SELECT pid, usename,
+              application_name, client_addr, state, now() - xact_start AS
+              xact_age, left(query, 80) FROM pg_stat_activity WHERE
+              xact_start < now() - interval '30 minutes' ORDER BY
+              xact_start`. pg_terminate_backend(pid) ends the session and
+              rolls the transaction back.
+          expr: |-
+            max by (namespace, cnpg_cluster, pod, datname, usename, application_name) (
+              cnpg_backends_max_tx_duration_seconds
+            ) > 1800
+            and on (namespace, pod)
+            cnpg_pg_replication_in_recovery == 0
+          for: 5m
+          labels:
+            severity: warning
+        - alert: CNPGLongRunningTransactionCritical
+          annotations:
+            summary: A transaction on a CNPG primary has been open over 2 hours.
+            description: >-
+              A transaction by {{ $labels.usename }} (application_name
+              "{{ $labels.application_name }}") in database
+              {{ $labels.datname }} on primary {{ $labels.pod }}
+              ({{ $labels.namespace }}/{{ $labels.cnpg_cluster }}) has been
+              open {{ humanizeDuration $value }}. CNPGLongRunningTransaction
+              fired for it at 30m. It has blocked vacuum that whole time, so
+              bloat keeps growing until the transaction ends. Unless it's a
+              migration someone is actively watching, find it with the query
+              in CNPGLongRunningTransaction and end it with
+              pg_terminate_backend(pid).
+          expr: |-
+            max by (namespace, cnpg_cluster, pod, datname, usename, application_name) (
+              cnpg_backends_max_tx_duration_seconds
+            ) > 7200
+            and on (namespace, pod)
+            cnpg_pg_replication_in_recovery == 0
+          for: 5m
+          labels:
+            severity: critical
         # kube_pod_info knows nodes but not CNPG clusters (kube-state-metrics
         # exports no pod labels here), so join it against a series the
         # instance exporter emits for exactly the pods we care about.
