@@ -5,5 +5,7 @@ namespace: flux-system
 
 resources:
   - flux-web.yaml
-  - basic-auth.secrets.yaml
-  - basic-auth-securitypolicy.yaml
+  # SSO through apps/dex, which must be deployed first — see
+  # oidc-securitypolicy.yaml and apps/dex/README.md.
+  - oidc-securitypolicy.yaml
+  - eg-oidc-client.secrets.yaml

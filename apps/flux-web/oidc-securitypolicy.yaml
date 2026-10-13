@@ -1,0 +1,35 @@
+# SSO for the Flux web UI, enforced at the gateway: Envoy Gateway's OIDC
+# filter runs the authorization-code flow against the dex app (apps/dex), the
+# same dex → workforce-IdP login as the monitoring UIs
+# (apps/victoria-metrics/oidc-securitypolicy.yaml). This replaced an HTTP
+# basic-auth policy, so flux-web now requires apps/dex: if Envoy Gateway
+# can't fetch the issuer's discovery document it rejects this policy and
+# answers the route with a 500 (fail closed), not an open UI.
+#
+# This decides who reaches the UI, not what they can do there: the UI
+# itself still runs anonymously, as the operator's service account
+# (read-only, no actions). Per-user Kubernetes RBAC would mean the
+# operator's own OAuth2 login instead
+# (https://fluxoperator.dev/docs/web-ui/sso-dex/).
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: SecurityPolicy
+metadata:
+  name: flux-web-oidc
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: flux-web
+  oidc:
+    provider:
+      # Must equal config.issuer in apps/dex/values.yaml byte-for-byte.
+      issuer: https://dex.project1-dev.devops.coop
+    # The envoy-gateway staticClient in apps/dex/helm_secrets.yaml, shared
+    # with the monitoring UIs; its redirectURIs must include
+    # https://flux.project1-dev.devops.coop/oauth2/callback.
+    clientID: envoy-gateway
+    clientSecret:
+      name: eg-oidc-client-secret # from eg-oidc-client.secrets.yaml
+    # No cookieDomain: Envoy names the session cookies after this policy's
+    # UID, so they can't be shared with the monitoring policy anyway, and a
+    # host-only cookie never leaves the one hostname this policy protects.

@@ -73,7 +73,7 @@ The local admin login form stays enabled as break-glass for when Dex or
 the upstream IdP is down; SSO users get their role from group membership,
 falling back to Viewer.
 
-### Any HTTPRoute (Alertmanager, vmui, …)
+### Any HTTPRoute (Alertmanager, vmui, Flux web UI, …)
 
 For apps with no OIDC support of their own, Envoy Gateway's
 `SecurityPolicy` OIDC filter runs the login at the gateway: browsers get
@@ -81,22 +81,29 @@ redirected to dex, authenticate upstream, and return with a session
 cookie — the app itself never learns about auth. The same `dex` marker
 enables `apps/victoria-metrics/oidc-securitypolicy.yaml`, covering
 Alertmanager and vmui. With `cookieDomain` set to the parent domain, one
-login covers every protected hostname.
+login covers every hostname that policy protects; Envoy names the
+session cookies after the policy's UID, so each separate policy keeps its
+own session even on the same client.
+
+`apps/flux-web` ships its own policy (`oidc-securitypolicy.yaml`)
+unconditionally — no marker, since it replaced HTTP basic auth rather than
+adding to it — so deploying flux-web requires this app. Until dex answers,
+Envoy Gateway rejects the policy and the Flux UI returns 500s (fail
+closed).
 
 Wiring for a new route: add its `/oauth2/callback` URL to the
 `envoy-gateway` staticClient here, and either add the route to an
 existing policy's `targetRefs` (same namespace only) or copy the policy
-into the route's app. The client secret pairs both ways — the
-staticClient here and `apps/victoria-metrics/eg-oidc-client.secrets.yaml`
-— one generated value in both.
+into the route's app along with an `eg-oidc-client.secrets.yaml` (a
+policy reads its client secret from its own namespace). Every copy of
+that secret and the staticClient here carry one generated value.
 
 One caution: never target the dex or grafana routes (dex would put the
 login behind the login; Grafana runs its own OIDC and the filter breaks
 its callback). Note also that Envoy Gateway honors only the oldest
-SecurityPolicy per route, so a route already carrying one (as
-`apps/flux-web`'s basic-auth policy does) keeps it until that policy is
-removed. This gates the browser path only; in-cluster consumers use
-service DNS and never cross the gateway.
+SecurityPolicy per route, so a route already carrying one keeps it until
+that policy is removed. This gates the browser path only; in-cluster
+consumers use service DNS and never cross the gateway.
 
 ## State and upgrades
 
