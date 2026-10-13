@@ -36,5 +36,6 @@ spec:
     clientSecret:
       name: eg-oidc-client-secret # from eg-oidc-client.secrets.yaml
     # Scope the session cookie to the parent domain: one login covers every
-    # hostname protected by this or any other policy using the same client.
+    # hostname this policy protects. Not other policies, even on the same
+    # client: Envoy names the cookies after the policy's UID.
     cookieDomain: project1-dev.devops.coop
