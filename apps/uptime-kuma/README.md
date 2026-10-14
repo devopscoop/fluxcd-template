@@ -30,8 +30,13 @@ instance over its socket.io API.
    Omitted fields are left untouched on an existing monitor (AutoKuma merges
    definitions over current server state — `serde_merge::omerge` in its
    `entity.rs`) and take Uptime Kuma's defaults on creation. That is why the
-   monitors here declare `expiryNotification = true`: the default is `false`,
-   and we want cert-expiry alerts.
+   monitors here declare `expiryNotification = false` even though it is the
+   default: earlier definitions set it to `true`, and an existing monitor
+   only loses it if the file says so. Cert-expiry alerts come from
+   `UptimeKumaCertExpiringSoon` in [`vmrule.yaml`](vmrule.yaml) instead —
+   Uptime Kuma's own expiry thresholds are a global database setting that
+   can't be managed from git, and they fire on every healthy renewal of
+   Let's Encrypt's 45-day certs (the rule's comment has the details).
 
 2. If the file is new, list it under `configMapGenerator:` in
    [`kustomization.yaml`](kustomization.yaml) (kustomize does not glob).

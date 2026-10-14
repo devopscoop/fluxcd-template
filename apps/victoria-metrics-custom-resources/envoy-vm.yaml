@@ -277,16 +277,16 @@ spec:
             severity: warning
         # No data until a Gateway gets an HTTPS listener (the template ships
         # :80 only; TLS listeners are per-cluster config), then: cert-manager
-        # renews 30d before expiry, so 14d left means renewal — or the SDS
-        # push of the renewed cert into Envoy — has been broken for over two
-        # weeks.
+        # renews Let's Encrypt's 45-day tlsserver certs 15d before expiry, so
+        # 14d left means renewal — or the SDS push of the renewed cert into
+        # Envoy — has been broken for a day or more.
         - alert: EnvoyTlsCertExpiringSoon
           annotations:
             summary: A TLS cert served by Envoy expires in under 14 days.
             description: >-
               The soonest-expiring TLS certificate loaded in Envoy pod
               {{ $labels.pod }} (gateway {{ $labels.gateway }}) expires in
-              {{ printf "%.0f" $value }} days. cert-manager renews 30d ahead,
+              {{ printf "%.0f" $value }} days. cert-manager renews 15d ahead,
               so renewal or the SDS push is stuck.
           expr: |-
             min by (gateway, pod) (envoy_server_days_until_first_cert_expiring) < 14

@@ -32,19 +32,25 @@ spec:
           for: 5m
           labels:
             severity: critical
-        # Same threshold and reasoning as EnvoyTlsCertExpiringSoon
-        # (envoy-vm.yaml): cert-manager renews 30d ahead where it owns
-        # the cert, so 14d left means renewal is stuck — but seen from
-        # outside, covering certs cert-manager does NOT own too.
+        # The cert-expiry alert for every monitor — the monitors/ definitions
+        # set expiryNotification = false, so Uptime Kuma sends none of its
+        # own. Its built-in thresholds (7/14/21 days) are one global database
+        # setting nothing here can manage, and against Let's Encrypt's 45-day
+        # tlsserver certs (cert-manager renews 15d ahead) the 21-day one fires
+        # every cycle and the 14-day one races each healthy renewal: days
+        # remaining is truncated, so it reads 14 the moment renewal starts.
+        # 7d left means renewal has been failing for over a week, with a week
+        # still in hand. Unlike EnvoyTlsCertExpiringSoon (envoy-vm.yaml), this
+        # sees what a client sees, including certs cert-manager does NOT own.
         - alert: UptimeKumaCertExpiringSoon
           annotations:
-            summary: A probed TLS cert expires in under 14 days.
+            summary: A probed TLS cert expires in under 7 days.
             description: >-
               The certificate served at {{ $labels.monitor_url }} (monitor
               "{{ $labels.monitor_name }}") expires in
               {{ printf "%.0f" $value }} days.
           expr: |-
-            monitor_cert_days_remaining < 14 and monitor_cert_is_valid == 1
+            monitor_cert_days_remaining < 7 and monitor_cert_is_valid == 1
           for: 1h
           labels:
             severity: warning
