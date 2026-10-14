@@ -26,7 +26,7 @@
 #
 # The case for and against the wildcard — including what the per-hostname
 # listeners bought us that this gives up — is mapped in
-# arguments/use_wildcard_cert_instead_of_individual_certs.argdown.
+# arguments/wildcard_cert_vs_individual_certs.argdown.
 #
 # The port-80 listener also answers the LB health check via
 # httproute-healthz-private.yaml (see the healthcheck notes in envoyproxy-private.yaml).
