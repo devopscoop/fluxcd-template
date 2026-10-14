@@ -70,7 +70,18 @@ spec:
 # routing model (apps/victoria-metrics/README.md → "Alert routing"): every
 # alert pages GoAlert and Slack; severity is a label, not a filter.
 #
-# The upstream rules are adapted from the CNPG "cluster" chart
+# Two groups. cnp-default.rules comes first and is the authoritative
+# baseline: the CNPG operator repo's sample PrometheusRule, copied verbatim
+# (https://github.com/cloudnative-pg/cloudnative-pg/blob/a45a30990d22196b0233da222d38f9888abaf12d/docs/src/samples/monitoring/prometheusrule.yaml,
+# re-check when bumping apps/cnpg). Unlike this repo's other VMRules,
+# which prune and re-tune their upstream, this group stays identical to
+# upstream so a bump is a straight diff. Where one of our rules overlapped
+# a sample rule, ours was dropped in its favor. The sample rules don't
+# aggregate, so they fire per series with upstream's labels (pod, datname,
+# ...) rather than per cnpg_cluster.
+#
+# The cnpg group after it holds the rules the sample has no equivalent
+# for. Its chart-derived rules are adapted from the CNPG "cluster" chart
 # (https://github.com/cloudnative-pg/charts/tree/cluster-v0.8.1/charts/cluster/prometheus_rules,
 # re-check when bumping apps/cnpg), with deliberate deviations:
 # - Fleet-wide instead of per-cluster: upstream templates one PrometheusRule
@@ -95,11 +106,20 @@ spec:
 #   CNPGFleetMetricsAbsent below keeps the one absence that is
 #   unconditionally wrong on this template (goalert-db is a core app, so
 #   zero cnpg series cluster-wide means collection itself broke).
-# - Rewrote the two physical-replication-lag rules onto
-#   cnpg_pg_stat_replication_* (why, in their own comment below):
-#   upstream reads cnpg_pg_replication_lag, which is a standby-side
-#   write-staleness clock, not a lag gauge, and sawtooths to tens of
-#   seconds on any database whose writes arrive in bursts.
+# - Dropped the two physical-replication-lag rules in favor of the sample's
+#   PGReplication. Be aware of what its metric measures. On the standby,
+#   whenever received WAL is waiting to replay, cnpg_pg_replication_lag
+#   reports the time since the last replayed commit. That makes it a
+#   write-staleness clock, not a lag gauge: on a database whose writes
+#   arrive in bursts it once read 39s while pg_stat_replication showed the
+#   standbys 0.2s behind. PGReplication's 300s is far above that sawtooth,
+#   but it also stays quiet for any lag under 5 minutes. The replaced
+#   rules, which read replay_lag from pg_stat_replication on the primary,
+#   are in git history.
+# - Kept the two HA rules alongside the sample's ReplicaFailingReplication.
+#   That rule flags each standby whose WAL receiver is down. The HA rules
+#   count streaming standbys from the primary, so they also catch a standby
+#   that is missing entirely (Pending, deleted) and exports nothing.
 # - Added the WAL-archiving and backup rules at the bottom — upstream ships
 #   nothing for either, and they encode this repo's own incident history
 #   (the 2026-09-05 WAL-burst and the barman sidecar OOM documented in
@@ -107,32 +127,87 @@ spec:
 #   The barman_cloud_cloudnative_pg_io_* metrics come from the Barman
 #   Cloud Plugin sidecar via the instance exporter (the in-core
 #   cnpg_collector_first_recoverability_point twins are deprecated and stay
-#   zero on plugin-based clusters like these).
+#   zero on plugin-based clusters like these). CNPGWALArchiveBacklog stays
+#   next to the sample's LastFailedArchiveTime: one catches archiving that
+#   falls behind, the other archiving that fails.
 # - Added CNPGVacuumHeldBackByStandby, which upstream lacks too, over a
 #   series only databases running hot_standby_feedback export (why, in its
 #   own comment below).
-# - Added the operator repo's sample PrometheusRule on top of the cluster
-#   chart's
-#   (https://github.com/cloudnative-pg/cloudnative-pg/blob/a45a30990d22196b0233da222d38f9888abaf12d/docs/src/samples/monitoring/prometheusrule.yaml,
-#   re-check when bumping apps/cnpg). It contributes LongRunningTransaction
-#   (CNPGLongRunningTransaction plus a critical twin), BackendsWaiting
-#   (CNPGBackendsWaitingOnLocks), DatabaseDeadlockConflicts
-#   (CNPGDatabaseDeadlocks), PGDatabaseXidAge (CNPGDatabaseXIDAgeHigh) and
-#   LastFailedArchiveTime (CNPGWALArchiveFailing). Each rule's own comment
-#   gives its threshold changes. Across all of them, rules group by
-#   (namespace, cnpg_cluster) like the rest of this file, and upstream's
-#   for: 1m becomes this file's 5m unless a rule's comment says otherwise.
-#   Two of its rules are dropped as duplicates. PGReplication reads
-#   cnpg_pg_replication_lag, which the lag rules above replace (see their
-#   comment). ReplicaFailingReplication (a standby whose WAL receiver is
-#   down) is a subset of CNPGClusterHAWarning, because the primary stops
-#   counting that standby as streaming.
 apiVersion: operator.victoriametrics.com/v1beta1
 kind: VMRule
 metadata:
   name: cnpg
 spec:
   groups:
+    # Verbatim from the sample PrometheusRule (see the header). Change it by
+    # re-syncing from upstream, not by editing it here; local rules go in the
+    # cnpg group below.
+    - name: cnp-default.rules
+      rules:
+        - alert: LongRunningTransaction
+          annotations:
+            description: Pod {{ $labels.pod }} is taking more than 5 minutes (300 seconds) for a query.
+            summary: A query is taking longer than 5 minutes.
+          expr: |-
+            cnpg_backends_max_tx_duration_seconds > 300
+          for: 1m
+          labels:
+            severity: warning
+        - alert: BackendsWaiting
+          annotations:
+            description: Pod {{ $labels.pod  }} has been waiting for longer than 5 minutes
+            summary: If a backend is waiting for longer than 5 minutes
+          expr: |-
+            cnpg_backends_waiting_total > 300
+          for: 1m
+          labels:
+            severity: warning
+        - alert: PGDatabaseXidAge
+          annotations:
+            description: Over 300,000,000 transactions from frozen xid on pod {{ $labels.pod  }}
+            summary: Number of transactions from the frozen XID to the current one
+          expr: |-
+            cnpg_pg_database_xid_age > 300000000
+          for: 1m
+          labels:
+            severity: warning
+        - alert: PGReplication
+          annotations:
+            description: Standby is lagging behind by over 300 seconds (5 minutes)
+            summary: The standby is lagging behind the primary
+          expr: |-
+            cnpg_pg_replication_lag > 300
+          for: 1m
+          labels:
+            severity: warning
+        - alert: LastFailedArchiveTime
+          annotations:
+            description: Archiving failed for {{ $labels.pod }}
+            summary: Checks the last time archiving failed. Will be < 0 when it has not failed.
+          expr: |-
+            (cnpg_pg_stat_archiver_last_failed_time - cnpg_pg_stat_archiver_last_archived_time) > 1
+            and on(namespace, pod) cnpg_pg_replication_in_recovery == 0
+          for: 1m
+          labels:
+            severity: warning
+        - alert: DatabaseDeadlockConflicts
+          annotations:
+            description: There have been over 10 deadlocks in the last hour in {{ $labels.pod }}
+            summary: Checks the number of database conflicts
+          expr: |-
+            increase(cnpg_pg_stat_database_deadlocks[1h]) > 10
+          for: 1m
+          labels:
+            severity: warning
+        - alert: ReplicaFailingReplication
+          annotations:
+            description: Replica {{ $labels.pod }} is failing to replicate
+            summary: Checks if the replica is failing to replicate
+          expr: |-
+            cnpg_pg_replication_in_recovery > cnpg_pg_replication_is_wal_receiver_up
+          for: 1m
+          labels:
+            severity: warning
     - name: cnpg
       rules:
         # The two HA rules assume instances: 3, which db-cluster.yaml
@@ -205,64 +280,6 @@ spec:
           for: 5m
           labels:
             severity: warning
-        # Both lag rules read pg_stat_replication on the primary, not
-        # cnpg_pg_replication_lag. That metric is
-        # "now() - pg_last_xact_replay_timestamp()" evaluated on the
-        # standby, so it measures how long ago the last *write* was
-        # replayed: it climbs while the primary has nothing to send and
-        # resets on the next commit. A database whose writes arrive in
-        # bursts therefore sawtooths to tens of seconds with healthy
-        # standbys, and every standby spikes in lockstep because the cause
-        # is the primary going quiet. Measured on one such cluster: a 39s
-        # reading while pg_stat_replication put the same standbys 0.2s and
-        # 7KB behind.
-        #
-        # replay_lag is what the primary itself measured for the last WAL
-        # record the standby confirmed replaying, so an idle cluster
-        # reports the last real round-trip rather than a growing number.
-        # It does hold that value while no WAL flows, so a burst that ends
-        # on a high sample would keep firing; gate both rules on
-        # replay_diff_bytes (the primary's WAL position minus the
-        # standby's replay position), which drops to ~0 as soon as a
-        # standby is caught up, exceeding one 16MiB WAL segment. A standby
-        # that is gone rather than behind has no row in
-        # pg_stat_replication at all and is CNPGClusterHACritical's
-        # business, not these rules'.
-        - alert: CNPGClusterPhysicalReplicationLagCritical
-          annotations:
-            summary: CNPG replication lag is over 15 seconds.
-            description: >-
-              Replication lag on cluster
-              {{ $labels.namespace }}/{{ $labels.cnpg_cluster }} is
-              {{ printf "%.0f" $value }}s. A failover now loses that much
-              committed data; read replicas serve equally stale reads.
-          expr: |-
-            max by (namespace, cnpg_cluster) (
-              cnpg_pg_stat_replication_replay_lag_seconds
-              and on (namespace, cnpg_cluster, application_name)
-              cnpg_pg_stat_replication_replay_diff_bytes > 16777216
-            ) > 15
-          for: 5m
-          labels:
-            severity: critical
-        - alert: CNPGClusterPhysicalReplicationLagWarning
-          annotations:
-            summary: CNPG replication lag is over 1 second.
-            description: >-
-              Replication lag on cluster
-              {{ $labels.namespace }}/{{ $labels.cnpg_cluster }} has been
-              {{ printf "%.1f" $value }}s for 5m, with the standby more
-              than a WAL segment behind — it isn't keeping up with the
-              primary's WAL rate.
-          expr: |-
-            max by (namespace, cnpg_cluster) (
-              cnpg_pg_stat_replication_replay_lag_seconds
-              and on (namespace, cnpg_cluster, application_name)
-              cnpg_pg_stat_replication_replay_diff_bytes > 16777216
-            ) > 1
-          for: 5m
-          labels:
-            severity: warning
         # hot_standby_feedback trades replica query cancellations for bloat
         # on the primary: each standby reports the oldest snapshot it still
         # needs, and the primary's vacuum keeps every row version that
@@ -315,183 +332,6 @@ spec:
           for: 5m
           labels:
             severity: warning
-        # A transaction left open on the primary costs twice. Vacuum can't
-        # remove any row version its snapshot might still need, so dead rows
-        # pile up in every table of that database for as long as it runs.
-        # It also keeps every lock it took until it ends, so a migration's
-        # DDL queues behind it, and every later query on that table queues
-        # behind the DDL.
-        #
-        # Primary only (cnpg_pg_replication_in_recovery == 0). On a standby,
-        # CNPGVacuumHeldBackByStandby above covers the cost when
-        # hot_standby_feedback is on. When it's off, replay cancels a
-        # conflicting query after max_standby_streaming_delay, and a delay
-        # beyond that shows up in the lag rules. Leaving standbys out also
-        # skips the nightly base backup, which runs on a standby as one
-        # statement of up to ~23 minutes (see that rule's comment). If a
-        # backup ever runs on the primary instead, 30m still clears it.
-        #
-        # cnpg_backends_max_tx_duration_seconds comes from CNPG's default
-        # backends query: the oldest xact_start per (datname, usename,
-        # application_name, state). The rules aggregate state away, because
-        # a transaction that alternates between active and idle in
-        # transaction would otherwise move between series and restart the
-        # alert's for: timer at every switch. Sessions with no open
-        # transaction read 0. The query drops rows with no usename, so
-        # autovacuum and other background workers never appear.
-        #
-        # The thresholds are an estimate, not measured. Upstream's 5m would
-        # page on every long migration and pg_dump. 30m clears the backup
-        # statement, and at the busiest database's ~44 XID/s it is close to
-        # the hold CNPGVacuumHeldBackByStandby pages on from the standby
-        # side (100k XIDs is ~38m there). 2h is the critical threshold: a
-        # transaction that long builds large bloat on a busy database, and
-        # legitimate long work belongs on a replica. Re-size both once the
-        # series has some history.
-        - alert: CNPGLongRunningTransaction
-          annotations:
-            summary: A transaction on a CNPG primary has been open over 30 minutes.
-            description: >-
-              A transaction by {{ $labels.usename }} (application_name
-              "{{ $labels.application_name }}") in database
-              {{ $labels.datname }} on primary {{ $labels.pod }}
-              ({{ $labels.namespace }}/{{ $labels.cnpg_cluster }}) has been
-              open {{ humanizeDuration $value }}. Until it ends, vacuum can't
-              remove dead rows anywhere in that database, and its locks block
-              any DDL waiting on them, along with every query queued behind
-              that DDL. A long migration (CREATE INDEX CONCURRENTLY) can
-              legitimately run this long; a pg_dump should run on a replica
-              instead. To find it, open psql on the primary with
-              `kubectl cnpg psql {{ $labels.cnpg_cluster }} -n
-              {{ $labels.namespace }}` and run `SELECT pid, usename,
-              application_name, client_addr, state, now() - xact_start AS
-              xact_age, left(query, 80) FROM pg_stat_activity WHERE
-              xact_start < now() - interval '30 minutes' ORDER BY
-              xact_start`. pg_terminate_backend(pid) ends the session and
-              rolls the transaction back.
-          expr: |-
-            max by (namespace, cnpg_cluster, pod, datname, usename, application_name) (
-              cnpg_backends_max_tx_duration_seconds
-            ) > 1800
-            and on (namespace, pod)
-            cnpg_pg_replication_in_recovery == 0
-          for: 5m
-          labels:
-            severity: warning
-        - alert: CNPGLongRunningTransactionCritical
-          annotations:
-            summary: A transaction on a CNPG primary has been open over 2 hours.
-            description: >-
-              A transaction by {{ $labels.usename }} (application_name
-              "{{ $labels.application_name }}") in database
-              {{ $labels.datname }} on primary {{ $labels.pod }}
-              ({{ $labels.namespace }}/{{ $labels.cnpg_cluster }}) has been
-              open {{ humanizeDuration $value }}. CNPGLongRunningTransaction
-              fired for it at 30m. It has blocked vacuum that whole time, so
-              bloat keeps growing until the transaction ends. Unless it's a
-              migration someone is actively watching, find it with the query
-              in CNPGLongRunningTransaction and end it with
-              pg_terminate_backend(pid).
-          expr: |-
-            max by (namespace, cnpg_cluster, pod, datname, usename, application_name) (
-              cnpg_backends_max_tx_duration_seconds
-            ) > 7200
-            and on (namespace, pod)
-            cnpg_pg_replication_in_recovery == 0
-          for: 5m
-          labels:
-            severity: critical
-        # Upstream's BackendsWaiting treats this series as seconds ("waiting
-        # for longer than 5 minutes", > 300). CNPG's backends_waiting query
-        # actually counts blocked lock requests, one per (waiting lock,
-        # conflicting lock) pair, so a session queued behind three holders
-        # counts 3. As upstream wrote it, the rule needs 300 such pairs
-        # before it fires. Here it fires on any nonzero count held for 5m.
-        # That usually means one session has waited the whole time, so
-        # whatever holds the lock has been in its transaction at least as
-        # long: the migration-DDL-behind-a-transaction pile-up, which
-        # CNPGLongRunningTransaction only catches at 30m. Brief row-lock
-        # contention between short transactions rarely shows up on every
-        # sample for 5m. A queue table polled with FOR UPDATE and no SKIP
-        # LOCKED can, and that is worth knowing too. All instances: on a
-        # standby, queries can queue behind replayed locks, but replay
-        # cancels them after max_standby_streaming_delay, so a standby
-        # rarely holds a count for 5m.
-        - alert: CNPGBackendsWaitingOnLocks
-          annotations:
-            summary: Sessions on a CNPG instance have been blocked on locks for 5 minutes.
-            description: >-
-              Instance {{ $labels.pod }}
-              ({{ $labels.namespace }}/{{ $labels.cnpg_cluster }}) has had
-              blocked lock requests on every sample for 5m (now
-              {{ printf "%.0f" $value }}). The queries queued behind the
-              lock stall the requests waiting on them, and any DDL in the
-              queue blocks every later query on its table. On that instance,
-              `SELECT pid, usename, application_name, state, now() -
-              xact_start AS xact_age, pg_blocking_pids(pid) AS blocked_by,
-              left(query, 80) FROM pg_stat_activity WHERE
-              cardinality(pg_blocking_pids(pid)) > 0` lists each waiter and
-              the pids blocking it. Ending the oldest blocker with
-              pg_terminate_backend(pid) usually clears the queue.
-          expr: |-
-            max by (namespace, cnpg_cluster, pod) (cnpg_backends_waiting_total) > 0
-          for: 5m
-          labels:
-            severity: warning
-        # Postgres resolves a deadlock by aborting one of the transactions,
-        # so the app gets errors rather than a hang. Repeated deadlocks mean
-        # two code paths lock the same rows in opposite orders. The threshold
-        # is upstream's 10 per hour. Summed over the cluster's instances,
-        # because after a failover the counter continues on a different pod.
-        - alert: CNPGDatabaseDeadlocks
-          annotations:
-            summary: A CNPG database is hitting repeated deadlocks.
-            description: >-
-              Database {{ $labels.datname }} on
-              {{ $labels.namespace }}/{{ $labels.cnpg_cluster }} had
-              {{ printf "%.0f" $value }} deadlocks in the last hour. Each one
-              aborted a transaction with "deadlock detected". Postgres logs
-              that error along with both sides' queries, so search the
-              instance logs for it to find the two code paths that lock the
-              same rows in opposite orders.
-          expr: |-
-            sum by (namespace, cnpg_cluster, datname) (
-              increase(cnpg_pg_stat_database_deadlocks[1h])
-            ) > 10
-          for: 5m
-          labels:
-            severity: warning
-        # Transaction-ID wraparound protection. Autovacuum force-freezes any
-        # table older than autovacuum_freeze_max_age (200M by default), and
-        # Postgres stops accepting writes about 2.1B XIDs in. A database
-        # older than upstream's 300M therefore means freezing is running
-        # 100M behind. Either something is holding the horizon back (a long
-        # transaction, a standby's feedback, an abandoned replication slot,
-        # a forgotten prepared transaction) or autovacuum can't finish a big
-        # table. The standbys replay the same pg_database rows, so the max
-        # collapses the three instances into one alert per database.
-        - alert: CNPGDatabaseXIDAgeHigh
-          annotations:
-            summary: A CNPG database's oldest unfrozen XID is over 300M transactions old.
-            description: >-
-              Database {{ $labels.datname }} on
-              {{ $labels.namespace }}/{{ $labels.cnpg_cluster }} is
-              {{ humanize $value }} transactions past its oldest unfrozen
-              XID. Autovacuum force-freezes from 200M, and Postgres stops
-              accepting writes near 2.1B. Look for what is pinning the
-              vacuum horizon:
-              CNPGLongRunningTransaction or CNPGVacuumHeldBackByStandby
-              firing, `SELECT slot_name, active, xmin, catalog_xmin FROM
-              pg_replication_slots`, and `SELECT * FROM pg_prepared_xacts`.
-              Then, in that database, run `SELECT relname,
-              age(relfrozenxid) FROM pg_class WHERE relkind IN ('r', 'm',
-              't') ORDER BY 2 DESC LIMIT 10` to find the table autovacuum
-              is stuck on.
-          expr: |-
-            max by (namespace, cnpg_cluster, datname) (cnpg_pg_database_xid_age) > 300000000
-          for: 5m
-          labels:
-            severity: warning
         # kube_pod_info knows nodes but not CNPG clusters (kube-state-metrics
         # exports no pod labels here), so join it against a series the
         # instance exporter emits for exactly the pods we care about.
@@ -523,45 +363,11 @@ spec:
               core app — so either every database is down or the
               cnpg-instances scrape broke (see the instance scrape above; its
               selector rotting is exactly how the operator scrape once sat
-              empty). Every other rule in this group is blind while this
-              fires.
+              empty). Every other CNPG rule, in both groups, is blind
+              while this fires.
           expr: |-
             absent(cnpg_collector_up) == 1
           for: 10m
-          labels:
-            severity: critical
-        # Archiving failing outright, as opposed to falling behind
-        # (CNPGWALArchiveBacklog below): the last attempt failed more
-        # recently than the last success. last_archived_time reads -1 on a
-        # cluster that has never archived, so a bootstrap whose first
-        # segment fails fires too. Only the primary archives here, which
-        # upstream's in_recovery guard keeps explicit. This is critical rather
-        # than upstream's warning because Postgres recycles no WAL until it
-        # is archived: the WAL volume (1Gi in db-cluster.yaml) fills at the
-        # database's full write rate, and PITR has a gap after the last
-        # success. It waits 15m rather than 5m because the archiver retries
-        # at least once a minute, so an S3 blip that clears within that
-        # time never pages.
-        - alert: CNPGWALArchiveFailing
-          annotations:
-            summary: CNPG WAL archiving is failing.
-            description: >-
-              The last WAL archive attempt on primary {{ $labels.pod }}
-              ({{ $labels.namespace }}/{{ $labels.cnpg_cluster }}) failed,
-              and no attempt has succeeded since, for over 15m. Unarchived
-              WAL is never recycled, so the WAL volume is filling, and
-              point-in-time recovery stops at the last success. Check the
-              plugin-barman-cloud sidecar's logs. "Expected empty archive"
-              means the cluster is archiving into a WAL history it didn't
-              create; bump the plugin's serverName per
-              runbooks/restore-cnpg-database.md.
-          expr: |-
-            (
-              cnpg_pg_stat_archiver_last_failed_time - cnpg_pg_stat_archiver_last_archived_time
-            ) > 1
-            and on (namespace, pod)
-            cnpg_pg_replication_in_recovery == 0
-          for: 15m
           labels:
             severity: critical
         # ---- Incident-derived rules (no upstream equivalent) ----
