@@ -2,7 +2,7 @@
 # flux Kustomization for this app dependsOn it). Woodpecker applies its own
 # schema migrations at startup, so CNPG only has to provide an empty
 # database. Pipeline logs are stored here too (WOODPECKER_LOG_STORE=database
-# in values.yaml), which is what the storage sizes below account for.
+# in values.yaml), so the volumes below will need growing with usage.
 #
 # Three documents: the Cluster, the ObjectStore its barman backups land in,
 # and the daily ScheduledBackup. One file so the database's whole story reads
@@ -90,11 +90,12 @@ spec:
   certificates:
     clientCASecret: woodpecker-db-replication-cert # pragma: allowlist secret — the Secret's name, not a value
     replicationTLSSecret: woodpecker-db-replication-cert # pragma: allowlist secret — the Secret's name, not a value
-  # 5Gi rather than the template's 1Gi: pipeline logs live in this database
-  # (WOODPECKER_LOG_STORE=database in values.yaml) and grow with every run.
-  # Resize with usage — or purge old logs through Woodpecker's API.
+  # 1Gi, this repo's default for every volume. Pipeline logs live in this
+  # database (WOODPECKER_LOG_STORE=database in values.yaml) and grow with
+  # every run, so expect to resize this with usage — or purge old logs
+  # through Woodpecker's API.
   storage:
-    size: 5Gi
+    size: 1Gi
   # On EKS these volumes opt out of the DLM snapshot policy: barman owns this
   # database's backups (the ObjectStore below), so daily EBS snapshots would
   # be redundant spend — and a crash-consistent snapshot of one replica's
@@ -113,13 +114,14 @@ spec:
   # (a fork's production database, 2026-09-05): a nightly batch job wrote WAL
   # faster than the archiver shipped segments to S3, and WAL that isn't
   # archived can't be recycled — the WAL volume filled, Postgres PANICked,
-  # and the cluster failed over. Sized for the largest plausible burst as
+  # and the cluster failed over. Size for the largest plausible burst as
   # backlog (see also wal.maxParallel on the ObjectStore below, which
-  # attacks the same problem from the throughput side): 2Gi here, for the
-  # log inserts a busy pipeline day produces. walStorage is one-way: it can
-  # be added to a running cluster, but never removed.
+  # attacks the same problem from the throughput side); ships at this
+  # repo's 1Gi default, to be raised if a busy pipeline day's log inserts
+  # outrun the archiver. walStorage is one-way: it can be added to a
+  # running cluster, but never removed.
   walStorage:
-    size: 2Gi
+    size: 1Gi
 # >>> eks: deploy.sh uncomments this block when k8s_platform=eks
 #     storageClass: gp3-dangerous
 # <<< eks

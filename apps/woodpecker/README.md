@@ -30,7 +30,7 @@ Privileged steps — image builds with the docker-buildx plugin, a Docker-in-Doc
 
 ## Database
 
-`db-cluster.yaml` is the standard per-app CNPG cluster: three instances, synchronous replication, barman backups to S3, and client-certificate auth (`db-client-cert.yaml`) as the only login for the `woodpecker` role — the DSN in `values.yaml` carries no password. Woodpecker applies its own schema migrations at startup. Logs live in the database (`WOODPECKER_LOG_STORE=database`), which is what the data volume is sized for; grow it with pipeline volume, or purge old logs through the API. Connecting a client: `runbooks/connect-cnpg-database.md`; restoring: `runbooks/restore-cnpg-database.md`.
+`db-cluster.yaml` is the standard per-app CNPG cluster: three instances, synchronous replication, barman backups to S3, and client-certificate auth (`db-client-cert.yaml`) as the only login for the `woodpecker` role — the DSN in `values.yaml` carries no password. Woodpecker applies its own schema migrations at startup. Logs live in the database (`WOODPECKER_LOG_STORE=database`), so its 1Gi data volume (this repo's default) will need growing with pipeline volume, or old logs purged through the API. Connecting a client: `runbooks/connect-cnpg-database.md`; restoring: `runbooks/restore-cnpg-database.md`.
 
 ## Monitoring
 
