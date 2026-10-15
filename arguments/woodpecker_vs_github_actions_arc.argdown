@@ -8,7 +8,6 @@ color:
     woodpecker: "#2166ac"
     arc: "#e08214"
     context: "#756bb1"
-    alternative: "#35978f"
 ===
 
 # The question
@@ -157,20 +156,3 @@ CI jobs will run on our own EKS nodes either way. The question is who schedules 
 [Part of CI cannot leave GitHub]: The application repos build, sign, and test on macOS and Windows, which neither Woodpecker's Kubernetes backend nor ARC provides — only GitHub-hosted runners, or Woodpecker agents with the local backend on Mac and Windows machines we would have to run — and some workflows start from comments. Those stay on Actions whatever is chosen, so the independence on offer is partial and a second CI system is a given. #context
   +> <GitHub is in the path either way>
   +> <Some triggers only exist on GitHub's side>
-  +> [Woodpecker for the Linux pipelines, Actions for the rest]
-
-
-# A middle path
-
-[Woodpecker for the Linux pipelines, Actions for the rest]: Move the Linux build, test, and image pipelines to Woodpecker, and leave on GitHub-hosted runners what cannot move: the macOS and Windows legs, the comment-triggered workflows, and the jobs that drive the Actions API. Run no ARC at all. #alternative
-  -> [Woodpecker CI]
-  -> [GitHub Actions with ARC]
-  + <The failure domain moves for the jobs that matter>: The pipelines that stall merges and block deploys are the Linux ones; what stays on Actions is nightly, on-demand, or chat-driven and can wait out an incident. #alternative
-  + <No second stack in the cluster>: The jobs left behind run on GitHub-hosted runners, so nothing from the Actions side needs our nodes; the cluster runs one CI system even though the org runs two. #alternative
-  - <Two CI systems indefinitely>: Two places to look for a red check, two secret stores, two pipeline syntaxes to know, and the hosted-runner bill for the Mac and Windows legs continues. #arc
-
-[Thin the workflows first]: Whatever the scheduler, move what still lives in workflow YAML — toolchain setup actions, cache keys, inline shell — into scripts, Makefiles, and pinned toolchain images, so each workflow is a trigger plus `run:` lines. #alternative
-  -> [Woodpecker CI]
-  -> [GitHub Actions with ARC]
-  + <Decouples the two decisions>: The pipeline-shape work and the scheduler move become separate, reversible steps, and a thinned workflow is the same few lines on ARC, on Woodpecker, or under `act`. #alternative
-  - <Leaves the control-plane dependency in place>: Every Actions control-plane incident still blocks every build during the interim, and an interim with no deadline tends to become permanent. #woodpecker
