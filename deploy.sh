@@ -163,7 +163,7 @@ fi
 # deploys leaves an empty scrape pool paging ScrapePoolHasNoTargets — see
 # the marker note in apps/victoria-metrics-custom-resources/kustomization.yaml.
 # Opt-in apps' monitoring markers (longhorn, rook-ceph, rabbitmq, coraza,
-# valkey)
+# valkey, woodpecker)
 # are NOT enabled here for the same reason: enable them by hand together
 # with the app. Same converge-on-every-run reasoning as the eks step above.
 if [[ "$k8s_platform" != "eks" ]]; then

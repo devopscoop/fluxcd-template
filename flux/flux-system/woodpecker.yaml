@@ -1,0 +1,32 @@
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: woodpecker
+  namespace: flux-system
+spec:
+  # db-cluster.yaml is a CloudNativePG Cluster CR, so applying it needs the
+  # CRD and the operator's admission webhook to be serving, and on a fresh
+  # bootstrap cnpg must land first. The ObjectStore in db-cluster.yaml is
+  # likewise a CR whose CRD ships with the barman plugin, and the plugin must
+  # be registered with the operator before the Cluster references it for WAL
+  # archiving. db-client-cert.yaml's Issuers and Certificates need
+  # cert-manager's CRDs. The monitoring CRs live in
+  # apps/victoria-metrics-custom-resources (behind the woodpecker marker),
+  # not here, so no victoria-metrics dependency.
+  dependsOn:
+    - name: cert-manager
+    - name: cnpg
+    - name: cnpg-barman-plugin
+  interval: 10m0s
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  path: apps/woodpecker
+  prune: true
+  wait: true
+  timeout: 5m0s
+  decryption:
+    provider: sops
+    secretRef:
+      name: sops-age
+  suspend: false

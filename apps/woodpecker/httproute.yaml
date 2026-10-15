@@ -1,0 +1,33 @@
+# The public Gateway, by necessity rather than preference: GitHub has to
+# reach this host to deliver the webhooks that start pipelines (POST /hook),
+# and short of a NetworkPolicy on GitHub's published IP ranges there is no
+# allowlisting that. The UI and API ride along, behind Woodpecker's own
+# login (GitHub OAuth, closed registration, an org allowlist — see
+# values.yaml). It is the same exception to gateway-public.yaml's "ops
+# tooling stays on eg-private" guidance that goalert and uptime-kuma make.
+# If a cluster wants the UI private, split this into two routes: /hook
+# here, everything else on eg-private. The agents never come this way —
+# they reach the server in-cluster over gRPC (woodpecker-server:9000).
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: woodpecker
+spec:
+  parentRefs:
+    - name: eg-public
+      namespace: envoy-gateway-system
+      # Bind to the HTTPS listener only. Without sectionName this route also
+      # attaches to the port-80 listener and beats the catch-all redirect in
+      # httproute-redirect-public.yaml on hostname specificity, serving the
+      # UI in cleartext.
+      sectionName: https
+  hostnames:
+    - woodpecker.project1-dev.devops.coop
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: woodpecker-server
+          port: 80

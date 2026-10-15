@@ -1,0 +1,91 @@
+# Scrape the Woodpecker server's metrics — queue depth (pending, waiting,
+# and running steps), connected agents (woodpecker_worker_count), repo and
+# user counts, and per-repo pipeline counters and durations — from the :9001
+# listener that apps/woodpecker/values.yaml's WOODPECKER_METRICS_SERVER_ADDR
+# enables. A pod scrape by port NUMBER: the chart's Service exposes only the
+# UI (:80) and agent gRPC (:9000) ports, and the StatefulSet declares no
+# named port for metrics. Plain HTTP /metrics, no auth (the alternative,
+# WOODPECKER_PROMETHEUS_AUTH_TOKEN, is a user API token as bearer — not
+# worth managing inside the cluster).
+#
+# The agents expose no metrics. The database is covered by the fleet-wide
+# cnpg-instances VMPodScrape (cnpg-vm.yaml), and the step pods by the
+# cluster-level kube-state-metrics and cadvisor series like any other pod.
+#
+# No dashboard entry in apps/victoria-metrics/values.yaml: the only upstream
+# dashboard (github.com/Janik-Haag/woodpecker-grafana-dashboard, last touched
+# 2023) hardcodes a Prometheus datasource uid and a job="woodpecker" label
+# that this scrape doesn't produce, so the download-with-datasource-
+# substitution path can't adapt it. The six gauges it plots are a short
+# ad-hoc query away; a hand-built ConfigMap dashboard is the follow-up if
+# one is wanted.
+#
+# Opt-in, like the app — gated by the woodpecker marker block in
+# kustomization.yaml: run ./toggle_blocks.sh --enable woodpecker when
+# enabling apps/woodpecker.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMPodScrape
+metadata:
+  name: woodpecker
+spec:
+  namespaceSelector:
+    matchNames:
+      - woodpecker
+  selector:
+    matchLabels:
+      # The server subchart's labels: name carries the SUBCHART's name
+      # ("server"); instance is the release.
+      app.kubernetes.io/name: server
+      app.kubernetes.io/instance: woodpecker
+  podMetricsEndpoints:
+    - portNumber: 9001
+---
+# Alerting rules for Woodpecker, evaluated by this stack's vmalert over the
+# series above. No upstream rule set exists; these are our own, on the
+# metric names in Woodpecker's server docs (Metrics → Reference). Two
+# failure modes matter for a CI control plane: nobody to run pipelines (no
+# agent connected), and pipelines queued that nothing picks up.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  name: woodpecker
+spec:
+  groups:
+    - name: woodpecker
+      rules:
+        - alert: WoodpeckerNoAgents
+          annotations:
+            summary: No Woodpecker agent is connected — no pipeline can run.
+            description: >-
+              The server has reported zero connected agents for 10m. Every
+              pipeline queued meanwhile waits until one connects. Check the
+              woodpecker-agent StatefulSet in the woodpecker namespace and
+              its gRPC path to woodpecker-server:9000 (a
+              WOODPECKER_AGENT_SECRET rotated on one side only looks exactly
+              like this).
+          expr: |-
+            woodpecker_worker_count == 0
+          for: 10m
+          labels:
+            severity: critical
+        # Pending is the server-side queue: steps no agent has claimed yet.
+        # Once an agent claims a workflow its steps count as running, so a
+        # step pod stuck Pending in Kubernetes does not show up here — that
+        # is a KubePodNotReady-style signal, not this one.
+        - alert: WoodpeckerStepsPending
+          annotations:
+            summary: Woodpecker has had steps waiting for an agent for 30m.
+            description: >-
+              {{ printf "%.0f" $value }} steps have been pending — queued,
+              not yet claimed by an agent — for 30m while agents are
+              connected. Either every agent is saturated (each runs
+              WOODPECKER_MAX_WORKFLOWS workflows at a time; add agent
+              replicas or raise it) or the pipeline's `labels:` match no
+              connected agent's.
+          expr: |-
+            woodpecker_pending_steps > 0
+            and
+            woodpecker_worker_count > 0
+          for: 30m
+          labels:
+            severity: warning

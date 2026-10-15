@@ -1,0 +1,149 @@
+# dyff between <(yq . <(helm show values oci://ghcr.io/woodpecker-ci/helm/woodpecker --version 3.7.5)) <(yq eval '. * load("values.yaml")' <(helm show values oci://ghcr.io/woodpecker-ci/helm/woodpecker --version 3.7.5))
+# vim -O <(helm show values oci://ghcr.io/woodpecker-ci/helm/woodpecker --version 3.7.5) values.yaml
+
+# Woodpecker CI on its upstream chart (server + agent subcharts; chart 3.7.5
+# ships Woodpecker 3.19.0). The server is a one-replica StatefulSet that
+# keeps all state in Postgres (db-cluster.yaml); the agents run pipelines on
+# the Kubernetes backend, one pod per step, in this namespace. GitHub is the
+# forge: users log in with GitHub OAuth, and the server registers a webhook
+# on each repo they enable — which is why httproute.yaml is on the public
+# Gateway. README.md has the first-run steps.
+
+server:
+  env:
+    # Externally routable URL — the OAuth callback (<host>/authorize) and
+    # the webhook URL GitHub is handed are both built from it.
+    WOODPECKER_HOST: https://woodpecker.project1-dev.devops.coop
+    WOODPECKER_GITHUB: "true"
+    # GitHub usernames that administer this instance (mark repos trusted,
+    # manage agents, see every repo). Comma-separated. CHANGEME before the
+    # first login: the first user in is NOT made admin, and there is no
+    # other route to the role.
+    WOODPECKER_ADMIN: CHANGEME
+    # Registration is closed (WOODPECKER_OPEN defaults to false): only
+    # members of these GitHub organizations can log in. Comma-separated.
+    WOODPECKER_ORGS: devopscoop
+    # Cert-based database login (db-client-cert.yaml): the DSN carries no
+    # password, just the paths of the mounted client cert, key, and the
+    # database's server CA. Woodpecker's postgres driver is lib/pq, which
+    # reads these libpq parameters natively — and checks the key file's
+    # permissions, hence the 0640 defaultMode and the fsGroup below. The
+    # pg_hba rules in db-cluster.yaml accept nothing else for this role;
+    # verify-full also pins the server's identity against the
+    # operator-managed `woodpecker-db-ca` Secret. Woodpecker applies its
+    # schema migrations over this connection at startup.
+    WOODPECKER_DATABASE_DRIVER: postgres
+    WOODPECKER_DATABASE_DATASOURCE: "postgres://woodpecker@woodpecker-db-rw.woodpecker.svc.cluster.local:5432/woodpecker?sslmode=verify-full&sslcert=/etc/db-client-cert/tls.crt&sslkey=/etc/db-client-cert/tls.key&sslrootcert=/etc/db-server-ca/ca.crt"
+    # Serve Prometheus metrics unauthenticated on :9001, pod-local: the
+    # chart's Service exposes only :80 and :9000, so this port is reachable
+    # by pod scrape alone (apps/victoria-metrics-custom-resources/
+    # woodpecker-vm.yaml selects it by number). Setting it is also what
+    # turns metric collection on; the alternative,
+    # WOODPECKER_PROMETHEUS_AUTH_TOKEN, puts /metrics behind a user API
+    # token on the main listener — more to manage for no gain in-cluster.
+    WOODPECKER_METRICS_SERVER_ADDR: ":9001"
+    # Pipeline logs go to Postgres (the default, spelled out) rather than a
+    # file store on a server PVC, so the database's barman backups cover
+    # them and the server stays stateless. db-cluster.yaml's storage is
+    # sized with that in mind.
+    WOODPECKER_LOG_STORE: database
+
+  # The GitHub OAuth client id and secret, from helm_secrets.yaml: the chart
+  # creates the named Secret from server.secrets, and this envFroms it.
+  extraSecretNamesForEnvFrom:
+    - woodpecker-github-oauth
+
+  # No PVC: with Postgres holding the database and the logs, nothing under
+  # /var/lib/woodpecker needs to survive a restart.
+  persistentVolume:
+    enabled: false
+
+  # The database client certificate (db-client-cert.yaml) and the server CA,
+  # at the paths WOODPECKER_DATABASE_DATASOURCE names. 0640 (decimal 416):
+  # lib/pq refuses a key readable beyond u=rw,g=r unless it is root-owned at
+  # 0640 or less. Secret volumes are root-owned, so 0640 plus the fsGroup
+  # below (the rootless image runs as uid/gid 1000) lets the server read the
+  # key through its group while the driver's check passes —
+  # apps/templates/cnpg-database/README.md walks through it.
+  extraVolumes:
+    - name: db-client-cert
+      secret:
+        secretName: woodpecker-db-client-cert # pragma: allowlist secret — the Secret's name, not a value
+        defaultMode: 416
+    - name: db-server-ca
+      secret:
+        secretName: woodpecker-db-ca # pragma: allowlist secret — the Secret's name, not a value
+  extraVolumeMounts:
+    - name: db-client-cert
+      mountPath: /etc/db-client-cert
+      readOnly: true
+    - name: db-server-ca
+      mountPath: /etc/db-server-ca
+      readOnly: true
+  podSecurityContext:
+    fsGroup: 1000
+
+  # Initial guesses — resize with krr after some real usage; memory
+  # req=limit, no CPU limit.
+  resources:
+    requests:
+      cpu: 25m
+      memory: 256Mi
+    limits:
+      memory: 256Mi
+
+  # The CI control plane should not ride spot capacity: a reclaimed node
+  # takes the server down until it reschedules, and every running
+  # pipeline's agent connection with it. Pin it to on-demand, per the
+  # NodePool contract in apps/karpenter-custom-resources/nodepool.yaml. The
+  # step pods are deliberately not pinned — they are the compute, and spot
+  # is what they are for.
+# >>> karpenter: deploy.sh uncomments this block when k8s_platform=eks
+#   nodeSelector:
+#     karpenter.sh/capacity-type: on-demand
+# <<< karpenter
+
+agent:
+  env:
+    # Each step pod mounts the workflow's workspace volume — a temporary PVC
+    # the agent creates per run and deletes with it. The chart requests it
+    # ReadWriteMany, which the EBS-backed default class on EKS cannot
+    # provide (a RWX pipeline volume means EFS). ReadWriteOnce instead:
+    # every step of a workflow then lands on one node, which is fine for a
+    # sequential pipeline and only limits `depends_on` fan-out across nodes.
+    # Flip to true on a platform with a RWX default class (Longhorn, Rook
+    # Ceph).
+    WOODPECKER_BACKEND_K8S_STORAGE_RWX: false
+    # On EKS, keep the per-run volumes out of the DLM snapshot policy: the
+    # default gp3 class tags volumes Backup=dlm, and a volume that lives for
+    # one pipeline has nothing worth a daily snapshot. gp3-dangerous
+    # (apps/eks-storage-classes) tags them Backup=none instead.
+# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
+#     WOODPECKER_BACKEND_K8S_STORAGE_CLASS: gp3-dangerous
+# <<< eks
+
+  # Each agent pod keeps its registration id on a small PVC (the chart's
+  # volumeClaimTemplate), so a restart reconnects as the same agent instead
+  # of leaving a stale one in the server's list. Same DLM reasoning as the
+  # pipeline volumes above.
+# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
+#   persistence:
+#     storageClass: gp3-dangerous
+# <<< eks
+
+  # Initial guesses — the agent only brokers between the server and the
+  # Kubernetes API; the step pods carry the real resource requests. Memory
+  # req=limit, no CPU limit.
+  resources:
+    requests:
+      cpu: 25m
+      memory: 128Mi
+    limits:
+      memory: 128Mi
+
+  # Same reasoning as the server: an agent reclaimed mid-run fails every
+  # workflow it was running.
+# >>> karpenter: deploy.sh uncomments this block when k8s_platform=eks
+#   nodeSelector:
+#     karpenter.sh/capacity-type: on-demand
+# <<< karpenter
