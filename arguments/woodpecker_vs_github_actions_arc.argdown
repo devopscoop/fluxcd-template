@@ -43,7 +43,7 @@ CI jobs will run on our own EKS nodes either way. The question is who schedules 
 <Existing workflows keep working>: This template already ships `.github/workflows/flux-diff.yaml` with a sticky PR comment posted through `actions/github-script`; on ARC it runs unchanged by pointing `runs-on` at the scale set, while Woodpecker means rewriting it and posting the comment through the GitHub API ourselves. #arc
   +> [GitHub Actions with ARC]
   - <The rewrite is small and done once>: The workflow's real work is already a shell script (`flux\_diff.sh`) with documented exit codes; only the glue moves — the comment becomes a `gh api` call — it moves once in this template, and every stamped cluster inherits it. #woodpecker
-  - <Most workflow YAML is hosted-runner plumbing>: In the application repos, the lines that are not a `make` target or a script call are toolchain setup actions, cache keys, and disk-reclaim steps that exist because a hosted runner starts empty and small. A step whose image carries the toolchain deletes them rather than translating them. #woodpecker
+  - <Most workflow YAML is hosted-runner plumbing>: In the application repos, the lines that are not a `make` target or a script call are toolchain setup actions, cache restore and save steps, and disk-reclaim steps that exist because a hosted runner starts empty and small. A step whose image carries the toolchain deletes the setup and reclaim lines rather than translating them; the cache steps become a plugin step pair. #woodpecker
 
 
 # Local reproducibility
@@ -88,7 +88,7 @@ CI jobs will run on our own EKS nodes either way. The question is who schedules 
   - <Image builds still need privilege>: Steps that build images need BuildKit or a Docker daemon, and the test harnesses that drive docker compose or k3d need a daemon; a privileged DinD service or an in-cluster `buildkitd` brings the privileged surface back for those jobs. #arc
     - <Privilege per build job, not per runner>: Only the build and harness pipelines run beside a privileged service, in a namespace with its own policy; ARC's DinD mode makes every runner pod privileged whatever the job does. #woodpecker
   - <One pod per step means one volume per pipeline>: Every step of a pipeline mounts the same workspace volume, requested ReadWriteMany by default — EFS on EKS, slow for a Go build tree — or ReadWriteOnce, which pins all of a pipeline's steps to one node. ARC's DinD mode runs the whole job in one pod and has no such volume. #arc
-    - <Persistence is a separate choice, made per cache>: The workspace volume is a temporary PVC created for one workflow run and deleted with it, so every run starts clean. Whether anything survives between runs is decided cache by cache, and Woodpecker has no cache of its own: a pre-created PVC mounted with `volumes:` (trusted repos only, ReadWriteMany if workflows overlap) or an S3 cache plugin keyed by branch. A shared volume has no branch scoping unless the step adds it, so either the cache is content-addressed and safe to share — Go's build cache, BuildKit's layer store — or the step keys it by branch and only the default branch writes. Hosted runners make the choice for us — clean, with `actions/cache` tarballs as the only speed-up — and self-hosting hands it back, on either side. #woodpecker
+    - <Persistence is a separate choice, made per cache>: The workspace volume is a temporary PVC created for one workflow run and deleted with it, so every run starts clean. Nothing survives between runs except what the S3 cache plugin's steps restore and save, so what persists, under which key, and for which branches is decided per cache in the pipeline file: a content-addressed cache like Go's build cache can share one key across branches, anything else keeps the pull request's own key, and the default branch alone saves. Hosted runners make the same trade — clean runs, `actions/cache` tarballs for speed — so the volume costs no cleanliness ARC keeps. #woodpecker
 
 <Scale sets scale to zero cleanly>: ARC's listener long-polls GitHub for queued jobs and creates runner pods on demand, down to zero, with no metrics plumbing; it is GitHub-maintained and widely deployed. #arc
   +> [GitHub Actions with ARC]
@@ -97,14 +97,15 @@ CI jobs will run on our own EKS nodes either way. The question is who schedules 
 
 # Caching and data locality
 
-<Caches and logs stay in the cluster>: Logs live in Woodpecker's database, and build caches live wherever we put them — an S3 bucket behind a gateway endpoint, a registry cache in ECR, a persistent volume — so build data never leaves the VPC. #woodpecker
+<Caches and logs stay in our account>: Logs live in Woodpecker's database, dependency and build caches in an S3 bucket in our account reached through a gateway endpoint, and image layers in ECR, so build data never leaves the VPC. #woodpecker
   +> [Woodpecker CI]
   - <ARC can keep caches local too>: A BuildKit server in the cluster and a registry cache in ECR work from an ARC runner as well; only `actions/cache` and artifacts cross the internet to GitHub. #arc
     - <Logs and secrets still leave>: Job logs stream to GitHub and secrets are injected from GitHub. Caching can be fixed on ARC; data residency for logs and secrets cannot. #woodpecker
 
-<Actions ships a cache primitive, Woodpecker does not>: `actions/cache` gives every workflow keyed, restorable caches from a per-repo pool in two lines; Woodpecker ships nothing, so every dependency and build cache is a plugin and a bucket we own. #arc
+<Actions ships a cache primitive, Woodpecker does not>: `actions/cache` gives every workflow keyed, restorable caches from a per-repo pool in two lines; Woodpecker ships nothing; the S3 cache plugin adds a restore step and a save step per cache, in a bucket we own and operate. #arc
   +> [GitHub Actions with ARC]
-  - <Keyed tarballs are what the workarounds are for>: The ISO-week cache stamps, save-only-on-main rules, and disk-reclaim scripts in the application repos' CI exist because `actions/cache` restores whole tarballs onto a small disk. On our own nodes the disk is whatever we size, and a Go build cache can be a content-addressed `GOCACHEPROG` backend in S3 — no keys, no restore step, only the objects a build touches. #woodpecker
+  - <The same model, in a bucket we own>: The S3 cache plugin is the same restore-then-save tarball model as `actions/cache`, with the key ours to choose — `{{branch}}-{{arch}}` by default, the pull request's source branch for PRs — in a bucket with no per-repo pool, no eviction we didn't configure, and a gateway endpoint so nothing crosses the internet. The disk the tarball unpacks onto is ours to size, which is what the disk-reclaim scripts and weekly cache resets in the application repos' CI were working around. #woodpecker
+    - <No restore-keys fallback>: The plugin restores exactly one key, with no `restore-keys` chain, so a new branch starts cold unless the pipeline reads the default branch's key and limits saves to pushes on it with `when` — the save-only-on-main rule, written by hand. #arc
 
 
 # Supply chain and blast radius
