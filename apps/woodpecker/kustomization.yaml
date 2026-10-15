@@ -1,0 +1,40 @@
+# https://fluxcd.io/flux/guides/helmreleases/#refer-to-values-in-configmaps-generated-with-kustomize
+# https://fluxcd.io/flux/guides/helmreleases/#refer-to-values-in-secret-generated-with-kustomize-and-sops
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Setting namespace here will ensure that all objects managed by this Kustomization will explicitly be deployed to this namespace. You don't need to put specify `namespace:` anywhere else if you do this.
+namespace: woodpecker
+
+resources:
+  - namespace.yaml
+  - ocirepo.yaml
+  - release.yaml
+  # The chart only renders an Ingress; this repo routes with Gateway API.
+  - httproute.yaml
+  # Not part of the chart: the agent creates step pods, but nothing creates
+  # the identity cache steps run as.
+  - serviceaccount.yaml
+  # Woodpecker's PostgreSQL — the CloudNativePG Cluster plus its barman
+  # backup wiring (ObjectStore, daily ScheduledBackup) in one file, from the
+  # reusable copy in apps/templates/cnpg-database. It lives outside the
+  # chart so it deploys to the same namespace with no cross-app dependsOn
+  # beyond cnpg itself and cnpg-barman-plugin.
+  - db-cluster.yaml
+  # The client CA chain and certs behind the cert-based login above — needs
+  # the cert-manager CRDs, hence that dependsOn too.
+  - db-client-cert.yaml
+  # Monitoring lives in apps/victoria-metrics-custom-resources/
+  # woodpecker-vm.yaml, behind the woodpecker marker block there — enable it
+  # with this app (./toggle_blocks.sh --enable woodpecker).
+configMapGenerator:
+  - name: woodpecker-values
+    files:
+      - values.yaml=values.yaml
+secretGenerator:
+  - name: woodpecker-secrets
+    files:
+      - values.yaml=helm_secrets.yaml
+configurations:
+  - kustomizeconfig.yaml

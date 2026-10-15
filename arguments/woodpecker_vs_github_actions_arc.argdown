@@ -1,0 +1,160 @@
+===
+title: "Woodpecker CI vs. GitHub Actions with ARC"
+subTitle: First-principles comparison map for self-hosted CI on this template's clusters, organized by decision criterion — Woodpecker CI with plain YAML pipelines, against GitHub Actions jobs executed by Actions Runner Controller scale sets
+author: Claude and 3uzbcqje
+date: 2026-10-15
+color:
+  tagColors:
+    woodpecker: "#2166ac"
+    arc: "#e08214"
+    context: "#756bb1"
+===
+
+# The question
+
+CI jobs will run on our own EKS nodes either way. The question is who schedules them, where their logs, caches, and secrets live, and which YAML the pipelines are written in. Neither option is a thesis to defend — each criterion below collects what both sides have to say, and the context section names the conditions that swing the verdict. Node color marks which side an argument serves; the arrows carry the valence.
+
+[Woodpecker CI]: Run Woodpecker CI — a self-hosted server and agents with the Kubernetes backend, one pod per step — as a Flux-managed app, with pipelines in `.woodpecker/*.yaml` whose steps are a pinned image plus the commands and scripts already in the repo. #woodpecker
+  -> [GitHub Actions with ARC]
+
+[GitHub Actions with ARC]: Keep GitHub Actions workflows, but execute them on Actions Runner Controller scale sets in our own clusters — GitHub's SaaS control plane queues, routes, logs, and holds secrets; our nodes do the work. #arc
+  -> [Woodpecker CI]
+
+
+# Control-plane dependency and reliability
+
+<ARC moves the compute, not the dependency>: With ARC, job scheduling, log streaming, `actions/cache`, artifacts, and secrets all still run through GitHub's Actions service; when Actions is degraded the scale-set listener receives no jobs and the runners sit idle. Self-hosting the runners buys no independence from Actions incidents. #woodpecker
+  +> [Woodpecker CI]
+  - <GitHub is in the path either way>: While repos stay on GitHub, Woodpecker still needs GitHub's webhooks to trigger and its API to post status checks; a GitHub incident that breaks pushes or webhooks stops both systems, so the independence gained is partial. #arc
+    - <Partial is the part that matters>: Actions-specific incidents — queued jobs that never start, runners that never get assigned — are a separate failure domain from git hosting, and that is the domain Woodpecker removes. A delayed webhook can be redelivered or triggered manually; a stalled Actions queue cannot be worked around from our side. #woodpecker
+
+<A self-hosted control plane is ours to break>: Woodpecker's server, its database, and its agents become our availability problem — upgrades, Postgres backups, and a CI outage that we have to diagnose ourselves at 2am. #arc
+  +> [GitHub Actions with ARC]
+  - <It is one more Flux app on infrastructure we already run>: A stateless Go server backed by a CNPG database is exactly the kind of workload this template already deploys, backs up, and alerts on; it inherits the runbooks rather than requiring new ones. #woodpecker
+
+
+# Pipeline language and lock-in
+
+<Workflow syntax is the deepest lock-in>: Expressions, contexts, reusable workflows, and Marketplace actions are GitHub-only; workflow syntax accumulates across every repo and is the asset that never gets migrated. #woodpecker
+  +> [Woodpecker CI]
+  - <Woodpecker YAML is lock-in too>: Woodpecker's pipeline syntax is as proprietary as GitHub's; leaving it later means rewriting every pipeline file just the same. #arc
+    - <Shallow lock-in is cheap to leave>: A Woodpecker step is an image, a command list, and a `when` filter — there is no expression language, no reusable-workflow layer, and no action ecosystem to carry logic. With the logic in scripts and Makefiles, what moves between CI systems is a few dozen lines of glue per repo. #woodpecker
+
+<Existing workflows keep working>: This template already ships `.github/workflows/flux-diff.yaml` with a sticky PR comment posted through `actions/github-script`; on ARC it runs unchanged by pointing `runs-on` at the scale set, while Woodpecker means rewriting it and posting the comment through the GitHub API ourselves. #arc
+  +> [GitHub Actions with ARC]
+  - <The rewrite is small and done once>: The workflow's real work is already a shell script (`flux\_diff.sh`) with documented exit codes; only the glue moves — the comment becomes a `gh api` call — it moves once in this template, and every stamped cluster inherits it. #woodpecker
+  - <Most workflow YAML is hosted-runner plumbing>: In the application repos, the lines that are not a `make` target or a script call are toolchain setup actions, cache restore and save steps, and disk-reclaim steps that exist because a hosted runner starts empty and small. A step whose image carries the toolchain deletes the setup and reclaim lines rather than translating them; the cache steps become a plugin step pair. #woodpecker
+
+
+# Local reproducibility
+
+<The pipeline runs on a laptop>: `woodpecker-cli exec` runs a pipeline file against local Docker, and because every step is an image plus commands, a single failing step is reproduced with `docker run` on the same image. The toolchain is in the image, not preinstalled on a runner. #woodpecker
+  +> [Woodpecker CI]
+  - <act does the same for Actions>: `act` runs workflow files locally on Docker images, so a failing job can be reproduced without pushing. #arc
+    - <Only for the parts that are containers>: Marketplace actions, the hosted runner's preinstalled toolchain, and expressions reproduce partially under `act` or not at all, and the application workflows lean on all three — `setup-go`, `setup-node`, `golangci-lint-action`, `configure-aws-credentials`. #woodpecker
+
+
+# Ecosystem and developer experience
+
+<The Marketplace is the largest CI ecosystem>: Thousands of maintained actions, every vendor's docs written Actions-first, and a familiar workflow syntax for any new hire. Woodpecker's plugin set is a fraction of that. #arc
+  +> [GitHub Actions with ARC]
+  - <Any container is a plugin>: Woodpecker steps are arbitrary images, a plugin is an image that reads its settings from the environment, and most Marketplace actions wrap a CLI that can be called directly. #woodpecker
+  - <Marketplace actions assume GitHub-hosted images>: Many actions expect the hosted runner's preinstalled toolchain, so on ARC they fail until the runner image is extended — the ecosystem advantage is smaller off GitHub-hosted runners than it looks. #woodpecker
+
+<PR integration is native>: Checks, annotations, job summaries, re-run buttons, and required status checks all live inside the pull request without extra wiring. #arc
+  +> [GitHub Actions with ARC]
+  - <Status checks cover the gating need>: Woodpecker reports commit statuses that branch protection can require. Summaries and annotations become log output or a PR comment, but merges are gated the same way. #woodpecker
+
+
+# Workflow model
+
+<Some triggers only exist on GitHub's side>: Workflows that start from an issue comment, a review, or an issue — a `/package` command on a pull request, an `@claude` mention — have no Woodpecker event, and a job that re-runs or cancels other runs through the Actions API has no Woodpecker equivalent without a rewrite. #arc
+  +> [GitHub Actions with ARC]
+  - <Those jobs do no build work>: Comment-driven and API-driven workflows run in seconds on a GitHub-hosted runner; leaving them there costs nothing in ops and keeps the migration scoped to the pipelines that need our compute. #woodpecker
+
+<Serialization and cancellation are a keyword>: An Actions `concurrency` group serializes the deploy jobs that cut version tags and cancels superseded pull-request runs. Woodpecker auto-cancels superseded pipelines per repo but, as far as we can tell, has no named group that makes two runs wait for each other, so a tagger needs its own lock. #arc
+  +> [GitHub Actions with ARC]
+  - <A lock is a few lines>: A tag push is atomic — the second tagger's push is rejected and it retries — and a Kubernetes Lease serializes anything else; both are plain steps, not a feature we wait on. #woodpecker
+
+<Environments scope prod credentials>: A GitHub environment holds prod secrets behind required reviewers, and an IAM trust policy can be pinned to one environment's OIDC token, so only the publish job can assume the signing role. Woodpecker scopes secrets by event and image, and an in-cluster credential becomes a service account that any pipeline in the namespace could name unless something forbids it. #arc
+  +> [GitHub Actions with ARC]
+  - <A namespace per trust level does the same>: The signing role trusts one service account in one namespace, that namespace runs only the publish pipelines, and an admission policy on `serviceAccountName` closes the gap; more pieces, but they are ours to audit rather than a vendor's. #woodpecker
+
+
+# Kubernetes integration
+
+<One pod per step is the native model>: Woodpecker's Kubernetes backend schedules each step as its own pod with its own image and resource requests, which Karpenter can bin-pack. There is no runner image to maintain, and ordinary lint and test steps run with no privilege at all. #woodpecker
+  +> [Woodpecker CI]
+  - <Image builds still need privilege>: Steps that build images need BuildKit or a Docker daemon, and the test harnesses that drive docker compose or k3d need a daemon; a privileged DinD service or an in-cluster `buildkitd` brings the privileged surface back for those jobs. #arc
+    - <Privilege per build job, not per runner>: Only the build and harness pipelines run beside a privileged service, in a namespace with its own policy; ARC's DinD mode makes every runner pod privileged whatever the job does. #woodpecker
+  - <One pod per step means one volume per pipeline>: Every step of a pipeline mounts the same workspace volume, requested ReadWriteMany by default — EFS on EKS, slow for a Go build tree — or ReadWriteOnce, which pins all of a pipeline's steps to one node. ARC's DinD mode runs the whole job in one pod and has no such volume. #arc
+    - <Persistence is a separate choice, made per cache>: The workspace volume is a temporary PVC created for one workflow run and deleted with it, so every run starts clean. Nothing survives between runs except what the S3 cache plugin's steps restore and save, so what persists, under which key, and for which branches is decided per cache in the pipeline file: a content-addressed cache like Go's build cache can share one key across branches, anything else keeps the pull request's own key, and the default branch alone saves. Hosted runners make the same trade — clean runs, `actions/cache` tarballs for speed — so the volume costs no cleanliness ARC keeps. #woodpecker
+
+<Scale sets scale to zero cleanly>: ARC's listener long-polls GitHub for queued jobs and creates runner pods on demand, down to zero, with no metrics plumbing; it is GitHub-maintained and widely deployed. #arc
+  +> [GitHub Actions with ARC]
+  - <ARC brings its own moving parts>: The controller, a listener per scale set, a runner image, and a choice between DinD (privileged) and Kubernetes mode (container hooks plus a workspace PVC). The ops burden is comparable to running Woodpecker, not lighter. #woodpecker
+
+
+# Caching and data locality
+
+<Caches and logs stay in our account>: Logs live in Woodpecker's database, dependency and build caches in an S3 bucket in our account reached through a gateway endpoint, and image layers in ECR, so build data never leaves the VPC. #woodpecker
+  +> [Woodpecker CI]
+  - <ARC can keep caches local too>: A BuildKit server in the cluster and a registry cache in ECR work from an ARC runner as well; only `actions/cache` and artifacts cross the internet to GitHub. #arc
+    - <Logs and secrets still leave>: Job logs stream to GitHub and secrets are injected from GitHub. Caching can be fixed on ARC; data residency for logs and secrets cannot. #woodpecker
+
+<Actions ships a cache primitive, Woodpecker does not>: `actions/cache` gives every workflow keyed, restorable caches from a per-repo pool in two lines; Woodpecker ships nothing; the S3 cache plugin adds a restore step and a save step per cache, in a bucket we own and operate. #arc
+  +> [GitHub Actions with ARC]
+  - <The same model, in a bucket we own>: The S3 cache plugin is the same restore-then-save tarball model as `actions/cache`, with the key ours to choose — `{{branch}}-{{arch}}` by default, the pull request's source branch for PRs — in a bucket with no per-repo pool, no eviction we didn't configure, and a gateway endpoint so nothing crosses the internet. The disk the tarball unpacks onto is ours to size, which is what the disk-reclaim scripts and weekly cache resets in the application repos' CI were working around. #woodpecker
+    - <No restore-keys fallback>: The plugin restores exactly one key, with no `restore-keys` chain, so a new branch starts cold unless the pipeline reads the default branch's key and limits saves to pushes on it with `when` — the save-only-on-main rule, written by hand. #arc
+
+
+# Supply chain and blast radius
+
+<Third-party actions run inside our VPC>: An action pulled by tag runs with the workflow's token. On ARC it also runs on a node with IRSA or Pod Identity and network reach into the cluster, so a hijacked action tag now lands inside our VPC instead of on GitHub's machine. #woodpecker
+  +> [Woodpecker CI]
+  - <Pinning and policy contain it>: SHA-pinned actions (as `flux-diff.yaml` already does), Renovate to bump them, an org allowlist of permitted actions, and NetworkPolicy on runner namespaces cut the risk to the same level as any pinned container image. #arc
+    - <Woodpecker gets the same discipline by default>: Steps are images pinned by digest under the same Renovate flow, and there is no second package ecosystem to police. #woodpecker
+
+
+# Cost and commercial exposure
+
+<The orchestration layer has a price tag now>: GitHub announced a per-minute platform charge for self-hosted runner usage on private repos starting March 2026; reports since then conflict on whether it was postponed or is being billed. In either case, the vendor has shown it will charge for the control plane that ARC depends on. #woodpecker
+  +> [Woodpecker CI]
+  - <The fee is small at our scale>: For a team of under ten, the announced rate on a few thousand minutes a month is a rounding error next to the engineering time a migration costs. #arc
+    - <The risk is the precedent, not the price>: The cost to worry about is pricing we don't control on a dependency we can't easily leave; a free, self-hosted control plane can't be repriced. #woodpecker
+
+
+# Forge coupling
+
+<Woodpecker is forge-agnostic>: Woodpecker supports GitHub, GitLab, Gitea, Forgejo, and Bitbucket, so moving repos — to Forgejo, or alongside the Radicle work this template already deploys — doesn't force a CI migration at the same time. #woodpecker
+  +> [Woodpecker CI]
+  - <No forge move is planned>: Optimizing for a hypothetical migration buys flexibility nobody has asked to use, while the cost of switching CI is paid now. #arc
+
+
+# Cross-cutting context
+
+[Independence from Actions incidents is the top criterion]: If CI that keeps running through GitHub Actions incidents — queued jobs that stall, runs that fail on GitHub's side — is weighted above everything else, ARC addresses the wrong layer, and the control-plane criterion decides the comparison. #context
+  +> <ARC moves the compute, not the dependency>
+  -> <GitHub is in the path either way>
+
+[Repos stay on GitHub indefinitely]: If the forge never moves, Woodpecker's forge independence is worth nothing, and the existing workflows, the Marketplace, and native PR integration all weigh more. #context
+  -> <Woodpecker is forge-agnostic>
+  +> <Existing workflows keep working>
+  +> <PR integration is native>
+
+[The team is small and ops time is the scarcest resource]: With fewer than ten engineers, every self-hosted stateful service competes with product work. That favors whichever option adds less to run, and here the two are close. #context
+  +> <A self-hosted control plane is ours to break>
+  -> <It is one more Flux app on infrastructure we already run>
+
+[Self-hosted FOSS is a standing preference]: When open-source, self-hosted tooling is a principle rather than just a tie-breaker, a proprietary SaaS control plane counts against ARC regardless of how the other criteria score. #context
+  +> [Woodpecker CI]
+  +> <Workflow syntax is the deepest lock-in>
+
+[Pipelines stay YAML]: Pipelines-as-code tools are out of scope, so the comparison is between two YAML dialects: Actions', with expressions, contexts, reusable workflows, and the Marketplace, and Woodpecker's, with an image, a command list, and `when`. The richer dialect is at once the convenience and the lock-in. #context
+  +> <Workflow syntax is the deepest lock-in>
+  +> <The Marketplace is the largest CI ecosystem>
+  +> <Shallow lock-in is cheap to leave>
+
+[Part of CI cannot leave GitHub]: The application repos build, sign, and test on macOS and Windows, which neither Woodpecker's Kubernetes backend nor ARC provides — only GitHub-hosted runners, or Woodpecker agents with the local backend on Mac and Windows machines we would have to run — and some workflows start from comments. Those stay on Actions whatever is chosen, so the independence on offer is partial and a second CI system is a given. #context
+  +> <GitHub is in the path either way>
+  +> <Some triggers only exist on GitHub's side>
