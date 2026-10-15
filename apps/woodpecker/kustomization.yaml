@@ -13,6 +13,9 @@ resources:
   - release.yaml
   # The chart only renders an Ingress; this repo routes with Gateway API.
   - httproute.yaml
+  # Not part of the chart: the agent creates step pods, but nothing creates
+  # the identity cache steps run as.
+  - serviceaccount.yaml
   # Woodpecker's PostgreSQL — the CloudNativePG Cluster plus its barman
   # backup wiring (ObjectStore, daily ScheduledBackup) in one file, from the
   # reusable copy in apps/templates/cnpg-database. It lives outside the

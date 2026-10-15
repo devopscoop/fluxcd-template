@@ -8,7 +8,7 @@ Opt-in: `deploy.sh` never registers this app. Add `woodpecker.yaml` to the `reso
 
 1. Register a GitHub **OAuth App** (not a GitHub App: Woodpecker's docs warn those break token refresh) under the organization — Settings → Developer settings → OAuth Apps → New OAuth App — with Homepage URL `https://woodpecker.project1-dev.devops.coop` and Authorization callback URL `https://woodpecker.project1-dev.devops.coop/authorize`. Put the client id and a generated client secret into `helm_secrets.yaml.decrypted` and run `../../encrypt_secrets.sh` (on a running cluster: `sops helm_secrets.yaml`).
 2. In `values.yaml`, set `WOODPECKER_ADMIN` to the GitHub usernames that administer the instance and `WOODPECKER_ORGS` to the organizations whose members may log in. Both before the first login: registration is closed to everyone else, and the first user in is not made admin.
-3. On EKS, add the database to `local.cnpg_databases` in aws-eks-template `cluster/cnpg-backups.tf` (`{ woodpecker = "woodpecker-db" }`) and copy the bucket name and role ARN the apply outputs into `db-cluster.yaml` (the ObjectStore's `destinationPath` and the IRSA annotation's `ACCOUNT_ID`).
+3. On EKS, add the database to `local.cnpg_databases` in aws-eks-template `cluster/cnpg-backups.tf` (`{ woodpecker = "woodpecker-db" }`) and copy the bucket name and role ARN the apply outputs into `db-cluster.yaml` (the ObjectStore's `destinationPath` and the IRSA annotation's `ACCOUNT_ID`). Replace `ACCOUNT_ID` in `serviceaccount.yaml` too, with the account from the `woodpecker_cache_role_arn` output.
 4. Let Flux reconcile; the flux Kustomization `dependsOn` cert-manager, cnpg, and cnpg-barman-plugin, so ordering is handled. First boot also runs the schema migrations:
 
    ```shell
@@ -24,7 +24,25 @@ Opt-in: `deploy.sh` never registers this app. Add `woodpecker.yaml` to the `reso
 
 Each step of a workflow is a pod in this namespace, created by the agent (the chart's Role grants it pods, pods/log, PVCs, Services, and Secrets here and nothing elsewhere). The steps of one workflow share a workspace volume — a temporary PVC the agent creates for the run and deletes after it — so every run starts clean. Two settings in `values.yaml` shape those pods: `WOODPECKER_BACKEND_K8S_STORAGE_RWX` is `false`, because the EBS-backed default storage class on EKS cannot provide ReadWriteMany, so a workflow's steps all land on one node (set it to `true` on a platform with a RWX default class); and on EKS the per-run volumes use `gp3-dangerous` (the `eks` marker block), keeping them out of the DLM snapshot policy.
 
-Nothing persists between runs unless a pipeline step does it. This repo's assumption is the [S3 cache plugin](https://woodpecker-ci.org/plugins/s3-cache): restore and save steps keyed by branch (`{{branch}}-{{arch}}` by default; the pull request's source branch for PRs). It restores exactly one key with no fallback, so the convention for a cache that should warm pull requests is to read the default branch's key and limit the save step to pushes on that branch with `when`. The bucket and the credentials the plugin needs are not provided by this app — a per-organization Woodpecker secret, or a service account with IRSA named in `backend_options.kubernetes.serviceAccountName`, are the two options.
+Nothing persists between runs unless a pipeline step does it. This repo's assumption is the [S3 cache plugin](https://woodpecker-ci.org/plugins/s3-cache): restore and save steps keyed by branch (`{{branch}}-{{arch}}` by default; the pull request's source branch for PRs). It restores exactly one key with no fallback, so the convention for a cache that should warm pull requests is to read the default branch's key and limit the save step to pushes on that branch with `when`.
+
+The bucket is `devopscoop-project1-dev-woodpecker-cache`, from aws-eks-template's `cluster/woodpecker-cache.tf`; entries not rewritten for 14 days expire. Cache steps reach it as the `woodpecker-cache` ServiceAccount (`serviceaccount.yaml`), which on EKS assumes the matching IRSA role, so no keys go into pipelines:
+
+```yaml
+steps:
+  - name: restore-cache
+    image: quay.io/landre/woodpecker/cache
+    settings:
+      action: download
+      bucket: devopscoop-project1-dev-woodpecker-cache
+      region: us-east-2
+      path: node_modules
+    backend_options:
+      kubernetes:
+        serviceAccountName: woodpecker-cache
+```
+
+Two caveats. The s3-cache plugin documents only `access_key_id`/`secret_access_key` settings; confirm it falls back to the AWS SDK credential chain (the web identity token IRSA injects) before relying on the role, or use a plugin that does, such as `meltwater/drone-cache`. And any pipeline in this namespace can name the ServiceAccount, so a pull request's pipeline can write to the default branch's key: keep Woodpecker's approval requirement on for pull requests from people who shouldn't be able to poison the cache.
 
 Privileged steps — image builds with the docker-buildx plugin, a Docker-in-Docker service — need two things this app ships without: the image listed in `WOODPECKER_PLUGINS_PRIVILEGED` on the server, and the repo marked trusted by an admin. Add both deliberately, per image, when the first build pipeline needs them. A BuildKit server in the cluster reached with the buildx remote driver is the alternative that keeps the step pods unprivileged.
 
