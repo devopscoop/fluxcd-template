@@ -105,14 +105,9 @@ server:
 
 agent:
   env:
-    # Each step pod mounts the workflow's workspace volume — a temporary PVC
-    # the agent creates per run and deletes with it. The chart requests it
-    # ReadWriteMany, which the EBS-backed default class on EKS cannot
-    # provide (a RWX pipeline volume means EFS). ReadWriteOnce instead:
-    # every step of a workflow then lands on one node, which is fine for a
-    # sequential pipeline and only limits `depends_on` fan-out across nodes.
-    # Flip to true on a platform with a RWX default class (Longhorn, Rook
-    # Ceph).
+    # EBS can't do RWX, and EFS is slow for checkouts and cache restores. Under
+    # RWO a run's steps stay in its volume's AZ, and a step that lands on
+    # another node waits for the volume to reattach.
     WOODPECKER_BACKEND_K8S_STORAGE_RWX: false
     # 1Gi, this repo's default for every volume (the chart's is 10G). It
     # carries the checkout and whatever steps write to it — a restored
@@ -125,6 +120,11 @@ agent:
 # >>> eks: deploy.sh uncomments this block when k8s_platform=eks
 #     WOODPECKER_BACKEND_K8S_STORAGE_CLASS: gp3-dangerous
 # <<< eks
+    # Stops Karpenter consolidation from draining a node mid-step. Spot
+    # reclaims still can; a re-run covers those.
+# >>> karpenter: deploy.sh uncomments this block when k8s_platform=eks
+#     WOODPECKER_BACKEND_K8S_POD_ANNOTATIONS: '{"karpenter.sh/do-not-disrupt": "true"}'
+# <<< karpenter
 
   # Each agent pod keeps its registration id on a small PVC (the chart's
   # volumeClaimTemplate), so a restart reconnects as the same agent instead
