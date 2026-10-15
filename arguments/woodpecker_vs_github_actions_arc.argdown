@@ -13,7 +13,7 @@ color:
 
 # The question
 
-CI jobs will run on our own EKS nodes either way. The question is who schedules them, where their logs, caches, and secrets live, and which YAML the pipelines are written in. An earlier draft paired Woodpecker with Dagger as the pipeline language; that pairing is dropped here, because every argument Dagger brought was one ARC could claim too — Dagger runs on either runner — and the application repos' workflows turned out not to need it. Neither option is a thesis to defend — each criterion below collects what both sides have to say, and the context section names the conditions that swing the verdict. Node color marks which side an argument serves; the arrows carry the valence.
+CI jobs will run on our own EKS nodes either way. The question is who schedules them, where their logs, caches, and secrets live, and which YAML the pipelines are written in. Neither option is a thesis to defend — each criterion below collects what both sides have to say, and the context section names the conditions that swing the verdict. Node color marks which side an argument serves; the arrows carry the valence.
 
 [Woodpecker CI]: Run Woodpecker CI — a self-hosted server and agents with the Kubernetes backend, one pod per step — as a Flux-managed app, with pipelines in `.woodpecker/*.yaml` whose steps are a pinned image plus the commands and scripts already in the repo. #woodpecker
   -> [GitHub Actions with ARC]
@@ -24,10 +24,10 @@ CI jobs will run on our own EKS nodes either way. The question is who schedules 
 
 # Control-plane dependency and reliability
 
-<ARC moves the compute, not the dependency>: With ARC, job scheduling, log streaming, `actions/cache`, artifacts, and secrets all still run through GitHub's Actions service; when Actions is degraded the scale-set listener receives no jobs and the runners sit idle. Self-hosting the runners does nothing about the outages that started this evaluation. #woodpecker
+<ARC moves the compute, not the dependency>: With ARC, job scheduling, log streaming, `actions/cache`, artifacts, and secrets all still run through GitHub's Actions service; when Actions is degraded the scale-set listener receives no jobs and the runners sit idle. Self-hosting the runners buys no independence from Actions incidents. #woodpecker
   +> [Woodpecker CI]
   - <GitHub is in the path either way>: While repos stay on GitHub, Woodpecker still needs GitHub's webhooks to trigger and its API to post status checks; a GitHub incident that breaks pushes or webhooks stops both systems, so the independence gained is partial. #arc
-    - <Partial is the part that hurt>: Actions-specific incidents — queued jobs that never start, runners that never get assigned — are a separate failure domain from git hosting, and that is the domain Woodpecker removes. A delayed webhook can be redelivered or triggered manually; a stalled Actions queue cannot be worked around from our side. #woodpecker
+    - <Partial is the part that matters>: Actions-specific incidents — queued jobs that never start, runners that never get assigned — are a separate failure domain from git hosting, and that is the domain Woodpecker removes. A delayed webhook can be redelivered or triggered manually; a stalled Actions queue cannot be worked around from our side. #woodpecker
 
 <A self-hosted control plane is ours to break>: Woodpecker's server, its database, and its agents become our availability problem — upgrades, Postgres backups, and a CI outage that we have to diagnose ourselves at 2am. #arc
   +> [GitHub Actions with ARC]
@@ -132,7 +132,7 @@ CI jobs will run on our own EKS nodes either way. The question is who schedules 
 
 # Cross-cutting context
 
-[GitHub Actions outages are the motivating pain]: If this evaluation exists because queued jobs stall and runs fail on GitHub's side, ARC addresses the wrong layer, and the control-plane criterion decides the comparison. #context
+[Independence from Actions incidents is the top criterion]: If CI that keeps running through GitHub Actions incidents — queued jobs that stall, runs that fail on GitHub's side — is weighted above everything else, ARC addresses the wrong layer, and the control-plane criterion decides the comparison. #context
   +> <ARC moves the compute, not the dependency>
   -> <GitHub is in the path either way>
 
@@ -165,7 +165,7 @@ CI jobs will run on our own EKS nodes either way. The question is who schedules 
 [Woodpecker for the Linux pipelines, Actions for the rest]: Move the Linux build, test, and image pipelines to Woodpecker, and leave on GitHub-hosted runners what cannot move: the macOS and Windows legs, the comment-triggered workflows, and the jobs that drive the Actions API. Run no ARC at all. #alternative
   -> [Woodpecker CI]
   -> [GitHub Actions with ARC]
-  + <The outage domain moves for the jobs that matter>: The pipelines that stall merges and block deploys are the Linux ones; what stays on Actions is nightly, on-demand, or chat-driven and can wait out an incident. #alternative
+  + <The failure domain moves for the jobs that matter>: The pipelines that stall merges and block deploys are the Linux ones; what stays on Actions is nightly, on-demand, or chat-driven and can wait out an incident. #alternative
   + <No second stack in the cluster>: The jobs left behind run on GitHub-hosted runners, so nothing from the Actions side needs our nodes; the cluster runs one CI system even though the org runs two. #alternative
   - <Two CI systems indefinitely>: Two places to look for a red check, two secret stores, two pipeline syntaxes to know, and the hosted-runner bill for the Mac and Windows legs continues. #arc
 
@@ -173,4 +173,4 @@ CI jobs will run on our own EKS nodes either way. The question is who schedules 
   -> [Woodpecker CI]
   -> [GitHub Actions with ARC]
   + <Decouples the two decisions>: The pipeline-shape work and the scheduler move become separate, reversible steps, and a thinned workflow is the same few lines on ARC, on Woodpecker, or under `act`. #alternative
-  - <Leaves the actual outage problem in place>: Every Actions control-plane incident still blocks every build during the interim, which may last indefinitely once the urgency fades. #woodpecker
+  - <Leaves the control-plane dependency in place>: Every Actions control-plane incident still blocks every build during the interim, and an interim with no deadline tends to become permanent. #woodpecker
