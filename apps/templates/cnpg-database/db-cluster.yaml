@@ -16,9 +16,10 @@
 #    db-client-cert.yaml needs).
 # 3. Add the database to local.cnpg_databases in aws-eks-template
 #    cluster/cnpg-backups.tf ({ <app> = "<app>-db" }); the apply stamps out
-#    the S3 bucket and IRSA role, and its outputs carry the bucket name for
-#    the ObjectStore's destinationPath and the role ARN for the ACCOUNT_ID
-#    placeholder below.
+#    the S3 bucket and IRSA role. The ObjectStore's destinationPath and the
+#    role ARN below already point at them once app-template is renamed:
+#    replace_placeholders.sh fills in their org, cluster, and account from
+#    variables.sh.
 # 4. Review the sizing and comments marked "per app" below: instances,
 #    postgres major version, initdb extensions, and resources.
 # 5. The eks marker blocks ship commented; the next deploy.sh run opens them

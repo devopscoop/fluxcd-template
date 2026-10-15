@@ -37,7 +37,8 @@ static access keys, so there's nothing to encrypt here.
    - `tempo.storage.trace.s3` → `bucket`, `region`, and the region in
      `endpoint` (keep the `dualstack` endpoint — the cluster is IPv6-only).
    - `serviceAccount.annotations` → `eks.amazonaws.com/role-arn` with the
-     role ARN from step 2 (replace `ACCOUNT_ID`). This block is commented out
+     role ARN from step 2 (`replace_placeholders.sh` fills in its `ACCOUNT_ID`
+     from `aws_account_id` in `variables.sh`). This block is commented out
      by default and is uncommented automatically by `deploy.sh` when
      `k8s_platform=eks`.
 

@@ -7,7 +7,16 @@ export flux_path=flux
 export git_owner=devopscoop
 export git_repo=project1-dev-deploy
 export k8s_platform=eks # eks, k0s, talos
-export region=us-east-2 # deploy.sh rewrites this placeholder repo-wide (e.g. tempo's S3 config)
+export region=us-east-2 # replace_placeholders.sh rewrites this placeholder repo-wide (e.g. tempo's S3 config)
+# Parent domain of the cluster's ingress hostnames (grafana.<cluster_domain>,
+# ...) and the org prefix of its S3 bucket names (<org_name>-<cluster_name>-*,
+# matching aws-eks-template's org_name). replace_placeholders.sh rewrites the
+# template's hostname and bucket-name placeholders to these.
+export cluster_domain="${cluster_name}.devops.coop"
+export org_name=devopscoop
+# The 12-digit AWS account the cluster runs in. replace_placeholders.sh puts
+# it into the IRSA role ARNs; leave it empty on non-EKS platforms.
+export aws_account_id=""
 # true to have Alertmanager send alert notifications to Slack. Also set your
 # webhook URL and channel first -- see apps/victoria-metrics/README.md.
 export slack_alerts=false

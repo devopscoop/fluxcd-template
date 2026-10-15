@@ -6,10 +6,10 @@
 # substitution, enabling optional blocks, encrypting secrets, wiring Flux
 # sync/decryption, and enabling the apps -- committing and pushing as it goes.
 # On an already-bootstrapped repo (detected below via a sentinel annotation)
-# the one-time rewrites (placeholders, secrets sweep, sync wiring, app
-# enabling) are skipped; a re-run only uncomments marker blocks in apps added
-# since the last run (a no-op when there are none) and re-asserts cluster-side
-# state (flux-operator install + secrets).
+# the one-time rewrites (secrets sweep, sync wiring, app enabling) are
+# skipped; a re-run only rewrites placeholders and uncomments marker blocks in
+# apps added since the last run (a no-op when there are none) and re-asserts
+# cluster-side state (flux-operator install + secrets).
 
 # https://vaneyckt.io/posts/safer_bash_scripts_with_set_euxo_pipefail/
 set -Eexuo pipefail
@@ -45,8 +45,8 @@ git push
 # Bootstrapped detection. The final repo-rewiring commit below does two things
 # at once: it points spec.sync.url at this repo's own remote and stamps the
 # fluxcd-template/bootstrapped annotation. Require BOTH here. The URL alone
-# can misfire: the template's placeholder URL ends in project1-dev, which the
-# sed step below rewrites to ${cluster_name}, so a re-run after a
+# can misfire: the template's placeholder URL ends in project1-dev, which
+# replace_placeholders.sh rewrites to ${cluster_name}, so a re-run after a
 # mid-bootstrap failure would see devopscoop/${cluster_name} -- which matches
 # ${git_owner}/${git_repo} whenever the owner really is devopscoop and the
 # repo is named after its cluster. The annotation only ever appears in the
@@ -109,26 +109,15 @@ commit_and_push() {
   fi
 }
 
-if [[ "$bootstrapped" == "false" ]]; then
-  # Replace project1-dev with cluster_name in all tracked files except this
-  # script and AGENTS.md (which mentions the placeholder in prose).
-  # Have to use -i.bak because Mac sed is garbage.
-  while read -r f; do
-    sed -i.bak "s/project1-dev/${cluster_name}/g" "${f}"
-    rm "${f}.bak"
-    git add "${f}"
-  done < <(git grep -Il project1-dev -- ':!deploy.sh' ':!AGENTS.md')
-
-  # Replace us-east-2 with region in all tracked files except this script and
-  # AGENTS.md. Have to use -i.bak because Mac sed is garbage.
-  while read -r f; do
-    sed -i.bak "s/us-east-2/${region}/g" "${f}"
-    rm "${f}.bak"
-    git add "${f}"
-  done < <(git grep -Il us-east-2 -- ':!deploy.sh' ':!AGENTS.md')
-
-  commit_and_push "Replacing project1-dev with ${cluster_name}"
-fi
+# Rewrite the template's placeholders (project1-dev, us-east-2, and the
+# hostname and bucket forms built from them) to this cluster's values.
+# replace_placeholders.sh owns the transform and prints each file it changed;
+# the loop stages exactly those, like the toggle_blocks.sh steps below (and a
+# pipe for the same pipefail reason). Deliberately NOT gated on
+# $bootstrapped: apps pulled in from the template after bootstrap ship with
+# the placeholders, so re-runs converge them. A no-op when there are none.
+./replace_placeholders.sh | while read -r f; do git add "$f"; done
+commit_and_push "Replacing template placeholders"
 
 # On EKS, uncomment the eks, karpenter and opencost marker blocks in the app
 # manifests. eks blocks hold EKS-platform config (IRSA serviceAccount
