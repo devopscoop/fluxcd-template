@@ -18,9 +18,7 @@ kind: Kustomization
 # plain ConfigMaps picked up by Grafana's sidecar), no CRD involved.
 #
 # One file per app: <app>-vm.yaml holds every scrape and rule object for
-# that app, as YAML documents. deploy.sh deletes the files of apps the
-# cluster doesn't run (see its removal step), and one file per app is what
-# keeps that removal a single rm.
+# that app, as YAML documents.
 #
 # Scrapes and rules for apps that are NOT always deployed sit in marker
 # blocks below, enabled together with their app: a scrape whose selector
@@ -29,9 +27,7 @@ kind: Kustomization
 # absence-style rules would false-fire. deploy.sh enables the eks, karpenter
 # and opencost blocks when k8s_platform=eks (and the metallb block
 # otherwise) automatically; opt-in apps' blocks are enabled by hand when the
-# app is (./toggle_blocks.sh --enable <marker>, marker named after the app
-# -- restoring the app's <app>-vm.yaml from fluxcd-template first if
-# deploy.sh's removal step already deleted it).
+# app is (./toggle_blocks.sh --enable <marker>, marker named after the app).
 namespace: victoria-metrics
 
 resources:

@@ -171,36 +171,6 @@ if [[ "$k8s_platform" != "eks" ]]; then
   commit_and_push "Enabling MetalLB monitoring marker blocks"
 fi
 
-# Remove the monitoring manifests of apps this cluster will never run. Each
-# <app>-vm.yaml in apps/victoria-metrics-custom-resources holds one app's
-# scrapes and rules (see that kustomization.yaml's header); its marker block
-# there only gates the kustomize reference, leaving the file itself as dead
-# weight in a cluster repo, so delete it unless the app is installed: named
-# in $core_app_list/$app_list, or already registered in
-# flux/flux-system/kustomization.yaml (which is what covers opt-in apps
-# enabled by hand after bootstrap — their restored files survive re-runs).
-# Special cases: envoy-vm.yaml watches the eg app, rabbitmq-vm.yaml the
-# rabbitmq operator pair, valkey-vm.yaml the valkey-operator app, and
-# flux-vm.yaml is skipped outright (the Flux control plane is installed by
-# definition). Like the toggle steps above,
-# this runs on every invocation — and it only ever deletes: enabling an app
-# later means restoring its file from fluxcd-template by hand.
-installed_apps="$core_app_list $app_list $(yq '.resources[]' flux/flux-system/kustomization.yaml | xargs)"
-for f in apps/victoria-metrics-custom-resources/*-vm.yaml; do
-  [[ -e "$f" ]] || continue
-  case "$(basename "$f")" in
-    envoy-vm.yaml) app="eg.yaml" ;;
-    flux-vm.yaml) continue ;;
-    rabbitmq-vm.yaml) app="rabbitmq-cluster-operator.yaml" ;;
-    valkey-vm.yaml) app="valkey-operator.yaml" ;;
-    *) app="$(basename "$f" -vm.yaml).yaml" ;;
-  esac
-  if [[ " ${installed_apps} " != *" ${app} "* ]]; then
-    git rm -q "$f"
-  fi
-done
-commit_and_push "Removing monitoring for apps this cluster does not run"
-
 # Uncomment the Alertmanager -> Slack config in apps/victoria-metrics
 # (toggle_blocks.sh finds every slack block repo-wide). values.yaml's block
 # holds the non-secret routing config; the channel and webhook URL live in

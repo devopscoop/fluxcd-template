@@ -56,7 +56,7 @@ Privileged steps — image builds with the docker-buildx plugin, a Docker-in-Doc
 
 ## Monitoring
 
-The server serves Prometheus metrics on `:9001` (`WOODPECKER_METRICS_SERVER_ADDR` in `values.yaml`), scraped by `apps/victoria-metrics-custom-resources/woodpecker-vm.yaml`, whose VMRule pages when no agent is connected and warns when steps sit pending for 30 minutes. Both sit behind the `woodpecker` marker block in that app's `kustomization.yaml` — `./toggle_blocks.sh --enable woodpecker` turns them on with this app (restore `woodpecker-vm.yaml` from fluxcd-template first if `deploy.sh`'s removal step already deleted it). No dashboard is downloaded; `woodpecker-vm.yaml`'s header explains why. The database is covered by the fleet-wide cnpg-instances scrape.
+The server serves Prometheus metrics on `:9001` (`WOODPECKER_METRICS_SERVER_ADDR` in `values.yaml`), scraped by `apps/victoria-metrics-custom-resources/woodpecker-vm.yaml`, whose VMRule pages when no agent is connected and warns when steps sit pending for 30 minutes. Both sit behind the `woodpecker` marker block in that app's `kustomization.yaml` — `./toggle_blocks.sh --enable woodpecker` turns them on with this app. No dashboard is downloaded; `woodpecker-vm.yaml`'s header explains why. The database is covered by the fleet-wide cnpg-instances scrape.
 
 ## Networking
 
