@@ -39,6 +39,9 @@ spec:
       app.kubernetes.io/name: opencost
   endpoints:
     - port: http
+      # Keep the exporter's own namespace/instance (node) labels instead of
+      # the scrape target's; the dashboard's per-namespace cost joins need them.
+      honorLabels: true
       metricRelabelConfigs:
         - if: '{__name__="kube_node_labels"}'
           action: labeldrop
