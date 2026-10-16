@@ -2,17 +2,37 @@
 
 # This script is idempotent, fails fast, and should be safe to run against a running cluster. It requires the variables.sh file.
 #
+# Usage: ./deploy.sh [--update-flux]
+#
 # On a fresh template clone it performs the full bootstrap: placeholder
 # substitution, enabling optional blocks, encrypting secrets, wiring Flux
 # sync/decryption, and enabling the apps -- committing and pushing as it goes.
 # On an already-bootstrapped repo (detected below via a sentinel annotation)
 # the one-time rewrites (secrets sweep, sync wiring, app enabling) are
 # skipped; a re-run only rewrites placeholders and uncomments marker blocks in
-# apps added since the last run (a no-op when there are none) and re-asserts
-# cluster-side state (flux-operator install + secrets).
+# apps added since the last run (a no-op when there are none).
+#
+# The cluster-side steps -- every flux-operator command: installing the
+# operator and flux-instance.yaml, and creating the flux-system and sops-age
+# secrets -- only run with --update-flux, so a routine re-run needs no cluster
+# access. Pass it when bootstrapping, after changing flux-instance.yaml, and
+# after rotating the GitHub App or SOPS age key.
 
 # https://vaneyckt.io/posts/safer_bash_scripts_with_set_euxo_pipefail/
 set -Eexuo pipefail
+
+# Parse arguments before anything else, so a typo can't fail mid-run after
+# commits have been pushed.
+update_flux=false
+for arg in "$@"; do
+  case "$arg" in
+    --update-flux) update_flux=true ;;
+    *)
+      echo "Usage: $0 [--update-flux]" >&2
+      exit 1
+      ;;
+  esac
+done
 
 # https://stackoverflow.com/questions/59895/how-do-i-get-the-directory-where-a-bash-script-is-located-from-within-the-script
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
@@ -58,7 +78,7 @@ bootstrapped=false
 if [[ "$(yq '.metadata.annotations."fluxcd-template/bootstrapped"' flux/flux-system/flux-instance.yaml)" == "true" \
    && "$(yq '.spec.sync.url' flux/flux-system/flux-instance.yaml)" == "https://github.com/${git_owner}/${git_repo}" ]]; then
   bootstrapped=true
-  echo "INFO: repo already bootstrapped; skipping one-time rewrites, converging marker blocks and re-asserting cluster state."
+  echo "INFO: repo already bootstrapped; skipping one-time rewrites and converging marker blocks."
 fi
 
 # Validate everything the bootstrap will need BEFORE any step below mutates or
@@ -173,17 +193,19 @@ if [[ "${slack_alerts:-false}" == "true" ]]; then
   commit_and_push "Enabling Alertmanager Slack notifications"
 fi
 
-flux-operator install -f "${SCRIPT_DIR}/flux/flux-system/flux-instance.yaml"
+if [[ "$update_flux" == "true" ]]; then
+  flux-operator install -f "${SCRIPT_DIR}/flux/flux-system/flux-instance.yaml"
 
-# --app-private-key-file wants a *plaintext* PEM path. $GITHUB_APP_PRIVATE_KEY
-# holds the decrypted key (variables.sh), so feed it via process substitution
-# rather than writing it to disk -- same pattern as --age-key-file below.
-# printf '%s\n' restores the trailing newline command substitution stripped.
-flux-operator create secret githubapp flux-system \
-  --namespace=flux-system \
-  --app-id="$GITHUB_APP_ID" \
-  --app-installation-id="$GITHUB_APP_INSTALLATION_ID" \
-  --app-private-key-file=<(printf '%s\n' "$GITHUB_APP_PRIVATE_KEY")
+  # --app-private-key-file wants a *plaintext* PEM path. $GITHUB_APP_PRIVATE_KEY
+  # holds the decrypted key (variables.sh), so feed it via process substitution
+  # rather than writing it to disk -- same pattern as --age-key-file below.
+  # printf '%s\n' restores the trailing newline command substitution stripped.
+  flux-operator create secret githubapp flux-system \
+    --namespace=flux-system \
+    --app-id="$GITHUB_APP_ID" \
+    --app-installation-id="$GITHUB_APP_INSTALLATION_ID" \
+    --app-private-key-file=<(printf '%s\n' "$GITHUB_APP_PRIVATE_KEY")
+fi
 
 if [[ "$bootstrapped" == "false" ]]; then
   # Encrypt the `*.yaml.decrypted` files with the new sops age key.
@@ -209,9 +231,11 @@ fi
 # holds the decrypted identity (variables.sh), so feed it via process
 # substitution rather than pointing at the encrypted keys.txt on disk.
 # printf '%s\n' (not echo) writes the key verbatim, regardless of shell/content.
-flux-operator create secret sops sops-age \
-  --namespace=flux-system \
-  --age-key-file <(printf '%s\n' "$SOPS_AGE_KEY")
+if [[ "$update_flux" == "true" ]]; then
+  flux-operator create secret sops sops-age \
+    --namespace=flux-system \
+    --age-key-file <(printf '%s\n' "$SOPS_AGE_KEY")
+fi
 
 if [[ "$bootstrapped" == "false" ]]; then
   # Add decryption block, so that the flux-system Kustomization can decrypt
@@ -244,8 +268,8 @@ if [[ "$bootstrapped" == "false" ]]; then
   # LAST edit, and everything from the decryption patch to here lands in ONE
   # commit: the annotation flips the sentinel, so no repo rewrite may come
   # after it. A run that dies before this commit re-runs as un-bootstrapped;
-  # one that dies after it is repo-side complete, and the unconditional
-  # flux-operator install/secret steps re-assert the cluster side.
+  # one that dies after it is repo-side complete, and a re-run with
+  # --update-flux re-asserts the cluster side.
   yq -i "
     .metadata.annotations.\"fluxcd-template/bootstrapped\" = \"true\" |
     .spec.sync.kind = \"GitRepository\" |
@@ -259,7 +283,13 @@ if [[ "$bootstrapped" == "false" ]]; then
 
   commit_and_push "Wiring Flux sync and decryption; enabling apps"
 
-  flux-operator install -f "${SCRIPT_DIR}/flux/flux-system/flux-instance.yaml"
+  if [[ "$update_flux" == "true" ]]; then
+    flux-operator install -f "${SCRIPT_DIR}/flux/flux-system/flux-instance.yaml"
+  fi
   # flux reconcile source git flux-system
   # flux reconcile kustomization flux-system
+fi
+
+if [[ "$update_flux" == "false" ]]; then
+  echo "INFO: skipped the flux-operator steps (Flux install and secrets); re-run with --update-flux to apply flux-instance.yaml and the secrets to the cluster."
 fi
