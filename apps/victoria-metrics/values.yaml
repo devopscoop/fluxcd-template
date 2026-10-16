@@ -358,7 +358,9 @@ grafana:
   # whatever the init container drops in its path; the sidecar-provisioned
   # ConfigMap dashboards (the envoy-*-dashboard.yaml files in this app, plus
   # coraza's — hand-built, no upstream to download) use the chart's own
-  # provider and are unaffected.
+  # provider, which reads the sidecar's folder — moved off
+  # /var/lib/grafana/dashboards under grafana.sidecar below, where it would
+  # hide this provider's path.
   dashboardProviders:
     dashboardproviders.yaml:
       apiVersion: 1
@@ -604,6 +606,15 @@ grafana:
     # dashboard.
     dashboards:
       searchNamespace: ALL
+      # Not the chart's default /var/lib/grafana/dashboards: the sidecar's
+      # volume is mounted at this folder, and there it hides
+      # /var/lib/grafana/dashboards/downloaded on the storage volume, where
+      # the download-dashboards init container writes every
+      # grafana.dashboards entry (the grafana chart hardcodes that path).
+      # Grafana then logs "Cannot read directory" for the downloaded
+      # provider and none of those dashboards load. /tmp/dashboards is the
+      # upstream grafana chart's default; the sidecar's provider follows it.
+      folder: /tmp/dashboards
 
 # Initial guesses (resize with krr after 14d of usage); memory req=limit, no
 # CPU limit.
