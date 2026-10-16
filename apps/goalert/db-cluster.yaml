@@ -198,17 +198,22 @@ spec:
   retentionPolicy: "30d"
   instanceSidecarConfiguration:
     # Memory req=limit, no CPU limit, same as the postgres containers in the
-    # Cluster above. The sidecar only streams compressed WAL and backup data,
-    # and GoAlert's dataset is tiny — but base backups of a multi-GB database
-    # OOMKill the sidecar mid-stream at 128Mi (the Backup fails with "rpc
-    # error ... EOF"), so raise this with the dataset; the first fork
-    # database with real data needed 512Mi.
+    # Cluster above. 512Mi even though GoAlert's dataset is tiny:
+    # wal.maxParallel above lets the sidecar run one barman-cloud-wal-archive
+    # process per ready WAL segment, and a burst of them OOMKills it at
+    # 128Mi. Bursts come on first start (initdb's and the first base
+    # backup's segments) and after every switchover (the demoted primary
+    # flushes its leftover WAL), and while the sidecar crash-loops the pod is
+    # never Ready: a new primary leaves the -rw Service without endpoints, a
+    # demoted one never rejoins. Base backups of a multi-GB database also
+    # OOMKill it mid-stream at 128Mi (the Backup fails with "rpc error ...
+    # EOF"); raise it further if they still do.
     resources:
       requests:
         cpu: 10m
-        memory: 128Mi
+        memory: 512Mi
       limits:
-        memory: 128Mi
+        memory: 512Mi
 ---
 # Daily base backup of goalert-db, on top of the continuous WAL archiving
 # the Barman Cloud Plugin does regardless (the ObjectStore above) — together
