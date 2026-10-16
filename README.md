@@ -128,7 +128,7 @@ your `PATH`, or run `go install github.com/home-operations/flate/cmd/flate@lates
    git push
    ```
 
-1. Run `./deploy.sh`
+1. Run `./deploy.sh --update-flux`. Later runs only need `--update-flux` after changing `flux/flux-system/flux-instance.yaml` or rotating the GitHub App or SOPS age key; without it, `deploy.sh` makes no changes to the cluster.
 1. Clean up cleartext secrets once you're sure you've encrypted them and/or saved them in a password manager:
 
    ```bash
