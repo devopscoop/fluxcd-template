@@ -11,6 +11,21 @@
 # opencost marker block, which deploy.sh enables alongside the app; the
 # dashboard entry sits in the same marker in
 # apps/victoria-metrics/values.yaml.
+#
+# The exporter also re-emits kube_node_labels with one label_* per Kubernetes
+# node label. On Karpenter nodes that came to 44-48 labels per series, past
+# vmsingle's -maxLabelsPerTimeseries default of 40, so vmsingle dropped every
+# one (RowsRejectedOnIngestion) -- the same failure as the kubelet labelmap in
+# apps/victoria-metrics/values.yaml. The metricRelabelConfigs below strip two
+# groups of labels from that metric only (the if: leaves every cost series
+# alone): Karpenter's karpenter.k8s.aws/instance-* hardware metadata (14-15
+# labels, more on GPU instances; node_total_hourly_cost already carries
+# instance_type), and the deprecated beta.kubernetes.io/* and
+# failure-domain.beta.kubernetes.io/* labels, which duplicate the GA
+# kubernetes.io/arch|os, node.kubernetes.io/instance-type and
+# topology.kubernetes.io/region|zone labels that stay. That takes the worst
+# series seen from 48 labels to 29. Karpenter's karpenter.sh/capacity-type
+# and nodepool labels are kept.
 apiVersion: operator.victoriametrics.com/v1beta1
 kind: VMServiceScrape
 metadata:
@@ -24,3 +39,7 @@ spec:
       app.kubernetes.io/name: opencost
   endpoints:
     - port: http
+      metricRelabelConfigs:
+        - if: '{__name__="kube_node_labels"}'
+          action: labeldrop
+          regex: label_(karpenter_k8s_aws_instance_.+|beta_kubernetes_io_.+|failure_domain_beta_kubernetes_io_.+)
