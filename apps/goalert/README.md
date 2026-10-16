@@ -37,7 +37,7 @@ Alerts enter GoAlert through a per-service integration key:
    https://goalert.project1-dev.devops.coop/api/v2/prometheusalertmanager/incoming?token=<integration-key>
    ```
 
-2. In `apps/victoria-metrics`, paste the URL into the `webhook_configs` entry of the `default` receiver in that app's Alertmanager config. The URL embeds the integration key — anyone holding it can open (and close) alerts — so it belongs in that app's `helm_secrets.yaml`, not `values.yaml`:
+2. In `apps/victoria-metrics`, paste the URL into the `webhook_configs` entry of the `default` receiver in that app's Alertmanager config, with the scheme and host swapped for GoAlert's in-cluster Service (`http://goalert.goalert.svc.cluster.local:8081`) — keep the path and token. The URL embeds the integration key — anyone holding it can open (and close) alerts — so it belongs in that app's `helm_secrets.yaml`, not `values.yaml`:
 
    ```yaml
    receivers:
@@ -47,11 +47,19 @@ Alerts enter GoAlert through a per-service integration key:
          # lists each alert group once per receiver, so a separate goalert
          # receiver would display every alert twice.
        webhook_configs:
-         - url: https://goalert.project1-dev.devops.coop/api/v2/prometheusalertmanager/incoming?token=<integration-key>
+         - url: http://goalert.goalert.svc.cluster.local:8081/api/v2/prometheusalertmanager/incoming?token=<integration-key>
            send_resolved: true
    ```
 
    `send_resolved: true` lets GoAlert auto-close the alert when Alertmanager resolves it.
+
+   Why the in-cluster Service and not the public URL: the public URL goes out through public DNS and back in through `eg-public`, and that path drops alerts.
+
+   - With [Coraza](../coraza/README.md) enabled, the WAF inspects every webhook body. Alert annotations are free text, and runbook snippets in them read as attacks: a SQL query in a `description` trips CRS 942190, one critical match per alert in the group. The WAF answers with a 403, Alertmanager treats a 4xx as unrecoverable and never retries, and that alert stops paging while still showing in Slack and the Alertmanager UI. The only trace is `unexpected status code 403` in the Alertmanager logs.
+   - The gateway's access logs record the full request path, query string included, so every notification writes the integration key to them.
+   - Paging also depends on public DNS and the gateway being up. A failed lookup of the public hostname has blocked delivery before.
+
+   The in-cluster hop is plain HTTP on the pod network, the same as Alertmanager's other in-cluster traffic. GoAlert accepts it: its HTTP→HTTPS redirect only fires for requests whose Host matches `GOALERT_PUBLIC_URL`, and integration-key auth doesn't check the Referer.
 
 ## Notification channels
 
