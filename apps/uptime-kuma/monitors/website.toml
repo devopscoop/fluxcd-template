@@ -2,11 +2,11 @@ type = "http"
 name = "Website"
 url = "https://devops.coop/"
 
-# uptime-kuma sends alerts for expiring certs before cert-manager has a change
+# uptime-kuma sends alerts for expiring certs before cert-manager has a chance
 # to renew them. I think you can change the threshold in uptime-kuma in the
 # webUI, but I couldn't find a way to do it in code, so I'm just disabling
 # this. cert-manager has it's own alerts for expiring certificates. This could
 # save someone who has a cert that isn't managed by cert-manager I guess, but
-# frankly, the kind of people that don't use cert-manager don't deserved to be
+# frankly, the kind of people that don't use cert-manager don't deserve to be
 # saved, ahahahaha.
 expiryNotification = false
