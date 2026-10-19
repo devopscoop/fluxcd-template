@@ -66,8 +66,8 @@ After saving, open the **Shifts** view on each schedule (the calculated result a
 
 Name it `Production – Follow-the-Sun`, and point the service that holds the Alertmanager integration key (see [Wiring Alertmanager to GoAlert](#wiring-alertmanager-to-goalert)) at it:
 
-1. Follow-the-Sun Primary, wait 10 min.
-2. Follow-the-Sun Secondary, wait 10 min.
+1. Follow-the-Sun Primary, wait 15 min.
+2. Follow-the-Sun Secondary, wait 15 min.
 3. An engineering lead (or a small "escalation" rotation), plus your incidents Slack channel (Slack targets need Slack set up first — see [Notification channels](#notification-channels)).
 
 Repeat: 3 times.
