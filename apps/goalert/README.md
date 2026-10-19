@@ -53,7 +53,7 @@ Create a primary and a secondary rotation per region. All six are weekly, shift 
 | EMEA Primary, EMEA Secondary | Mon 08:00 UTC |
 | AMER Primary, AMER Secondary | Mon 16:00 UTC |
 
-Both rotations in a region hold the same three engineers. In the secondary, use **Set Active** on a different person than the primary's active one, so each engineer cycles through a primary week, a secondary week, and an off week. With the same order in both, picking the person just before the primary's active one makes last week's primary this week's secondary, so the backup already has context.
+Both rotations in a region hold the same engineers. In the secondary, use **Set Active** on a different person than the primary's active one, so each engineer cycles through a primary week, a secondary week, and then off weeks until their turn comes round again. With the same order in both, picking the person just before the primary's active one makes last week's primary this week's secondary, so the backup already has context.
 
 ### Schedules (2), both in UTC
 
