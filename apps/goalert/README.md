@@ -21,11 +21,63 @@ Why GoAlert: Grafana OnCall OSS went into maintenance mode in March 2025 and its
      sh -c 'goalert add-user --admin --user admin --email admin@devops.coop --db-url "$GOALERT_DB_URL"'
    ```
 
-4. Log in at <https://goalert.project1-dev.devops.coop> and build the on-call structure: users → a schedule → an escalation policy → a service.
+4. Log in at <https://goalert.project1-dev.devops.coop> and build the on-call structure: users → rotations → schedules → an escalation policy → a service. [Recommended on-call structure](#recommended-on-call-structure-follow-the-sun) below lays out a follow-the-sun version.
 
 ## Data-encryption key
 
 `helm_secrets.yaml` (SOPS) holds `GOALERT_DATA_ENCRYPTION_KEY` under the chart's `envSecret` key — the chart creates a Secret from it and envFroms it into the Deployment. GoAlert passes the value through a key derivation function and encrypts sensitive data it stores in Postgres (e.g. signing keys) with the result — so it can be any string, but losing or changing it invalidates that data, and every replica must use the same value. Before bootstrap: fill a value from `openssl rand -base64 32` into `helm_secrets.yaml.decrypted` and run `../../encrypt_secrets.sh`. On a running cluster: edit in place with `sops helm_secrets.yaml`.
+
+## Recommended on-call structure: follow-the-sun
+
+For a team spread across APAC, EMEA, and AMER, the structure is one schedule per tier, with each region owning a slice of the day, rather than one schedule per person. Each region gets its own rotations, and a single schedule stitches the three regions together using assignment rules. GoAlert's [Schedules](https://goalert.me/docs/goalert-features/schedules/) docs name this use for rules (sharing an on-call schedule between Minneapolis and Bangalore), and [Alerting Configuration](https://goalert.me/docs/alerting/) walks through that two-region case.
+
+### Anchor the windows in UTC
+
+A schedule has one time zone, and its assignment rules are evaluated in that zone. You could instead build per-region schedules in local time, but the US, EU, and Australia change clocks on different dates and Singapore doesn't change at all, so local windows would open hour-long gaps twice a year. A single schedule in UTC guarantees the three windows always tile 24 hours exactly. The cost is that each region's local hours slide by an hour across DST.
+
+Suggested windows, assuming APAC is roughly Singapore/Sydney, EMEA is London, and AMER is the US West Coast:
+
+| Region | UTC window | Local hours |
+| --- | --- | --- |
+| APAC | 00:00–08:00 | 8am–4pm Singapore; 10–11am to 6–7pm Sydney |
+| EMEA | 08:00–16:00 | 8am–4pm (winter) / 9am–5pm (summer) London |
+| AMER | 16:00–24:00 | 8am–4pm (winter) / 9am–5pm (summer) US Pacific |
+
+### Rotations (6)
+
+Create a primary and a secondary rotation per region. All six are weekly, shift length 1, time zone UTC, with the handoff on Monday at the start of that region's window, so a handoff never lands mid-shift:
+
+| Rotations | Handoff |
+| --- | --- |
+| APAC Primary, APAC Secondary | Mon 00:00 UTC |
+| EMEA Primary, EMEA Secondary | Mon 08:00 UTC |
+| AMER Primary, AMER Secondary | Mon 16:00 UTC |
+
+Both rotations in a region hold the same engineers. In the secondary, use **Set Active** on a different person than the primary's active one, so each engineer cycles through a primary week, a secondary week, and then off weeks until their turn comes round again. With the same order in both, picking the person just before the primary's active one makes last week's primary this week's secondary, so the backup already has context.
+
+### Schedules (2), both in UTC
+
+- **Follow-the-Sun Primary** has three assignments, all Sun–Sat: APAC Primary (00:00–08:00), EMEA Primary (08:00–16:00), and AMER Primary (16:00–24:00, entered as an end time of 00:00 — a rule whose end is before its start runs past midnight).
+- **Follow-the-Sun Secondary** has the same three windows, using the Secondary rotations.
+
+After saving, open the **Shifts** view on each schedule (the calculated result after assignments, rules, and overrides) and confirm there are no gaps at the 00:00, 08:00, and 16:00 boundaries.
+
+### Escalation policy (1)
+
+Name it `Production – Follow-the-Sun`, and point the service that holds the Alertmanager integration key (see [Wiring Alertmanager to GoAlert](#wiring-alertmanager-to-goalert)) at it:
+
+1. Follow-the-Sun Primary, wait 15 min.
+2. Follow-the-Sun Secondary, wait 15 min.
+3. An engineering lead (or a small "escalation" rotation), plus your incidents Slack channel (Slack targets need Slack set up first — see [Notification channels](#notification-channels)).
+
+Repeat: 3 times.
+
+Keeping both tiers in the same region means a page never wakes someone in another hemisphere just because the primary was in the shower.
+
+### Operational notes
+
+- **Holidays** are regional, so handle them with **Replace** overrides within the region, such as an EMEA engineer covering for an EMEA colleague. Don't try to hand a holiday to another region: those hours fall outside their window, in their night.
+- **Weekends**: if you don't want weekend coverage, drop Sat/Sun from the rules. AMER's Friday window ends at Saturday 00:00 UTC, so it still reads as Friday locally — keep Friday in that rule.
 
 ## Wiring Alertmanager to GoAlert
 
