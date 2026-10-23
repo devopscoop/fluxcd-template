@@ -1,6 +1,6 @@
 # Connecting to a CNPG database
 
-Examples use **goalert**; for another app substitute `<app>` and `<app>-db`. Each Cluster has three Services: `goalert-db-rw` (the primary), `goalert-db-ro` (replicas, where writes fail), and `goalert-db-r` (any instance).
+Examples connect to the **goalert** database (namespace `goalert`, Cluster `goalert-db`) as **alice**; substitute your own. Each Cluster has three Services: `goalert-db-rw` (the primary), `goalert-db-ro` (replicas, where writes fail), and `goalert-db-r` (any instance).
 
 | Option | Use it for | You connect as |
 | --- | --- | --- |
@@ -13,15 +13,21 @@ Use SSO (1 or 2) wherever the database has the `pg-oauth` block enabled: it's th
 ## Option 1: OAuth developer SSO, for databases with the pg-oauth block enabled
 
 ```shell
-./psql-oauth.sh goalert                    # psql prompt on a replica
-./psql-oauth.sh goalert -- -c 'select 1'   # run SQL and exit
-./psql-oauth.sh -e rw goalert              # the primary, for writes
+# psql prompt on a replica
+./psql-oauth.sh -n goalert -c goalert-db -d goalert -U alice
+
+# Run one command and exit
+./psql-oauth.sh -n goalert -c goalert-db -d goalert -U alice -- -c '\ds'
+
+# The primary, for writes
+./psql-oauth.sh -n goalert -c goalert-db -d goalert -U alice -e rw
 ```
 
 Approve the login in the browser tab that opens, or at the URL psql prints.
 
 - `-e` picks the Service: `ro` (the default), `rw`, or `r`. A single-instance Cluster has no replicas, so use `-e r` or `-e rw` there.
-- `-U ROLE` overrides your role, which defaults to your git email's local part. `-n`/`-c`/`-d` override the namespace, Cluster and database. `--print` shows the manual commands.
+- `-n`, `-c`, `-d` are the namespace, Cluster and database. `-U` is your role: your email's local part (`alice@example.com` → `alice`).
+- `--print` shows the manual commands instead of running them.
 - Developers get `pg_read_all_data`. Tables behind row-level security also need `bypassrls` on your role.
 
 You need:
@@ -35,10 +41,17 @@ You need:
 Every connection is a new browser approval, so start a session and approve once:
 
 ```shell
-./psql-oauth.sh --session start goalert                           # approve once
-./psql-oauth.sh goalert -- -At -c 'select count(*) from alerts'   # no browser
-./psql-oauth.sh --session status                                  # list sessions
-./psql-oauth.sh --session stop goalert                            # when done
+# Approve once
+./psql-oauth.sh -n goalert -c goalert-db -d goalert -U alice --session start
+
+# Queries now skip the browser
+./psql-oauth.sh -n goalert -c goalert-db -d goalert -U alice -- -At -c 'select count(*) from alerts'
+
+# List running sessions
+./psql-oauth.sh --session status
+
+# When done
+./psql-oauth.sh -n goalert -c goalert-db -d goalert -U alice --session stop
 ```
 
 Then ask Claude Code to query the database. `AGENTS.md` tells it how to use the session, and it can start one itself; you still approve in the browser.
