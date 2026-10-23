@@ -10,8 +10,8 @@
 #     .spec.managed.roles — no secrets in either;
 #   - a port-forward to the database: `view` has no create on
 #     pods/portforward (it's a write verb by design), and kubectl resolves
-#     svc/<app>-db-rw to a pod first, which takes get on services and
-#     get/list on pods.
+#     svc/<app>-db-ro (or -r/-rw) to a pod first, which takes get on
+#     services and get/list on pods.
 # Namespace-scoped on purpose: this only opens a network path to THIS
 # namespace's pods — i.e. the database — and Postgres still authenticates
 # every connection (oauth for developers, scram for the apps). Bound to the
