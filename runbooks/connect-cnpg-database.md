@@ -1,143 +1,96 @@
 # Connecting to a CNPG database
 
-Five ways to get a SQL prompt on a CloudNativePG database in this repo. Use SSO (options 1 and 2) where the database has it enabled: it is the only path that lands you in your own audited role.
+Examples use **goalert**; for another app substitute `<app>` and `<app>-db`. Each Cluster has three Services: `goalert-db-rw` (the primary), `goalert-db-ro` (replicas, where writes fail), and `goalert-db-r` (any instance).
 
-1. [OAuth developer SSO](#option-1-oauth-developer-sso-for-databases-with-the-pg-oauth-block-enabled) — for databases with the `pg-oauth` marker block enabled: psql over a port-forward, approving the login in the browser and landing in your own per-developer role.
-2. [Using Claude with SSO](#option-2-using-claude-with-sso-using-psql-oauthsh-sessions) — option 1 driven by an agent such as Claude Code, through a `psql-oauth.sh` session so you approve once rather than per query.
-3. [The `kubectl cnpg` plugin](#option-3-the-kubectl-cnpg-plugin) — one command, superuser psql on the primary. Needs the plugin installed (it's in the `Brewfile` and `pkglist.txt`).
-4. [Plain `kubectl exec`](#option-4-plain-kubectl-exec) — the same session with no plugin, anywhere `kubectl` works.
-5. [Port-forwarding](#option-5-port-forwarding-for-local-clients-dbeaver-etc) — for DBeaver or any other client running on your machine, authenticating as the application role.
+| Option | Use it for | You connect as |
+| --- | --- | --- |
+| [1. SSO](#option-1-oauth-developer-sso-for-databases-with-the-pg-oauth-block-enabled) | Everyday queries | Your own role |
+| [2. Claude with SSO](#option-2-using-claude-with-sso-using-psql-oauthsh-sessions) | Letting Claude Code query for you | Your own role |
+| [3. `kubectl cnpg`](#option-3-the-kubectl-cnpg-plugin) | Superuser tasks | `postgres` superuser |
+| [4. `kubectl exec`](#option-4-plain-kubectl-exec) | Superuser, without the plugin | `postgres` superuser |
+| [5. Port-forward](#option-5-port-forwarding-for-local-clients-dbeaver-etc) | DBeaver and other local clients | The app's role |
 
-This runbook uses **goalert** / **goalert-db** throughout; for another database substitute the app name and Cluster name (`<app>`, `<app>-db`).
-
-## What you're connecting to
-
-Each Cluster runs one primary and two read-only streaming replicas (`instances: 3`), behind three Services: `goalert-db-rw` (always the primary), `goalert-db-ro` (replicas only), and `goalert-db-r` (any instance). Writes only succeed on the primary — a replica answers queries but rejects writes with "cannot execute ... in a read-only transaction".
-
-The ways in authenticate differently:
-
-- **SSO over TCP** (options 1 and 2): you approve an OAuth login through dex in the browser and land in a role named after your email — see option 1.
-- **Exec into a pod** (options 3 and 4): psql talks over the pod-local Unix socket as the `postgres` OS user, which peer authentication maps to the `postgres` superuser. No password exists or is asked for — which is also why this is the *only* superuser path: CNPG's `enableSuperuserAccess` defaults to false, so the `postgres` role has no password and there is no `goalert-db-superuser` Secret.
-- **The app's credentials over TCP** (option 5): you authenticate as the application role — the database owner — with the app's mTLS client certificate on cert-auth databases (goalert, and anything from the current `apps/templates/cnpg-database`), or with the password CNPG generates into the `<cluster>-app` Secret on databases that predate cert auth.
+Use SSO (1 or 2) wherever the database has the `pg-oauth` block enabled: it's the only option that attributes your session to you.
 
 ## Option 1: OAuth developer SSO, for databases with the pg-oauth block enabled
 
-Databases created from `apps/templates/cnpg-database` can enable the `pg-oauth` marker block (prerequisites and rationale in the block's comments and `apps/dex/README.md`): PostgreSQL 18's native OAuth against the dex issuer, mapping each developer's email to a role named after its local part (`alice@example.com` connects as `alice`). No password and no shared credentials — you approve the login in the browser through the upstream IdP and land in your own audited role.
-
-Requirements:
-
-- psql 18 with libpq built against libcurl. Debian/Ubuntu PGDG ship it as the `libpq-oauth` package, Arch includes it in `postgresql-libs`, and on macOS Homebrew's `postgresql@18` formula builds it (the `libpq` formula does not; the keg-only install lands on `PATH` as `psql-18`, which the script finds).
-- A login role named after your email local part in the Cluster's `managed.roles` (the pg-oauth block shows the shape).
-- The dex issuer reachable from your machine.
-- Read-only SSO access (the `cluster-viewers` group) additionally needs `db-developer-rbac.yaml` from the cnpg-database template applied in the database's namespace — the built-in `view` role can neither read the Cluster CR nor open a port-forward. Cluster-admins need nothing extra.
-
-`./psql-oauth.sh <app>` does all of the below in one command — it discovers the issuer from the Cluster's `pg_hba`, port-forwards the `-ro` Service (a replica; `-e r` takes any instance, `-e rw` the primary), runs the device flow, and tears the forward down on exit. Everything after `--` goes to psql, so `./psql-oauth.sh <app> -- -c 'select 1'` (or SQL on stdin) runs statements and exits instead of opening a prompt. In that batch mode the script also opens dex's verification page, code prefilled, in your browser the moment psql prints the device prompt; the run blocks until you approve, then returns psql's output. For a run of several queries, start a [session](#option-2-using-claude-with-sso-using-psql-oauthsh-sessions) so you approve once rather than per query. `-n`/`-c`/`-d` override the namespace/Cluster/database for clusters that don't follow the `<app>`/`<app>-db` naming. The manual equivalent: forward the Service as in option 5 (`svc/<app>-db-ro`, `-r` or `-rw`), then:
-
 ```shell
-psql "host=localhost port=15432 dbname=<app> user=<email-local-part> sslmode=require oauth_issuer=https://dex.project1-dev.devops.coop oauth_client_id=psql oauth_scope='openid email'"
+./psql-oauth.sh goalert                    # psql prompt on a replica
+./psql-oauth.sh goalert -- -c 'select 1'   # run SQL and exit
+./psql-oauth.sh -e rw goalert              # the primary, for writes
 ```
 
-`oauth_scope` must request `email`: dex only embeds the email claim — what the validator maps to a role — when the client asks for that scope (the hba rule's `scope=""` disables the validator's scope *check*; it requests nothing on the client's behalf).
+Approve the login in the browser tab that opens, or at the URL psql prints.
 
-psql prints a verification URL and a code; approve in the browser and the prompt opens. The oauth `pg_hba` rule is `hostssl`, so the connection must use TLS — and as in option 5, the certificate names the in-cluster Services, so `sslmode=require` is the right level through a port-forward.
+- `-e` picks the Service: `ro` (the default), `rw`, or `r`. A single-instance Cluster has no replicas, so use `-e r` or `-e rw` there.
+- `-U ROLE` overrides your role, which defaults to your git email's local part. `-n`/`-c`/`-d` override the namespace, Cluster and database. `--print` shows the manual commands.
+- Developers get `pg_read_all_data`. Tables behind row-level security also need `bypassrls` on your role.
 
-Privileges: the `developers` group grants `pg_read_all_data` by default — tables behind row-level security additionally need `bypassrls` on the login role, a per-app data-access decision recorded in the block's comments. Whatever the role may do, the default `-ro` endpoint is a replica and rejects writes; run statements that write with `-e rw`. A single-instance Cluster has no replicas, so use `-e r` or `-e rw` there.
+You need:
+
+- psql 18 with OAuth support: Homebrew `postgresql@18` (installed as `psql-18`), Arch `postgresql-libs`, or Debian/Ubuntu PGDG `libpq-oauth`.
+- A login role named after your email's local part in the Cluster's `managed.roles`.
+- With read-only cluster access (`cluster-viewers`), the template's `db-developer-rbac.yaml` applied in the app's namespace.
 
 ## Option 2: Using Claude with SSO (using psql-oauth.sh sessions)
 
-Option 1's batch mode is what lets an agent such as Claude Code query a database as you: it needs no terminal, and you approve each login in the browser tab the script opens. This repo's `AGENTS.md` (`CLAUDE.md` is a symlink to it) already tells Claude how to drive the script — sessions, `-At` for machine-readable output, `-e rw` for writes — so asking it to look something up in the goalert database is enough.
-
-Every plain `./psql-oauth.sh` run is a fresh psql connection, though, and libpq runs the device flow on each one — so a browser approval per query, which is a lot of clicking for a run of exploratory queries. libpq offers no way to reuse a token across psql processes (only the `PQsetAuthDataHook` C API, which psql does not expose), so a session reuses the *process* instead: it keeps one authenticated psql running and feeds each request to it.
+Every connection is a new browser approval, so start a session and approve once:
 
 ```shell
-./psql-oauth.sh --session start goalert                       # approve once, in the browser
+./psql-oauth.sh --session start goalert                           # approve once
 ./psql-oauth.sh goalert -- -At -c 'select count(*) from alerts'   # no browser
-./psql-oauth.sh goalert -- -c '\dt'                               # no browser
-./psql-oauth.sh --session stop goalert                        # tear it down
+./psql-oauth.sh --session status                                  # list sessions
+./psql-oauth.sh --session stop goalert                            # when done
 ```
 
-`--session start` runs the device flow once, then leaves the port-forward and the connected psql running in the background (it ignores `SIGHUP`, so it outlives the terminal that started it). Every batch run against the same database afterwards is handed to that psql over a FIFO and returns with no browser, until `--session stop`. `--session status`, with or without an app, lists what is running.
+Then ask Claude Code to query the database. `AGENTS.md` tells it how to use the session, and it can start one itself; you still approve in the browser.
 
-A session request accepts SQL through `-c` (repeatable), `-f FILE`, or stdin, plus the output flags `-A -t -x -F SEP --csv` and `-v NAME=VALUE`. Statements run one at a time with the formatting reset between requests, exactly as `psql -f` does, and the exit status is 1 when the server reported an error. Any other psql flag needs its own connection, so the script asks you to stop the session first; an interactive run (a terminal, no `-c`/`-f`) always connects afresh regardless of any session.
-
-The session is keyed by the whole target — namespace, Cluster, database, role, and endpoint — so `-U`, `-e`, and any `-n`/`-c`/`-d` (or a differently named `<app>`) must match between `start` and the runs that use it. The `--session start` output prints the exact `stop` command for the session it created. Two things end a session: `--session stop`, and a CNPG switchover or failover that takes down the one pod the forward pins (option 5's first caveat) — always the case for an `-e rw` session, whose primary is demoted. A replica session the switchover leaves alone carries on, and so does one on the replica it promotes — which is then on the primary. The next request notices, reports it, and connects afresh with one approval; that fresh connection starts no new session, so run `--session start` again to get the no-browser path back.
+- Pass the same `-e`, `-U`, and `-n`/`-c`/`-d` to `start`, the queries, and `stop`. Two sessions running at once need different `-p PORT`s.
+- A session takes SQL through `-c`, `-f FILE` or stdin, plus `-A -t -x -F --csv -v`. Other psql flags need `--session stop` first.
+- A switchover or failover can end a session. The next query reconnects with one approval; run `--session start` again afterwards.
 
 ## Option 3: the kubectl cnpg plugin
 
-```shell
-kubectl cnpg psql goalert-db -n goalert
-```
-
-That's a superuser psql on the current primary, connected to the `postgres` database. Arguments after `--` go to psql, so to land in the app's database instead:
+Superuser psql. The plugin is in the `Brewfile` and `pkglist.txt`.
 
 ```shell
-kubectl cnpg psql goalert-db -n goalert -- goalert
-```
-
-Add `--replica` to connect to a replica instead — the right default for exploratory queries, since it keeps your session off the primary.
-
-The plugin is also the quickest topology view — which instance is primary, replication lag, last archived WAL:
-
-```shell
-kubectl cnpg status goalert-db -n goalert
+kubectl cnpg psql goalert-db -n goalert -- goalert             # on the primary
+kubectl cnpg psql goalert-db -n goalert --replica -- goalert   # on a replica
+kubectl cnpg status goalert-db -n goalert                      # primary, lag, backups
 ```
 
 ## Option 4: plain kubectl exec
 
-The Cluster's `.status.currentPrimary` names the primary pod, so plain kubectl can do what the plugin does:
+Option 3 without the plugin:
 
 ```shell
-kubectl -n goalert exec -it "$(kubectl -n goalert get cluster goalert-db -o jsonpath='{.status.currentPrimary}')" -c postgres -- psql
+kubectl -n goalert exec -it "$(kubectl -n goalert get cluster goalert-db -o jsonpath='{.status.currentPrimary}')" -c postgres -- psql goalert
 ```
 
-`-c postgres` matters: the instance pods also run the barman-cloud sidecar container (WAL archiving — see `apps/cnpg-barman-plugin`), and without it kubectl may pick that container instead. As with option 3 you land as superuser in the `postgres` database; append the database name (`-- psql goalert`) to start in the app's.
-
-For a read-only session, exec into a replica instead — CNPG labels pods with their role:
-
-```shell
-kubectl -n goalert get pods -l cnpg.io/cluster=goalert-db,cnpg.io/instanceRole=replica
-```
+Keep `-c postgres`: without it kubectl may pick the backup sidecar. To use a replica, exec into one of the pods from `kubectl -n goalert get pods -l cnpg.io/cluster=goalert-db,cnpg.io/instanceRole=replica`.
 
 ## Option 5: port-forwarding, for local clients (DBeaver etc.)
 
-Superuser access over TCP is disabled, so local clients connect as the application role. Username and database name are both the app name (`goalert`) by this repo's convention. On a cert-auth database — goalert, and anything created from the current `apps/templates/cnpg-database` — pg_hba rejects the app role's password, so the client presents the app's certificate. Extract it and lock down the key (libpq refuses group/world-readable keys):
+Connects as the app's role with its client certificate:
 
 ```shell
 kubectl -n goalert get secret goalert-db-client-cert -o jsonpath='{.data.tls\.crt}' | base64 -d > /tmp/goalert-db.crt
 kubectl -n goalert get secret goalert-db-client-cert -o jsonpath='{.data.tls\.key}' | base64 -d > /tmp/goalert-db.key
 chmod 600 /tmp/goalert-db.key
+kubectl -n goalert port-forward svc/goalert-db-rw 15432:5432   # svc/goalert-db-ro to stay on a replica
 ```
 
-On a database that predates cert auth, the password flow still applies — CNPG generates and maintains credentials in the `<cluster>-app` Secret (its `uri`/`jdbc-uri` keys name the in-cluster Service, so for a port-forward use localhost and the individual pieces):
-
-```shell
-kubectl -n <app> get secret <app>-db-app -o jsonpath='{.data.username}' | base64 -d; echo
-kubectl -n <app> get secret <app>-db-app -o jsonpath='{.data.password}' | base64 -d; echo
-```
-
-Forward the read-write Service to a local port (15432 here, so a Postgres already running on your machine doesn't collide):
-
-```shell
-kubectl -n goalert port-forward svc/goalert-db-rw 15432:5432
-```
-
-Then connect from DBeaver (or anything else): host `localhost`, port `15432`, database `goalert`, with the certificate files (or, pre-cert-auth, the username/password) from above — in DBeaver that's the connection's SSL tab. The psql equivalent:
+Then connect to host `localhost`, port `15432`, user and database `goalert`, with the certificate files above (DBeaver: the connection's SSL tab). With psql:
 
 ```shell
 psql "host=localhost port=15432 user=goalert dbname=goalert sslmode=require sslcert=/tmp/goalert-db.crt sslkey=/tmp/goalert-db.key"
 ```
 
-`sslmode=require`, not `verify-full` — see the TLS caveat below. Prefer the per-developer SSO path (option 1) where it's enabled: the cert route acts as the app, so nothing attributes the session to you.
-
-Caveats:
-
-- **The forward pins to one pod.** `kubectl port-forward svc/...` resolves the Service to a single pod when it starts and never re-resolves. If a failover or switchover happens while you're connected, your session is now on a replica (writes fail as read-only) or dead — kill the port-forward and start it again.
-- **Read-only browsing:** forward `svc/goalert-db-ro` instead to land on a replica and keep exploratory load off the primary.
-- **TLS:** the server speaks TLS and psql's default `sslmode=prefer` works, but the certificate names the in-cluster Services, not localhost — so `sslmode=verify-full` fails through a port-forward. Anything up to `sslmode=require` is fine.
-- **Privileges:** the app role owns the `goalert` database and nothing more. If a task genuinely needs superuser, use option 3 or 4 rather than trying to get superuser over TCP.
+- Use `sslmode=require`. `verify-full` fails through a port-forward because the certificate names the in-cluster Services.
+- Databases older than cert auth use a password instead: `kubectl -n <app> get secret <app>-db-app -o jsonpath='{.data.password}' | base64 -d`.
+- The forward sticks to one pod. After a failover or switchover, restart it.
 
 ## Related
 
-Restoring a database from its barman backup: `runbooks/restore-cnpg-database.md`.
-
-Moving a database to a new PostgreSQL major: `runbooks/upgrade-cnpg-database.md`.
+- Restoring from backup: `runbooks/restore-cnpg-database.md`
+- Upgrading to a new PostgreSQL major: `runbooks/upgrade-cnpg-database.md`
