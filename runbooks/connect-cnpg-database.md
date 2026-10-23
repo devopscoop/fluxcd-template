@@ -19,8 +19,8 @@ Use SSO (1 or 2) wherever the database has the `pg-oauth` block enabled: it's th
 # Run one command and exit
 ./psql-oauth.sh -n goalert -c goalert-db -d goalert -U alice -- -c '\ds'
 
-# The primary, for writes
-./psql-oauth.sh -n goalert -c goalert-db -d goalert -U alice -e rw
+# Run a SQL file and exit
+./psql-oauth.sh -n goalert -c goalert-db -d goalert -U alice -- -f query.sql
 ```
 
 Approve the login in the browser tab that opens, or at the URL psql prints.
