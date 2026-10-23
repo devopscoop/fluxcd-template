@@ -54,9 +54,9 @@ Every connection is a new browser approval, so start a session and approve once:
 ./psql-oauth.sh -n goalert -c goalert-db -d goalert -U alice --session stop
 ```
 
-Then ask Claude Code to query the database. `AGENTS.md` tells it how to use the session, and it can start one itself; you still approve in the browser.
+Then ask Claude Code to use it, naming the environment and database — for example, "I have a dev SSO session on goalert-db; list its tables." `AGENTS.md` tells it how to find and use the session, and it can start one itself; you still approve in the browser.
 
-- Pass the same `-e`, `-U`, and `-n`/`-c`/`-d` to `start`, the queries, and `stop`. Two sessions running at once need different `-p PORT`s.
+- Pass the same `-e`, `-U`, and `-n`/`-c`/`-d` to `start`, the queries, and `stop`, with the same kubeconfig: sessions are per Kubernetes cluster. Two sessions running at once need different `-p PORT`s.
 - A session takes SQL through `-c`, `-f FILE` or stdin, plus `-A -t -x -F --csv -v`. Other psql flags need `--session stop` first.
 - A switchover or failover can end a session. The next query reconnects with one approval; run `--session start` again afterwards.
 

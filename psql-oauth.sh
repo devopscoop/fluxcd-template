@@ -19,8 +19,10 @@
 #
 # Sessions amortise that approval. `--session start APP` leaves the
 # port-forward and a connected psql in the background; later batch runs
-# against the same database are fed to it over a FIFO with no browser, until
-# `--session stop APP` (`--session status` lists them). A session request
+# against the same target — database, role, endpoint, and Kubernetes cluster
+# (dev and prod can share every name) — are fed to it over a FIFO with no
+# browser, until `--session stop APP` (`--session status` lists them, with
+# the issuer naming each one's environment). A session request
 # takes SQL via -c/-f/stdin plus output flags -A -t -x -F -v --csv; anything
 # else needs a fresh connection. The forward pins one pod, so a CNPG
 # switchover can end a session (the next request says so and connects
@@ -87,7 +89,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Session state lives in a per-user runtime directory: one subdirectory per
-# database+role+endpoint holding the FIFO psql reads, its stdout/stderr logs and pids.
+# target holding the FIFO psql reads, its stdout/stderr logs and pids.
 session_root="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/psql-oauth-$(id -u)"
 
 session_state() {  # $1: session dir → alive | starting | dead
@@ -126,15 +128,21 @@ if [[ -z "$role" ]]; then
 fi
 role="${role:-$USER}"
 svc="${cluster}-${endpoint}"
-sdir="${session_root}/${ns}_${cluster}_${db}_${role}_${endpoint}"
+# The target includes the Kubernetes cluster, named by the active kubeconfig's
+# API server (a local lookup, no API call): dev and prod can hold the same
+# namespace, Cluster, database and role, and a request must never be answered
+# by the other environment's session.
+kube_server="$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}' 2>/dev/null || true)"
+sdir="${session_root}/${ns}_${cluster}_${db}_${role}_${endpoint}_$(printf '%s' "$kube_server" | cksum | cut -d' ' -f1)"
+no_session="no session for ${role}@${svc}/${db} in ${ns} on ${kube_server:-the active kubeconfig cluster}"
 
 case "$session" in
   status)
-    if [[ -d "$sdir" ]]; then session_describe "$sdir"; else echo "no session for ${role}@${svc}/${db} in ${ns}"; fi
+    if [[ -d "$sdir" ]]; then session_describe "$sdir"; else echo "$no_session"; fi
     exit 0 ;;
   stop)
     if [[ -d "$sdir" ]]; then session_kill "$sdir"; echo "session for ${role}@${svc}/${db} in ${ns} stopped"
-    else echo "no session for ${role}@${svc}/${db} in ${ns}"; fi
+    else echo "$no_session"; fi
     exit 0 ;;
 esac
 
@@ -467,8 +475,10 @@ if [[ "$session" == start ]]; then
   echo "$pf_pid" >"$sdir/pf.pid"
   echo "$watcher_pid" >"$sdir/watcher.pid"
   echo "$client_pid" >"$sdir/client.pid"
-  printf 'ns=%s cluster=%s db=%s role=%s endpoint=%s port=%s started=%s\n' \
-    "$ns" "$cluster" "$db" "$role" "$endpoint" "$port" "$(date '+%Y-%m-%d %H:%M:%S')" >"$sdir/info"
+  # The issuer names the environment (dex.dev… vs dex.prod…) in a way the
+  # API server URL keying the session directory doesn't.
+  printf 'ns=%s cluster=%s db=%s role=%s endpoint=%s port=%s issuer=%s started=%s\n' \
+    "$ns" "$cluster" "$db" "$role" "$endpoint" "$port" "$issuer" "$(date '+%Y-%m-%d %H:%M:%S')" >"$sdir/info"
   # The first line psql prints proves the connection — and the device flow
   # behind it — is up. Meanwhile relay the session's stderr, where the device
   # prompt and the browser notice land, to ours (the watcher writes whole
