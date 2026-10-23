@@ -290,7 +290,7 @@ issuer="$(grep -om1 'issuer="[^"]*"' <<<"$hba" | cut -d'"' -f2 || true)"
 
 # sslmode=require, deliberately not verify-full: the oauth hba rule is
 # hostssl so TLS is mandatory, but the server certificate names the
-# in-cluster Services, not localhost (runbook option 5 has the same caveat).
+# in-cluster Services, not localhost.
 #
 # oauth_scope must ask for email: dex only embeds the email claim — the
 # validator's authn_field, i.e. what maps the token to a role — when the

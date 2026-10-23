@@ -7,8 +7,6 @@ Examples use **goalert**; for another app substitute `<app>` and `<app>-db`. Eac
 | [1. SSO](#option-1-oauth-developer-sso-for-databases-with-the-pg-oauth-block-enabled) | Everyday queries | Your own role |
 | [2. Claude with SSO](#option-2-using-claude-with-sso-using-psql-oauthsh-sessions) | Letting Claude Code query for you | Your own role |
 | [3. `kubectl cnpg`](#option-3-the-kubectl-cnpg-plugin) | Superuser tasks | `postgres` superuser |
-| [4. `kubectl exec`](#option-4-plain-kubectl-exec) | Superuser, without the plugin | `postgres` superuser |
-| [5. Port-forward](#option-5-port-forwarding-for-local-clients-dbeaver-etc) | DBeaver and other local clients | The app's role |
 
 Use SSO (1 or 2) wherever the database has the `pg-oauth` block enabled: it's the only option that attributes your session to you.
 
@@ -58,37 +56,6 @@ kubectl cnpg psql goalert-db -n goalert -- goalert             # on the primary
 kubectl cnpg psql goalert-db -n goalert --replica -- goalert   # on a replica
 kubectl cnpg status goalert-db -n goalert                      # primary, lag, backups
 ```
-
-## Option 4: plain kubectl exec
-
-Option 3 without the plugin:
-
-```shell
-kubectl -n goalert exec -it "$(kubectl -n goalert get cluster goalert-db -o jsonpath='{.status.currentPrimary}')" -c postgres -- psql goalert
-```
-
-Keep `-c postgres`: without it kubectl may pick the backup sidecar. To use a replica, exec into one of the pods from `kubectl -n goalert get pods -l cnpg.io/cluster=goalert-db,cnpg.io/instanceRole=replica`.
-
-## Option 5: port-forwarding, for local clients (DBeaver etc.)
-
-Connects as the app's role with its client certificate:
-
-```shell
-kubectl -n goalert get secret goalert-db-client-cert -o jsonpath='{.data.tls\.crt}' | base64 -d > /tmp/goalert-db.crt
-kubectl -n goalert get secret goalert-db-client-cert -o jsonpath='{.data.tls\.key}' | base64 -d > /tmp/goalert-db.key
-chmod 600 /tmp/goalert-db.key
-kubectl -n goalert port-forward svc/goalert-db-rw 15432:5432   # svc/goalert-db-ro to stay on a replica
-```
-
-Then connect to host `localhost`, port `15432`, user and database `goalert`, with the certificate files above (DBeaver: the connection's SSL tab). With psql:
-
-```shell
-psql "host=localhost port=15432 user=goalert dbname=goalert sslmode=require sslcert=/tmp/goalert-db.crt sslkey=/tmp/goalert-db.key"
-```
-
-- Use `sslmode=require`. `verify-full` fails through a port-forward because the certificate names the in-cluster Services.
-- Databases older than cert auth use a password instead: `kubectl -n <app> get secret <app>-db-app -o jsonpath='{.data.password}' | base64 -d`.
-- The forward sticks to one pod. After a failover or switchover, restart it.
 
 ## Related
 

@@ -27,7 +27,7 @@
 # 6. Wire the app to its client certificate — README.md in this directory
 #    has the full example (volume mount, env vars or DSN, verification).
 #
-# Connecting a psql or GUI client: runbooks/connect-cnpg-database.md.
+# Connecting with psql: runbooks/connect-cnpg-database.md.
 # Restoring from backup: runbooks/restore-cnpg-database.md.
 # Moving to a new postgres major: runbooks/upgrade-cnpg-database.md.
 #

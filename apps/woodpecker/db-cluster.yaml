@@ -11,7 +11,7 @@
 # aws-eks-template entry (local.cnpg_databases in cluster/cnpg-backups.tf)
 # that provisions the bucket and IRSA role referenced below.
 #
-# Connecting a psql or GUI client: runbooks/connect-cnpg-database.md.
+# Connecting with psql: runbooks/connect-cnpg-database.md.
 # Restoring from backup: runbooks/restore-cnpg-database.md.
 # Moving to a new postgres major: runbooks/upgrade-cnpg-database.md.
 #
