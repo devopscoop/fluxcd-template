@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 
 # One-command OAuth developer SSO psql on a CNPG database whose Cluster has
-# the pg-oauth marker block enabled — the scripted version of option 4 in
+# the pg-oauth marker block enabled — the scripted version of option 1 in
 # runbooks/connect-cnpg-database.md, which documents the prerequisites and
 # the privilege model. It reads the issuer from the Cluster's pg_hba,
-# port-forwards the read-write Service, runs psql's OAuth device flow, and
-# tears the forward down on exit.
+# port-forwards one of the Cluster's Services (a read-only replica unless -e
+# says otherwise), runs psql's OAuth device flow, and tears the forward down
+# on exit.
 #
 # Interactive or batch. With a terminal on stdin and no -c/-f you get the
 # psql prompt. Otherwise (SQL via -c/-f after `--`, or piped in) psql runs
@@ -18,25 +19,32 @@
 #
 # Sessions amortise that approval. `--session start APP` leaves the
 # port-forward and a connected psql in the background; later batch runs
-# against the same database are fed to it over a FIFO with no browser, until
-# `--session stop APP` (`--session status` lists them). A session request
+# against the same target — database, role, endpoint, and Kubernetes cluster
+# (dev and prod can share every name) — are fed to it over a FIFO with no
+# browser, until `--session stop APP` (`--session status` lists them, with
+# the issuer naming each one's environment). A session request
 # takes SQL via -c/-f/stdin plus output flags -A -t -x -F -v --csv; anything
-# else needs a fresh connection. A CNPG switchover ends a session (the
-# forward pins one pod); the next request says so and connects afresh.
+# else needs a fresh connection. The forward pins one pod, so a CNPG
+# switchover can end a session (the next request says so and connects
+# afresh) — or, if it promotes the replica an ro/r session is pinned to,
+# leave that session running on the new primary.
 #
 # APP sets namespace/Cluster/database by convention (APP, APP-db, APP);
 # -n/-c/-d override them. Everything after `--` goes to psql verbatim. The
 # local psql must be 18+ with libpq's OAuth module (PGDG libpq-oauth, Arch
 # postgresql-libs, or Homebrew postgresql@18, which lands on PATH as psql-18).
 #
-# Usage: ./psql-oauth.sh [-U ROLE] [-p PORT] [-i CLIENT_ID] [--print] APP [-- PSQL_ARGS...]
-#        ./psql-oauth.sh [-U ROLE] [-p PORT] [-i CLIENT_ID] [--print] -n NAMESPACE -c CLUSTER -d DBNAME [-- PSQL_ARGS...]
-#        ./psql-oauth.sh [-U ROLE] [-p PORT] [-i CLIENT_ID] --session start|stop|status APP
+# Usage: ./psql-oauth.sh [-U ROLE] [-e ro|r|rw] [-p PORT] [-i CLIENT_ID] [--print] APP [-- PSQL_ARGS...]
+#        ./psql-oauth.sh [-U ROLE] [-e ro|r|rw] [-p PORT] [-i CLIENT_ID] [--print] -n NAMESPACE -c CLUSTER -d DBNAME [-- PSQL_ARGS...]
+#        ./psql-oauth.sh [-U ROLE] [-e ro|r|rw] [-p PORT] [-i CLIENT_ID] --session start|stop|status APP
 #        ./psql-oauth.sh --session status
 #
 # ROLE defaults to $PGUSER, else `git config user.email`'s local part, else
-# $USER (pg-oauth names roles after email local parts). --print shows the
-# equivalent manual commands and exits.
+# $USER (pg-oauth names roles after email local parts). -e picks the CNPG
+# Service to forward: ro (replicas only, the default — exploratory load stays
+# off the primary and a stray write fails as read-only), r (any instance), or
+# rw (the primary, for writes). --print shows the equivalent manual commands
+# and exits.
 
 # https://vaneyckt.io/posts/safer_bash_scripts_with_set_euxo_pipefail/
 set -Eeuo pipefail
@@ -47,6 +55,7 @@ usage() {
 }
 
 role="${PGUSER:-}"
+endpoint=ro
 port=15432
 client_id="psql"
 print_only=false
@@ -63,6 +72,9 @@ while [[ $# -gt 0 ]]; do
     -c) cluster="$2"; shift 2 ;;
     -d) db="$2"; shift 2 ;;
     -U) role="$2"; shift 2 ;;
+    -e)
+      case "${2:-}" in ro|r|rw) endpoint="$2" ;; *) usage ;; esac
+      shift 2 ;;
     -p) port="$2"; shift 2 ;;
     -i) client_id="$2"; shift 2 ;;
     --print) print_only=true; shift ;;
@@ -77,7 +89,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Session state lives in a per-user runtime directory: one subdirectory per
-# database+role holding the FIFO psql reads, its stdout/stderr logs and pids.
+# target holding the FIFO psql reads, its stdout/stderr logs and pids.
 session_root="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/psql-oauth-$(id -u)"
 
 session_state() {  # $1: session dir → alive | starting | dead
@@ -115,15 +127,22 @@ if [[ -z "$role" ]]; then
   role="$(git config user.email 2>/dev/null | cut -d@ -f1 || true)"
 fi
 role="${role:-$USER}"
-sdir="${session_root}/${ns}_${cluster}_${db}_${role}"
+svc="${cluster}-${endpoint}"
+# The target includes the Kubernetes cluster, named by the active kubeconfig's
+# API server (a local lookup, no API call): dev and prod can hold the same
+# namespace, Cluster, database and role, and a request must never be answered
+# by the other environment's session.
+kube_server="$(kubectl config view --minify -o jsonpath='{.clusters[0].cluster.server}' 2>/dev/null || true)"
+sdir="${session_root}/${ns}_${cluster}_${db}_${role}_${endpoint}_$(printf '%s' "$kube_server" | cksum | cut -d' ' -f1)"
+no_session="no session for ${role}@${svc}/${db} in ${ns} on ${kube_server:-the active kubeconfig cluster}"
 
 case "$session" in
   status)
-    if [[ -d "$sdir" ]]; then session_describe "$sdir"; else echo "no session for ${role}@${cluster}/${db} in ${ns}"; fi
+    if [[ -d "$sdir" ]]; then session_describe "$sdir"; else echo "$no_session"; fi
     exit 0 ;;
   stop)
-    if [[ -d "$sdir" ]]; then session_kill "$sdir"; echo "session for ${role}@${cluster}/${db} in ${ns} stopped"
-    else echo "no session for ${role}@${cluster}/${db} in ${ns}"; fi
+    if [[ -d "$sdir" ]]; then session_kill "$sdir"; echo "session for ${role}@${svc}/${db} in ${ns} stopped"
+    else echo "$no_session"; fi
     exit 0 ;;
 esac
 
@@ -259,9 +278,9 @@ session_request() {
 if [[ -z "$session" ]] && ! $print_only && $batch && [[ -d "$sdir" ]]; then
   case "$(session_state "$sdir")" in
     alive) session_request ;;
-    starting) echo "A session for ${role}@${cluster}/${db} is still starting (approve its login, or wait); retry shortly." >&2; exit 2 ;;
+    starting) echo "A session for ${role}@${svc}/${db} is still starting (approve its login, or wait); retry shortly." >&2; exit 2 ;;
     dead)
-      echo "The session for ${role}@${cluster}/${db} in ${ns} has ended; its last output:" >&2
+      echo "The session for ${role}@${svc}/${db} in ${ns} has ended; its last output:" >&2
       tail -n 3 "$sdir/err" 2>/dev/null >&2 || true
       echo "Cleaning it up and connecting afresh." >&2
       session_kill "$sdir" ;;
@@ -279,7 +298,7 @@ issuer="$(grep -om1 'issuer="[^"]*"' <<<"$hba" | cut -d'"' -f2 || true)"
 
 # sslmode=require, deliberately not verify-full: the oauth hba rule is
 # hostssl so TLS is mandatory, but the server certificate names the
-# in-cluster Services, not localhost (runbook option 3 has the same caveat).
+# in-cluster Services, not localhost.
 #
 # oauth_scope must ask for email: dex only embeds the email claim — the
 # validator's authn_field, i.e. what maps the token to a role — when the
@@ -290,7 +309,7 @@ conninfo() {
 }
 
 if $print_only; then
-  echo "kubectl -n ${ns} port-forward svc/${cluster}-rw ${port}:5432"
+  echo "kubectl -n ${ns} port-forward svc/${svc} ${port}:5432"
   cmd="psql \"$(conninfo 127.0.0.1)\""
   for arg in ${psql_args[@]+"${psql_args[@]}"}; do
     cmd+=" $(printf '%q' "$arg")"
@@ -331,8 +350,18 @@ fi
 # peer ... lost connection to pod", which is pure teardown noise — but the
 # same stream carries the real reason when the forward fails to start, so
 # the failure branch below replays it.
+#
+# Refuse a port something already listens on — typically another session's
+# forward, perhaps to a different Service: kubectl would fail to bind, but
+# the readiness probe below would get through to that listener, and psql
+# would connect to whatever it points at (the primary, say, for an ro run).
+if (exec 3<>"/dev/tcp/127.0.0.1/${port}") 2>/dev/null; then
+  echo "127.0.0.1:${port} is already in use (another session? see --session status) — pick a free port with -p." >&2
+  rm -rf "$tmp"
+  exit 1
+fi
 pf_err="$tmp/port-forward.err"
-kubectl -n "$ns" port-forward "svc/${cluster}-rw" "${port}:5432" </dev/null >/dev/null 2>"$pf_err" &
+kubectl -n "$ns" port-forward "svc/${svc}" "${port}:5432" </dev/null >/dev/null 2>"$pf_err" &
 pf_pid=$!
 persist=false
 cleanup() {
@@ -345,18 +374,25 @@ trap cleanup EXIT
 
 # Wait for the forward to listen (bash's /dev/tcp; the subshell closes the
 # probe socket). If kubectl dies first — bad Service name, no kubeconfig —
-# surface that instead of spinning.
+# surface that instead of spinning. A Service that selects no running pod
+# keeps kubectl waiting silently (up to its 1m --pod-running-timeout), which
+# is what -ro does on a single-instance Cluster: it has no replicas.
 up=false
 for _ in {1..50}; do
   if (exec 3<>"/dev/tcp/127.0.0.1/${port}") 2>/dev/null; then up=true; break; fi
   if ! kill -0 "$pf_pid" 2>/dev/null; then
-    echo "port-forward exited — does svc/${cluster}-rw exist in namespace ${ns}?" >&2
+    echo "port-forward exited — does svc/${svc} exist in namespace ${ns}?" >&2
     cat "$pf_err" >&2
     exit 1
   fi
   sleep 0.2
 done
-$up || { echo "port-forward never came up on 127.0.0.1:${port}" >&2; exit 1; }
+if ! $up; then
+  echo "port-forward never came up on 127.0.0.1:${port} — does svc/${svc} have a running pod?" >&2
+  [[ "$endpoint" != ro ]] || echo "(-e ro needs a replica; on a single-instance Cluster use -e r or -e rw.)" >&2
+  cat "$pf_err" >&2
+  exit 1
+fi
 
 # Batch mode: the device-flow prompt libpq prints to stderr — "Visit URL and
 # enter the code: CODE" — is either unseen (no terminal: it would sit there
@@ -439,8 +475,10 @@ if [[ "$session" == start ]]; then
   echo "$pf_pid" >"$sdir/pf.pid"
   echo "$watcher_pid" >"$sdir/watcher.pid"
   echo "$client_pid" >"$sdir/client.pid"
-  printf 'ns=%s cluster=%s db=%s role=%s port=%s started=%s\n' \
-    "$ns" "$cluster" "$db" "$role" "$port" "$(date '+%Y-%m-%d %H:%M:%S')" >"$sdir/info"
+  # The issuer names the environment (dex.dev… vs dex.prod…) in a way the
+  # API server URL keying the session directory doesn't.
+  printf 'ns=%s cluster=%s db=%s role=%s endpoint=%s port=%s issuer=%s started=%s\n' \
+    "$ns" "$cluster" "$db" "$role" "$endpoint" "$port" "$issuer" "$(date '+%Y-%m-%d %H:%M:%S')" >"$sdir/info"
   # The first line psql prints proves the connection — and the device flow
   # behind it — is up. Meanwhile relay the session's stderr, where the device
   # prompt and the browser notice land, to ours (the watcher writes whole
@@ -475,9 +513,9 @@ if [[ "$session" == start ]]; then
   relay_err
   rm -f "$sdir/starting"
   persist=true
-  stop_hint="$0 --session stop -U ${role}"
+  stop_hint="$0 --session stop -U ${role} -e ${endpoint}"
   if [[ -n "$app" ]]; then stop_hint+=" ${app}"; else stop_hint+=" -n ${ns} -c ${cluster} -d ${db}"; fi
-  echo "Session up: ${role}@${cluster}/${db} in ${ns} (port-forward on 127.0.0.1:${port})."
+  echo "Session up: ${role}@${svc}/${db} in ${ns} (port-forward on 127.0.0.1:${port})."
   echo "Batch runs against it now skip the browser; stop it with:"
   echo "  ${stop_hint}"
   exit 0

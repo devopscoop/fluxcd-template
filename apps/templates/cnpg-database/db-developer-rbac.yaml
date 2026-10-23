@@ -1,17 +1,16 @@
 # Developer access for psql-oauth.sh (runbooks/connect-cnpg-database.md,
-# option 4). Copy this file alongside db-cluster.yaml when enabling the
+# option 1). Copy this file alongside db-cluster.yaml when enabling the
 # pg-oauth block and add it to the app's kustomization.yaml resources.
 #
 # The OAuth login path needs two things read-only SSO roles (the
 # cluster-viewers group, bound to the aggregated `view` ClusterRole in
 # apps/cluster-viewers) don't have:
 #   - get on the Cluster CR: psql-oauth.sh reads the oauth issuer from
-#     .spec.postgresql.pg_hba and validates the role name against
-#     .spec.managed.roles — no secrets in either;
+#     .spec.postgresql.pg_hba — no secrets there;
 #   - a port-forward to the database: `view` has no create on
 #     pods/portforward (it's a write verb by design), and kubectl resolves
-#     svc/<app>-db-rw to a pod first, which takes get on services and
-#     get/list on pods.
+#     svc/<app>-db-ro (or -r/-rw) to a pod first, which takes get on
+#     services and get/list on pods.
 # Namespace-scoped on purpose: this only opens a network path to THIS
 # namespace's pods — i.e. the database — and Postgres still authenticates
 # every connection (oauth for developers, scram for the apps). Bound to the
