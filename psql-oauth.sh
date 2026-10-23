@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # One-command OAuth developer SSO psql on a CNPG database whose Cluster has
-# the pg-oauth marker block enabled — the scripted version of option 4 in
+# the pg-oauth marker block enabled — the scripted version of option 1 in
 # runbooks/connect-cnpg-database.md, which documents the prerequisites and
 # the privilege model. It reads the issuer from the Cluster's pg_hba,
 # port-forwards one of the Cluster's Services (a read-only replica unless -e
@@ -290,7 +290,7 @@ issuer="$(grep -om1 'issuer="[^"]*"' <<<"$hba" | cut -d'"' -f2 || true)"
 
 # sslmode=require, deliberately not verify-full: the oauth hba rule is
 # hostssl so TLS is mandatory, but the server certificate names the
-# in-cluster Services, not localhost (runbook option 3 has the same caveat).
+# in-cluster Services, not localhost (runbook option 5 has the same caveat).
 #
 # oauth_scope must ask for email: dex only embeds the email claim — the
 # validator's authn_field, i.e. what maps the token to a role — when the

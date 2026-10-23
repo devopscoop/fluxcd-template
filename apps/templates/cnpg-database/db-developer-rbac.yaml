@@ -1,5 +1,5 @@
 # Developer access for psql-oauth.sh (runbooks/connect-cnpg-database.md,
-# option 4). Copy this file alongside db-cluster.yaml when enabling the
+# option 1). Copy this file alongside db-cluster.yaml when enabling the
 # pg-oauth block and add it to the app's kustomization.yaml resources.
 #
 # The OAuth login path needs two things read-only SSO roles (the
