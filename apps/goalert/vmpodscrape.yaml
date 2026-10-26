@@ -3,10 +3,15 @@
 # counters, HTTP server/client stats — from the :2112 listener that
 # values.yaml's GOALERT_LISTEN_PROMETHEUS enables.
 #
-# A pod scrape by port NUMBER, because the app chart hardcodes exactly one
-# named containerPort and one Service port (the :8081 UI/API), so :2112 is
-# neither named nor on the Service — portNumber is the only selector that
-# reaches it. In-app rather than in victoria-metrics-custom-resources
+# The app chart hardcodes exactly one named containerPort and one Service
+# port (the :8081 UI/API), so :2112 is neither declared on the container nor
+# on the Service. Kubernetes pod discovery only emits a target per DECLARED
+# containerPort, so a `portNumber: 2112` selector matched nothing (vmagent
+# reported the scrape pool with 0 targets — ScrapePoolHasNoTargets). Instead,
+# take the one target discovery does emit (the `http` :8081 port) and
+# rewrite its address to :2112 — the pod IP part is kept as-is, which is
+# what makes the bracketed IPv6 addresses on this cluster survive the
+# rewrite. In-app rather than in victoria-metrics-custom-resources
 # because GoAlert only ships as part of the VictoriaMetrics stack (same
 # reasoning as apps/tempo/vmservicescrape.yaml); the flux Kustomization's
 # dependsOn victoria-metrics provides the CRD ordering.
@@ -26,4 +31,9 @@ spec:
       app.kubernetes.io/name: app
       app.kubernetes.io/instance: goalert
   podMetricsEndpoints:
-    - portNumber: 2112
+    - port: http
+      relabelConfigs:
+        - sourceLabels: [__address__]
+          regex: "(.*):8081"
+          replacement: "$1:2112"
+          targetLabel: __address__
