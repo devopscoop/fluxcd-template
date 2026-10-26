@@ -10,7 +10,7 @@
 #   (see the metric-name note below), so upstream's exprs match nothing on
 #   a v0.158.0 collector.
 # - Collapsed the per-signal triplets into one rule each via a __name__
-#   regex (the envoy-vm.yaml circuit-breaker pattern) — the signal is
+#   regex (the apps/eg/vm.yaml circuit-breaker pattern) — the signal is
 #   readable from the description's rate split, and nine near-identical
 #   rules would page identically anyway.
 # - "for" windows lengthened (2m -> 10m): upstream pages on any transient
@@ -152,7 +152,7 @@ spec:
         # is a duplicate page in that case), but gating would add a second
         # silent naming assumption of exactly the kind being guarded
         # against. Same trade-off as CNPGFleetMetricsAbsent in
-        # apps/victoria-metrics-custom-resources/cnpg-vm.yaml.
+        # apps/cnpg/vm.yaml.
         - alert: OtelcolSelfMetricsAbsent
           annotations:
             summary: The collector's own counters are missing from VictoriaMetrics.

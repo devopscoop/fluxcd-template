@@ -1,0 +1,23 @@
+# https://fluxcd.io/flux/components/source/ocirepositories/
+# https://fluxcd.io/flux/components/helm/helmreleases/#ocirepository-reference-example
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  # ${org_name}-${chart_name}
+  name: victoriametrics-victoria-metrics-operator-crds
+spec:
+  interval: 10m
+  layerSelector:
+    mediaType: "application/vnd.cncf.helm.chart.content.v1.tar+gzip"
+    operation: copy
+  ref:
+    # Keep in step with the operator that apps/victoria-metrics runs: chart
+    # 0.14.0 carries the CRDs of operator v0.74.0, the version
+    # victoria-metrics-k8s-stack 0.91.2 bundles (its victoria-metrics-operator
+    # subchart 0.67.2). Bump this with the stack — README.md in
+    # apps/victoria-metrics → "Upgrading" — CRDs first, then the operator.
+    tag: 0.14.0
+  # For private OCI repos, use a kubernetes.io/dockerconfigjson secret
+  # secretRef:
+  #   name: registry-auth
+  url: oci://ghcr.io/victoriametrics/helm-charts/victoria-metrics-operator-crds

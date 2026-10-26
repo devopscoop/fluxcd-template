@@ -11,7 +11,11 @@ The metrics half of the VictoriaMetrics observability stack, via the [victoria-m
 
 ## CRD ownership
 
-victoria-metrics + victoria-logs + tempo + otel-collector + goalert form the observability stack. This chart installs only the VictoriaMetrics CRDs (`operator.victoriametrics.com`); its operator *converts* prometheus-operator objects (`ServiceMonitor`, `PodMonitor`, `PrometheusRule`, …) but does not install their `monitoring.coreos.com` CRDs, so a chart's `serviceMonitor.enabled` toggle fails the apply here — write a `VMServiceScrape`/`VMPodScrape` instead (AGENTS.md → "Monitoring conventions"). If a chart ever leaves no other option, install the [prometheus-operator-crds](https://artifacthub.io/packages/helm/prometheus-community/prometheus-operator-crds) chart as its own app; from this chart's perspective those CRDs are read-only inputs, so there is no conflict with whoever installs them.
+victoria-metrics + victoria-logs + tempo + otel-collector + goalert form the observability stack, and it is a required part of this template: every app ships its own VM scrape/rule objects (AGENTS.md → "Monitoring conventions").
+
+The VictoriaMetrics CRDs (`operator.victoriametrics.com`) come from `apps/victoria-metrics-crds`, not from this chart (its `victoria-metrics-operator.crds` install is off). That app installs nothing but the CRDs and depends on nothing, so every app with VM objects — this one included — can depend on it without depending on the whole stack. The stack itself can't be that dependency: it ships HTTPRoutes, so it needs eg's Gateway API CRDs, and it has `wait: true`, so a failing Grafana or vmsingle upgrade would hold every dependent app. The CRDs carry `helm.sh/resource-policy: keep`, because deleting a CRD deletes every object of its kind.
+
+The operator *converts* prometheus-operator objects (`ServiceMonitor`, `PodMonitor`, `PrometheusRule`, …) but does not install their `monitoring.coreos.com` CRDs, so a chart's `serviceMonitor.enabled` toggle fails the apply here — write a `VMServiceScrape`/`VMPodScrape` instead (AGENTS.md → "Monitoring conventions"). If a chart ever leaves no other option, install the [prometheus-operator-crds](https://artifacthub.io/packages/helm/prometheus-community/prometheus-operator-crds) chart as its own app; from this chart's perspective those CRDs are read-only inputs, so there is no conflict with whoever installs them.
 
 ## Alert routing (Slack + GoAlert)
 
@@ -37,10 +41,12 @@ The bundled alert rules assume a severity ladder that Alertmanager only enforces
 
 ## Enabling this app
 
-deploy.sh's `core_app_list` registers `victoria-metrics.yaml`, `victoria-logs.yaml`, `tempo.yaml`, `otel-collector.yaml`, `goalert.yaml` (plus `cnpg.yaml` for GoAlert's database) in `flux/flux-system/kustomization.yaml` at bootstrap.
+deploy.sh's `core_app_list` registers `victoria-metrics-crds.yaml`, `victoria-metrics.yaml`, `victoria-logs.yaml`, `tempo.yaml`, `otel-collector.yaml`, `goalert.yaml` (plus `cnpg.yaml` for GoAlert's database) in `flux/flux-system/kustomization.yaml` at bootstrap.
 
 ## Notes
 
 - The cluster is IPv6-only, and VictoriaMetrics binaries listen and dial IPv4-only by default; every VM component in values.yaml sets `enableTCP6: "true"`. Alertmanager, Grafana, and the exporters are ordinary dual-stack Go listeners and need nothing.
 - The chart's sync-job fetches the default dashboards and rules from raw.githubusercontent.com at install time, and at every Grafana pod start the plugins download from grafana.com and the `grafana.dashboards` entries in values.yaml (the per-app dashboards) download from grafana.com and raw.githubusercontent.com — all of it needs internet egress.
+- Upgrading the chart: keep `apps/victoria-metrics-crds/ocirepo.yaml` on the `victoria-metrics-operator-crds` release whose appVersion matches the operator this chart bundles (`helm show chart` on the `victoria-metrics-operator` subchart in the new k8s-stack version). Bump the CRDs first, or in the same commit: Flux upgrades `victoria-metrics-crds` before `victoria-metrics` because of the dependsOn.
+- Migrating a repo that predates `victoria-metrics-crds` (it had `apps/victoria-metrics-custom-resources`): in the same change that pulls this in, replace `victoria-metrics-custom-resources.yaml` with `victoria-metrics-crds.yaml` in `flux/flux-system/kustomization.yaml` — a resources entry naming a deleted file breaks the whole flux-system build — and move any repo-local files from the old app into the app they monitor. On the cluster nothing needs doing by hand. The new HelmRelease takes ownership of the existing CRDs, which this chart had installed from its `crds/` directory; Helm never deletes those, so turning the chart's CRDs off removes nothing. Flux prunes the old Kustomization's objects from the `victoria-metrics` namespace as the moved copies appear in each app's namespace. Pod scrapes without a `jobLabel` start new series under `job="<app namespace>/<name>"`; no shipped rule or dashboard matches on the old `victoria-metrics/<name>` value.
 - vmsingle and Alertmanager are singletons; on EKS, deploy.sh pins them to on-demand capacity (the `>>> karpenter` blocks in values.yaml).

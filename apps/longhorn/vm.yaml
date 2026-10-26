@@ -4,15 +4,14 @@
 # metrics port; default /metrics path), mirroring the ServiceMonitor the
 # chart's metrics.serviceMonitor.enabled would create (verified by rendering
 # chart 1.10.0, apps/longhorn's pin), which is unusable here for the
-# CRD-ownership reason in cnpg-vm.yaml. These series feed
+# CRD-ownership reason in apps/cnpg/vm.yaml. These series feed
 # the VMRule below and the Longhorn dashboard in apps/victoria-metrics.
 #
 # Longhorn's runtime-created CSI sidecars expose no metrics endpoints, so
 # the managers are the whole scrape surface.
 #
-# apps/longhorn is opt-in (no deploy.sh list registers it), so this file is
-# only referenced from kustomization.yaml inside the longhorn marker block —
-# see the marker note there.
+# Ships with the app (listed in this app's kustomization.yaml), so it
+# applies exactly when the opt-in longhorn app does.
 apiVersion: operator.victoriametrics.com/v1beta1
 kind: VMServiceScrape
 metadata:

@@ -6,7 +6,7 @@
 # pkg/operator/ceph/cluster/mgr reconcileServices), so no chart change is
 # needed; keep the chart's monitoring.enabled OFF — all it adds is
 # prometheus-operator objects, and with the monitoring.coreos.com CRDs
-# absent (see cnpg-vm.yaml) enabling it makes rook's
+# absent (see apps/cnpg/vm.yaml) enabling it makes rook's
 # exporter reconcile fail outright.
 #
 # The Service's own selector carries mgr_role=active, so with two mgrs only
@@ -22,9 +22,9 @@
 # job="rook-ceph-mgr" (the Service name) is load-bearing: the vendored
 # ceph rule set's PrometheusJobMissing alert is absent(up{job="rook-ceph-mgr"}).
 #
-# Opt-in, like apps/rook-ceph itself — referenced from kustomization.yaml
-# inside a rook-ceph marker block; run
-# ./toggle_blocks.sh --enable rook-ceph when enabling the app.
+# Ships with the CephCluster (listed in this app's kustomization.yaml):
+# the mgr and exporter Services exist only once rook-ceph-cluster does, so
+# this applies exactly when there is something to scrape.
 apiVersion: operator.victoriametrics.com/v1beta1
 kind: VMServiceScrape
 metadata:
@@ -53,8 +53,6 @@ spec:
 # honorLabels for the same join reason as the mgr scrape above;
 # job="rook-ceph-exporter" (the Service name) satisfies the rule set's
 # PrometheusJobExporterMissing.
-#
-# Opt-in — gated by the same rook-ceph marker block as the mgr scrape.
 apiVersion: operator.victoriametrics.com/v1beta1
 kind: VMServiceScrape
 metadata:
@@ -105,9 +103,6 @@ spec:
 # see the scrapes above. Most everything else keys off ceph_health_detail,
 # i.e. `ceph health detail` as series, which is the right altitude for one
 # small cluster.
-#
-# Opt-in -- gated by the same rook-ceph marker block as the scrapes:
-# run ./toggle_blocks.sh --enable rook-ceph when enabling the app.
 apiVersion: operator.victoriametrics.com/v1beta1
 kind: VMRule
 metadata:

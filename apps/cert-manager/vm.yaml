@@ -4,7 +4,7 @@
 # cainjector (controller-runtime internals only) — each on :9402 /metrics,
 # plain HTTP (no metricsTLSConfig in apps/cert-manager/values.yaml). Mirrors
 # what the chart's prometheus.servicemonitor.enabled would create, which is
-# unusable here for the CRD-ownership reason in cnpg-vm.yaml.
+# unusable here for the CRD-ownership reason in apps/cnpg/vm.yaml.
 #
 # One scrape object, three endpoints: the chart names the metrics port
 # differently on each Service (verified by rendering chart v1.20.0,
@@ -54,7 +54,7 @@ spec:
 # wildcard certs the Gateways serve
 # (apps/cert-manager-custom-resources/clusterissuer.yaml), so one
 # not-ready Certificate can take every hostname down at expiry. The last
-# line of defense after these is envoy-vm.yaml's
+# line of defense after these is apps/eg/vm.yaml's
 # EnvoyTlsCertExpiringSoon, which watches the certs actually loaded in the
 # proxies.
 apiVersion: operator.victoriametrics.com/v1beta1

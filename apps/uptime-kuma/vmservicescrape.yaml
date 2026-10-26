@@ -2,14 +2,12 @@
 # gauges — from its Service's only port (:3001 serves the UI and /metrics
 # alike). Feeds vmrule.yaml and the dashboard ConfigMap next to this file.
 #
-# In-app rather than in apps/victoria-metrics-custom-resources because the
-# basicAuth secret refs below resolve against the scrape object's OWN
-# namespace (VictoriaMetrics operator behavior), and the credentials
-# already live here as autokuma-kuma-credentials — the alternative is
-# duplicating a SOPS secret into the victoria-metrics namespace. The flux
-# Kustomization's dependsOn victoria-metrics provides the CRD ordering
-# (the tempo/otel-collector pattern); like them, this makes the app
-# VM-stack-only as shipped.
+# In-app like every app's monitoring (AGENTS.md → "Monitoring
+# conventions"), which also matters here: the basicAuth secret refs below
+# resolve against the scrape object's OWN namespace (VictoriaMetrics
+# operator behavior), and the credentials already live here as
+# autokuma-kuma-credentials. The flux Kustomization's dependsOn
+# victoria-metrics provides the CRD ordering.
 #
 # Auth semantics worth knowing (uptime-kuma 2.5.0 server/auth.js): with no
 # API key ever created, /metrics wants the ADMIN username+password — the

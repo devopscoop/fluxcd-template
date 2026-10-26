@@ -11,6 +11,7 @@ resources:
   - namespace.yaml
   - helmrepo.yaml
   - release.yaml
+  - vm.yaml
 configMapGenerator:
   - name: valkey-operator-values
     files:

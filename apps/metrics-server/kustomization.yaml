@@ -9,6 +9,7 @@ namespace: metrics-server
 
 resources:
   - release.yaml
+  - vm.yaml
 configMapGenerator:
   - name: metrics-server-values
     files:

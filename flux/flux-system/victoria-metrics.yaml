@@ -4,9 +4,13 @@ metadata:
   name: victoria-metrics
   namespace: flux-system
 spec:
-  # No dependsOn: this app installs the VictoriaMetrics operator and its CRDs,
-  # which the other apps in this stack (victoria-logs, tempo, otel-collector)
-  # depend on -- it's the root of that ordering, not a leaf.
+  # The operator's CRDs come from victoria-metrics-crds (this app's chart has
+  # its own CRD install turned off), and this app's VM* objects (VMSingle,
+  # VMAgent, VMAlert, flux-vm.yaml, the chart's bundled rules) need them
+  # first. Apps that need the running stack, not just its CRDs (goalert,
+  # tempo, otel-collector, opencost, ...) depend on this app in turn.
+  dependsOn:
+    - name: victoria-metrics-crds
   interval: 10m0s
   sourceRef:
     kind: GitRepository

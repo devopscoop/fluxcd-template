@@ -16,13 +16,10 @@
 # every proxy Deployment regardless of Gateway name — the same pair
 # apps/eg-custom-resources uses for topology spread.
 #
-# This lives with the VictoriaMetrics stack rather than in apps/eg:
-# VMPodScrape is an operator.victoriametrics.com CRD, so it can only apply
-# once victoria-metrics has installed the operator, and the gateway has no
-# business waiting on the monitoring stack. (tempo keeps its scrape in-app
-# because tempo exists only alongside victoria-metrics anyway.) Why a
-# sibling app instead of apps/victoria-metrics itself: see
-# kustomization.yaml.
+# Ships with the gateway (listed in this app's kustomization.yaml). Its
+# flux Kustomization depends on victoria-metrics-crds — the CRDs only, not
+# the monitoring stack, which itself needs eg's Gateway API CRDs for its
+# HTTPRoutes (see apps/victoria-metrics-crds/kustomization.yaml).
 apiVersion: operator.victoriametrics.com/v1beta1
 kind: VMPodScrape
 metadata:
@@ -57,8 +54,7 @@ spec:
 # indirectly but severely: a proxy replica that boots while no controller is
 # reachable comes up with no listeners, fail-closed — see the HA rationale in
 # apps/eg/values.yaml — so its xDS health is worth watching alongside the
-# data plane (the pod scrape above, which also explains why these scrape
-# objects live with the VictoriaMetrics stack rather than in apps/eg).
+# data plane (the pod scrape above).
 #
 # The selector is the "control-plane: envoy-gateway" label, which the chart
 # sets on the Service (and its Deployment) regardless of release name.

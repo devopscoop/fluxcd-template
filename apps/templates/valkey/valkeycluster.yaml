@@ -13,14 +13,14 @@
 # 2. Add the file to that app's kustomization.yaml resources, and give the
 #    app's Kustomization in flux/flux-system/ a dependsOn entry for
 #    valkey-operator — that app's HelmRelease installs the ValkeyCluster CRD,
-#    and flux dry-runs every object before applying any (the ordering problem
-#    apps/victoria-metrics-custom-resources/kustomization.yaml explains).
+#    and flux dry-runs every object before applying any, so a CR next to a
+#    CRD that doesn't exist yet fails the whole apply.
 # 3. Review the sizing and comments marked "per app" below: shards/replicas,
 #    resources, maxmemory and eviction policy, persistence.
-# 4. Enable monitoring with the app: ./toggle_blocks.sh --enable
-#    valkey,valkey-instances — see the header of
-#    apps/victoria-metrics-custom-resources/valkey-vm.yaml for the dashboard
-#    and alert set to vendor alongside.
+# 4. Enable the fleet-wide instance scrape when the first ValkeyCluster
+#    ships: ./toggle_blocks.sh --enable valkey-instances — see the header of
+#    apps/valkey-operator/vm.yaml for the dashboard and alert set to vendor
+#    alongside.
 #
 # Decide-before-first-deploy fields, all immutable after creation:
 # workloadType (StatefulSet below; Deployment is the cache-only variant with

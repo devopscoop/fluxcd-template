@@ -4,7 +4,7 @@
 # (:8080, standard /metrics, plain HTTP; verified by rendering chart 1.14.0,
 # apps/karpenter's pin). Mirrors the ServiceMonitor the chart's
 # serviceMonitor.enabled would create, which is unusable here for the
-# CRD-ownership reason in cnpg-vm.yaml.
+# CRD-ownership reason in apps/cnpg/vm.yaml.
 #
 # A service scrape, not a pod scrape, on purpose: the job label defaults to
 # the Service name, and job="karpenter" is what the VMRule below's
@@ -13,11 +13,8 @@
 # job="victoria-metrics/karpenter", and those anchored matchers would go
 # dark).
 #
-# EKS-only, like apps/karpenter itself — this file is referenced from
-# kustomization.yaml inside a karpenter marker block, which deploy.sh
-# enables exactly when it enables the app (a separate marker from eks so
-# Karpenter's monitoring can be toggled on its own, matching the
-# karpenter blocks elsewhere in the repo).
+# Ships with the app (listed in this app's kustomization.yaml), so it
+# applies exactly when Karpenter does — EKS only, via deploy.sh's app list.
 apiVersion: operator.victoriametrics.com/v1beta1
 kind: VMServiceScrape
 metadata:
@@ -40,7 +37,7 @@ spec:
 # adinhodovic/kubernetes-autoscaling-mixin
 # (https://github.com/adinhodovic/kubernetes-autoscaling-mixin/blob/a94c0795e3acca4588d9da249320ddb881290d3b/prometheus_alerts.yaml,
 # the alerting companion to the community Karpenter dashboards; same author
-# as the envoy-mixin behind envoy-vm.yaml): every rule's expr, for,
+# as the envoy-mixin behind apps/eg/vm.yaml): every rule's expr, for,
 # severity, summary, and description is the mixin's, rendered with its
 # default config, so a re-sync is a diff against that file. One deviation:
 # - Dropped the mixin's dashboard_url annotations (they point at the
@@ -54,7 +51,6 @@ spec:
 # when the same call launches an instance, so it paged on routine spot
 # capacity misses. A launch that actually fails is a CloudProvider.Create
 # error, which KarpenterCloudProviderErrors catches (method="Create").
-# EKS-only, gated by the same karpenter marker block as the scrape.
 apiVersion: operator.victoriametrics.com/v1beta1
 kind: VMRule
 metadata:

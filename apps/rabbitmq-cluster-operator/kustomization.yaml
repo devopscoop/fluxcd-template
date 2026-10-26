@@ -6,3 +6,4 @@ resources:
   # https://www.rabbitmq.com/kubernetes/operator/install-operator
   # https://github.com/rabbitmq/cluster-operator/releases
   - https://github.com/rabbitmq/cluster-operator/releases/download/v2.19.0/cluster-operator.yml
+  - vm.yaml

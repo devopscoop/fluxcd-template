@@ -13,6 +13,7 @@ namespace: kube-system
 resources:
   - ocirepo.yaml
   - release.yaml
+  - vm.yaml
 configMapGenerator:
   - name: karpenter-values
     files:

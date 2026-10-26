@@ -11,7 +11,7 @@
 # bearer — not worth managing inside the cluster).
 #
 # The agents expose no metrics. The database is covered by the fleet-wide
-# cnpg-instances VMPodScrape (cnpg-vm.yaml), and the step pods by the
+# cnpg-instances VMPodScrape (apps/cnpg/vm.yaml), and the step pods by the
 # cluster-level kube-state-metrics and cadvisor series like any other pod.
 #
 # No dashboard entry in apps/victoria-metrics/values.yaml: the only upstream
@@ -22,9 +22,8 @@
 # ad-hoc query away; a hand-built ConfigMap dashboard is the follow-up if
 # one is wanted.
 #
-# Opt-in, like the app — gated by the woodpecker marker block in
-# kustomization.yaml: run ./toggle_blocks.sh --enable woodpecker when
-# enabling apps/woodpecker.
+# Ships with the app (listed in this app's kustomization.yaml), so it
+# applies exactly when woodpecker does.
 apiVersion: operator.victoriametrics.com/v1beta1
 kind: VMPodScrape
 metadata:

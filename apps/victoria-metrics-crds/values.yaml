@@ -1,0 +1,11 @@
+# dyff between <(yq . <(helm show values oci://ghcr.io/victoriametrics/helm-charts/victoria-metrics-operator-crds --version 0.14.0)) <(yq eval '. * load("values.yaml")' <(helm show values oci://ghcr.io/victoriametrics/helm-charts/victoria-metrics-operator-crds --version 0.14.0))
+# vim -O <(helm show values oci://ghcr.io/victoriametrics/helm-charts/victoria-metrics-operator-crds --version 0.14.0) values.yaml
+
+crds:
+  annotations:
+    # Helm owns these CRDs, and deleting a CRD deletes every object of its
+    # kind cluster-wide — every VMAgent, VMSingle, scrape and rule. Keep them
+    # if this HelmRelease is ever uninstalled (including Flux pruning it
+    # after this app is dropped from flux/flux-system/kustomization.yaml).
+    # Removing them for real is a deliberate `kubectl delete crd`.
+    helm.sh/resource-policy: keep

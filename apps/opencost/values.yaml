@@ -2,8 +2,8 @@
 # bundled Prometheus and no UI. It reads cluster usage out of the sibling
 # apps/victoria-metrics stack (vmsingle speaks enough of the Prometheus API),
 # computes cost from cloud list/spot pricing, and serves the result on
-# :9003/metrics, which the VMServiceScrape in
-# apps/victoria-metrics-custom-resources scrapes back into vmsingle. The
+# :9003/metrics, which the VMServiceScrape in this app's vm.yaml scrapes
+# back into vmsingle. The
 # "OpenCost / Overview" Grafana dashboard in apps/victoria-metrics reads
 # those series (node_total_hourly_cost, pv_hourly_cost, ...).
 #

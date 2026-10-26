@@ -11,6 +11,7 @@ namespace: rook-ceph
 
 resources:
   - release.yaml
+  - vm.yaml
 configMapGenerator:
   - name: rook-ceph-cluster-values
     files:
