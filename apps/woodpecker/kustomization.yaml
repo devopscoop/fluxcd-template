@@ -25,9 +25,8 @@ resources:
   # The client CA chain and certs behind the cert-based login above — needs
   # the cert-manager CRDs, hence that dependsOn too.
   - db-client-cert.yaml
-  # Monitoring lives in apps/victoria-metrics-custom-resources/
-  # woodpecker-vm.yaml, behind the woodpecker marker block there — enable it
-  # with this app (./toggle_blocks.sh --enable woodpecker).
+  # The server scrape and alert rules; they ship with the app, so no marker.
+  - vm.yaml
 configMapGenerator:
   - name: woodpecker-values
     files:

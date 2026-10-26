@@ -44,8 +44,8 @@ metrics:
   # The chart's ServiceMonitor is a monitoring.coreos.com CR, and those CRDs
   # are not installed here (see apps/victoria-metrics/README.md -> "CRD
   # ownership"), so enabling it fails the apply. Scrape with a VMServiceScrape
-  # in apps/victoria-metrics-custom-resources instead, per AGENTS.md ->
-  # "Monitoring conventions".
+  # in this app's own vm.yaml instead, per AGENTS.md -> "Monitoring
+  # conventions".
   serviceMonitor:
     enabled: false
 

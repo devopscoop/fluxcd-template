@@ -1,0 +1,23 @@
+# https://fluxcd.io/flux/components/helm/helmreleases/
+#
+# The chart renders the CRDs as ordinary templates, so Helm upgrades them
+# with the chart, unlike CRDs in a chart's crds/ directory, which Helm
+# installs once and never touches again. On a cluster where
+# victoria-metrics-k8s-stack already installed them that way (plain, no Helm
+# ownership metadata), the first install takes ownership of the existing
+# CRDs: helm-controller's install.disableTakeOwnership defaults to false.
+# Nothing is deleted or recreated, so existing VM objects are untouched.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: victoria-metrics-crds
+spec:
+  interval: 10m
+  valuesFrom:
+    - kind: ConfigMap
+      name: victoria-metrics-crds-values
+    - kind: Secret
+      name: victoria-metrics-crds-secrets
+  chartRef:
+    kind: OCIRepository
+    name: victoriametrics-victoria-metrics-operator-crds

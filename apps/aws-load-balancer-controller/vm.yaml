@@ -15,8 +15,8 @@
 # controller" — which the vendored dashboard's $job variable and
 # the VMRule below both rely on.
 #
-# EKS-only, like the app — referenced from kustomization.yaml inside an eks
-# marker block, so deploy.sh enables it exactly when it enables the app.
+# Ships with the app (listed in this app's kustomization.yaml), so it
+# applies exactly when the app does — EKS only, via deploy.sh's app list.
 apiVersion: operator.victoriametrics.com/v1beta1
 kind: VMPodScrape
 metadata:
@@ -50,7 +50,6 @@ spec:
 # metric definitions in kubernetes-sigs/aws-load-balancer-controller
 # v3.3.0 pkg/metrics/{aws,lbc}/instruments.go — note the upstream docs
 # table misspells several of these names; the source is authoritative.
-# EKS-only, gated by the same eks marker block as the scrape.
 apiVersion: operator.victoriametrics.com/v1beta1
 kind: VMRule
 metadata:

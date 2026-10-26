@@ -6,7 +6,7 @@
 # frr-metrics sidecar :7473 — one endpoint entry picks up all three, which
 # matches the two-endpoint ServiceMonitor the chart's
 # prometheus.serviceMonitor.enabled would create (unusable here for the
-# CRD-ownership reason in cnpg-vm.yaml; it is also the only thing
+# CRD-ownership reason in apps/cnpg/vm.yaml; it is also the only thing
 # that renders metrics Services, so a pod scrape is the only option under
 # the default values). Plain HTTP /metrics, no auth.
 #
@@ -14,9 +14,9 @@
 # the VMRule below match job=~"metallb.*" (anchored), which the pod-scrape
 # default of "victoria-metrics/metallb" would never satisfy.
 #
-# Non-EKS only, like the app (metallb replaces the AWS NLB on k0s/talos) —
-# this file is referenced from kustomization.yaml inside a metallb marker
-# block, which deploy.sh enables on non-EKS platforms alongside the app.
+# Ships with the app (listed in this app's kustomization.yaml), so it
+# applies exactly when metallb does — non-EKS only (metallb replaces the
+# AWS NLB on k0s/talos), via deploy.sh's app list.
 apiVersion: operator.victoriametrics.com/v1beta1
 kind: VMPodScrape
 metadata:
@@ -38,7 +38,7 @@ spec:
 # PrometheusRule the metallb chart's prometheus.prometheusRule.enabled
 # would render (charts/metallb/templates/prometheusrules.yaml at v0.15.2,
 # apps/metallb's pin — unusable directly for the CRD-ownership reason in
-# cnpg-vm.yaml), with deliberate deviations:
+# apps/cnpg/vm.yaml), with deliberate deviations:
 # - MetalLBConfigNotLoaded raised warning -> critical: no config loaded
 #   means no LoadBalancer gets an address at all.
 # - Kept only the 95% tier of upstream's 75/85/95 pool-usage ladder, and
@@ -54,7 +54,6 @@ spec:
 #   get an address just sits <pending> forever — a silent failure. Pool
 #   exhaustion is one cause (covered above); a Service whose pool
 #   annotation matches nothing is another, and only this rule sees it.
-# Non-EKS only, gated by the same metallb marker block as the scrape.
 apiVersion: operator.victoriametrics.com/v1beta1
 kind: VMRule
 metadata:

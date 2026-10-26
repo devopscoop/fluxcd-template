@@ -1,0 +1,39 @@
+# https://fluxcd.io/flux/guides/helmreleases/#refer-to-values-in-configmaps-generated-with-kustomize
+# https://fluxcd.io/flux/guides/helmreleases/#refer-to-values-in-secret-generated-with-kustomize-and-sops
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# The VictoriaMetrics operator's CRDs (operator.victoriametrics.com:
+# VMPodScrape, VMServiceScrape, VMRule, VMAgent, VMSingle, ...), on their
+# own so everything that ships VM objects can depend on them without
+# depending on the whole stack. VictoriaMetrics is a required part of this
+# template, so every app keeps its own scrape/rule objects in its own
+# directory (AGENTS.md → "Monitoring conventions") and lists this app in its
+# flux Kustomization's dependsOn — including apps/victoria-metrics itself,
+# whose chart has its own CRD install turned off.
+#
+# Depending on the CRDs rather than on apps/victoria-metrics matters for two
+# reasons. The stack ships HTTPRoutes, so it needs eg's Gateway API CRDs; if
+# eg depended on victoria-metrics for its own VM objects, a fresh bootstrap
+# could never start. And victoria-metrics has wait: true, so a failing
+# Grafana or vmsingle upgrade would hold every dependent app back. This app
+# depends on nothing.
+#
+# The CRDs are cluster-scoped; the HelmRelease lives in flux-system, which
+# always exists before any app applies, so there is no namespace.yaml.
+namespace: flux-system
+
+resources:
+  - ocirepo.yaml
+  - release.yaml
+configMapGenerator:
+  - name: victoria-metrics-crds-values
+    files:
+      - values.yaml=values.yaml
+secretGenerator:
+  - name: victoria-metrics-crds-secrets
+    files:
+      - values.yaml=helm_secrets.yaml
+configurations:
+  - kustomizeconfig.yaml

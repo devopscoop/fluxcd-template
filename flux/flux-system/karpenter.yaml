@@ -8,6 +8,7 @@ spec:
   # karpenter-crd chart, which must be reconciled first.
   dependsOn:
     - name: karpenter-crd
+    - name: victoria-metrics-crds # CRDs for vm.yaml's scrape/rule objects
   interval: 10m0s
   sourceRef:
     kind: GitRepository

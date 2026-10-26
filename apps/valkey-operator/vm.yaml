@@ -23,9 +23,8 @@
 # samber/awesome-prometheus-alerts, pruned and re-tuned per AGENTS.md —
 # severity is a page label here, not a filter).
 #
-# Opt-in, like the operator app — gated by the valkey marker block in
-# kustomization.yaml: run ./toggle_blocks.sh --enable valkey when enabling
-# it.
+# Ships with the app (listed in this app's kustomization.yaml), so the
+# operator scrape and rule apply exactly when the operator does.
 apiVersion: operator.victoriametrics.com/v1beta1
 kind: VMServiceScrape
 metadata:
@@ -42,12 +41,10 @@ spec:
 ---
 # Alerting rule for the Valkey operator, evaluated by this stack's vmalert.
 # Upstream ships no alert rules at the valkey-operator 0.6.0 pin, so this is
-# modeled on the rabbitmq-operators rule in rabbitmq-vm.yaml. It
+# modeled on the rabbitmq-operators rule in apps/rabbitmq-cluster-operator/vm.yaml. It
 # deliberately duplicates the bundled KubeDeploymentReplicasMismatch for
 # this one Deployment — kept because it names the operator and what stops
 # working in the page title, which the generic rule does not.
-#
-# Opt-in — gated by the same valkey marker block as the operator scrape.
 apiVersion: operator.victoriametrics.com/v1beta1
 kind: VMRule
 metadata:
@@ -82,13 +79,13 @@ spec:
 ## app.kubernetes.io/managed-by=valkey-operator on every ValkeyCluster pod
 ## in any namespace, each of which carries the redis_exporter sidecar on
 ## its "metrics" container port (:9121, on by default). Same fleet-wide
-## pattern as cnpg-vm.yaml and the rabbitmq-instances block: one scrape
+## pattern as apps/cnpg/vm.yaml and the rabbitmq-instances block: one scrape
 ## covers every cluster ever scaffolded from apps/templates/valkey with no
 ## per-app config. Selector, port and labels verified against
 ## valkey-operator v0.6.0 (internal/controller/utils.go baseLabels,
 ## valkeynode_resources.go, metrics_exporter.go).
 ##
-## Commented out by default (this marker block, inside the valkey one): no
+## Commented out by default (this marker block): no
 ## ValkeyCluster ships in this repo, and an empty scrape pool trips the
 ## bundled ScrapePoolHasNoTargets alert. Enable it when the first cluster
 ## lands, together with the dashboard and alert set the file header names.

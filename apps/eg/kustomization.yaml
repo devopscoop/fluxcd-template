@@ -11,6 +11,7 @@ resources:
   - namespace.yaml
   - ocirepo.yaml
   - release.yaml
+  - vm.yaml
 configMapGenerator:
   - name: eg-values
     files:

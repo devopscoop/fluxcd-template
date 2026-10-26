@@ -1,15 +1,16 @@
 # Alerting rules for the coraza WAF (apps/coraza — a wasm filter inside the
 # Envoy proxies, not a workload), evaluated over series the existing envoy
 # scrapes already collect: waf_filter_* comes from the proxy pods
-# (envoy-vm.yaml — the coraza plugin's counters, made queryable by
+# (apps/eg/vm.yaml — the coraza plugin's counters, made queryable by
 # the stats_tags bootstrap block in apps/eg-custom-resources/envoyproxy-*.yaml),
 # and wasm_remote_fetch_total from the Envoy Gateway controller
-# (the controller scrape in envoy-vm.yaml). No public ruleset exists for
-# coraza-proxy-wasm; both rules are our own, in envoy-vm.yaml's
+# (the controller scrape in apps/eg/vm.yaml). No public ruleset exists for
+# coraza-proxy-wasm; both rules are our own, in apps/eg/vm.yaml's
 # ratio-plus-absolute-guard house style.
 #
-# Opt-in — gated by the coraza marker block in kustomization.yaml: run
-# ./toggle_blocks.sh --enable coraza when enabling the app.
+# Ships with the app (listed in this app's kustomization.yaml), so it
+# applies exactly when coraza does. The hand-built coraza dashboard in
+# apps/victoria-metrics is still behind the coraza marker there.
 apiVersion: operator.victoriametrics.com/v1beta1
 kind: VMRule
 metadata:

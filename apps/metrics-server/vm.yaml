@@ -23,8 +23,9 @@
 # metrics-server; the bundled kubernetes-system-api-server dashboard shows
 # aggregated-API health.
 #
-# EKS-only, like the app (k0s bundles its own metrics-server) — referenced
-# from kustomization.yaml inside an eks marker block.
+# Ships with the app (listed in this app's kustomization.yaml), so it
+# applies exactly when the app does — EKS only (k0s bundles its own
+# metrics-server), via deploy.sh's app list.
 apiVersion: operator.victoriametrics.com/v1beta1
 kind: VMServiceScrape
 metadata:

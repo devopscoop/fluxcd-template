@@ -20,6 +20,7 @@ resources:
   - namespace.yaml
   - ocirepo.yaml
   - release.yaml
+  - vm.yaml
 
 configMapGenerator:
   - name: cert-manager-values

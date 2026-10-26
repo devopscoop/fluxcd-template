@@ -1,19 +1,11 @@
-# Scrape the two RabbitMQ operators' controller-runtime metrics (reconcile
-# rates/errors, workqueue depth, client-go internals) — neither installs a
-# Service, so these are pod scrapes. Ports verified against the pinned
-# release manifests both apps' kustomizations pull:
-# - cluster-operator v2.19.0: container port "metrics" (:9782), declared
-#   upstream.
-# - messaging-topology-operator v1.18.2: serves :8080 but upstream declares
-#   only the webhook port, so apps/rabbitmq-messaging-topology-operator's
-#   kustomization patches in a "metrics" containerPort — see the comment
-#   there.
-# Both plain HTTP /metrics, no auth.
-#
-# Two objects rather than one: both pods carry
-# app.kubernetes.io/component=rabbitmq-operator (upstream's PodMonitor
-# selects on that), but their metrics ports differ, and one object with two
-# endpoints would probe both ports on both pods.
+# Scrape the RabbitMQ cluster-operator's controller-runtime metrics
+# (reconcile rates/errors, workqueue depth, client-go internals) — it
+# installs no Service, so this is a pod scrape. Port verified against the
+# pinned release manifest this app's kustomization pulls: cluster-operator
+# v2.19.0 declares container port "metrics" (:9782) upstream. Plain HTTP
+# /metrics, no auth. The messaging-topology-operator's scrape lives in that
+# app (apps/rabbitmq-messaging-topology-operator/vm.yaml): it can be left
+# out, and a scrape here for it would leave an empty scrape pool.
 #
 # Note this covers the OPERATORS only. RabbitMQ *instances* (RabbitmqCluster
 # CRs — none ship in this repo; apps/templates/rabbitmq is the scaffold)
@@ -25,13 +17,15 @@
 # (grafana.com/dashboards/10991) plus the rabbitmq alert set from
 # rabbitmq/cluster-operator's observability/ dir into apps/victoria-metrics.
 #
-# Opt-in, like the operator apps — gated by the rabbitmq marker block in
-# kustomization.yaml: run ./toggle_blocks.sh --enable rabbitmq when
-# enabling them.
+# Ships with the app: this file is in the app's own kustomization, so it
+# applies exactly when the operator does. The kustomization sets no
+# namespace (the upstream manifest carries its own), so every object here
+# names rabbitmq-system itself.
 apiVersion: operator.victoriametrics.com/v1beta1
 kind: VMPodScrape
 metadata:
   name: rabbitmq-cluster-operator
+  namespace: rabbitmq-system
 spec:
   namespaceSelector:
     matchNames:
@@ -42,28 +36,16 @@ spec:
   podMetricsEndpoints:
     - port: metrics
 ---
-apiVersion: operator.victoriametrics.com/v1beta1
-kind: VMPodScrape
-metadata:
-  name: rabbitmq-messaging-topology-operator
-spec:
-  namespaceSelector:
-    matchNames:
-      - rabbitmq-system
-  selector:
-    matchLabels:
-      app.kubernetes.io/name: messaging-topology-operator
-  podMetricsEndpoints:
-    - port: metrics
----
 # Alerting rule for the RabbitMQ operators, evaluated by this stack's
 # vmalert. Generalised from the one operator rule upstream ships
 # (rabbitmq/cluster-operator v2.19.0
 # observability/prometheus/rules/rabbitmq-cluster-operator/unavailable-replicas.yml)
-# to cover the messaging-topology-operator too. It deliberately duplicates
-# the bundled KubeDeploymentReplicasMismatch for these two Deployments —
-# kept because it names the operator in the page title, which the generic
-# rule does not.
+# to cover the messaging-topology-operator too — it lives here because that
+# operator depends on this one, and the deployment matcher simply finds no
+# series when the topology operator isn't deployed. It deliberately
+# duplicates the bundled KubeDeploymentReplicasMismatch for these two
+# Deployments — kept because it names the operator in the page title,
+# which the generic rule does not.
 #
 # The rest of upstream's observability/prometheus/rules tree (cluster
 # alarms, FD limits, disk-watermark prediction, ...) alerts on rabbitmq_*
@@ -73,12 +55,11 @@ spec:
 # (two of them, no-majority-of-nodes-ready and persistent-volume-missing,
 # additionally need kube-state-metrics metricLabelsAllowlist config this
 # stack doesn't set; the rest port cleanly).
-#
-# Opt-in — gated by the same rabbitmq marker block as the operator scrape.
 apiVersion: operator.victoriametrics.com/v1beta1
 kind: VMRule
 metadata:
   name: rabbitmq-operators
+  namespace: rabbitmq-system
 spec:
   groups:
     - name: rabbitmq-operators
@@ -107,22 +88,23 @@ spec:
 ## app.kubernetes.io/component=rabbitmq + part-of=rabbitmq on every
 ## RabbitmqCluster pod in any namespace, and the rabbitmq_prometheus plugin
 ## (:15692, the container port named "prometheus") is an always-on essential
-## plugin. Same fleet-wide pattern as cnpg-vm.yaml: one scrape covers every
-## broker ever scaffolded from apps/templates/rabbitmq with no per-app
+## plugin. Same fleet-wide pattern as apps/cnpg/vm.yaml: one scrape covers
+## every broker ever scaffolded from apps/templates/rabbitmq with no per-app
 ## config. Selector and port verified against cluster-operator v2.19.0
 ## (internal/metadata/label.go, internal/resource/statefulset.go).
 ##
-## Commented out by default (this marker block, inside the rabbitmq one): no
-## RabbitmqCluster ships in this repo, and an empty scrape pool trips the
-## bundled ScrapePoolHasNoTargets alert. Enable it when the first broker
-## lands. If per-queue detail is ever needed, upstream's ServiceMonitor adds
-## a second scrape of the same port at /metrics/detailed with params
+## Commented out by default (this marker block): no RabbitmqCluster ships in
+## this repo, and an empty scrape pool trips the bundled
+## ScrapePoolHasNoTargets alert. Enable it when the first broker lands. If
+## per-queue detail is ever needed, upstream's ServiceMonitor adds a second
+## scrape of the same port at /metrics/detailed with params
 ## {family: [queue_coarse_metrics, queue_metrics]} — deliberate opt-in, its
 ## cardinality scales with queue count.
 # apiVersion: operator.victoriametrics.com/v1beta1
 # kind: VMPodScrape
 # metadata:
 #   name: rabbitmq-instances
+#   namespace: rabbitmq-system
 # spec:
 #   namespaceSelector:
 #     any: true

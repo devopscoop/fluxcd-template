@@ -3,7 +3,7 @@
 # from its Service's :7979 port, standard /metrics, plain HTTP (verified by
 # rendering chart 1.20.0, apps/external-dns's pin). Mirrors the
 # ServiceMonitor the chart's serviceMonitor.enabled would create, which is
-# unusable here for the CRD-ownership reason in cnpg-vm.yaml.
+# unusable here for the CRD-ownership reason in apps/cnpg/vm.yaml.
 #
 # The port NAME is "http", not "metrics" — the chart exposes the metrics
 # listener as its only port and names it generically. The selector uses only

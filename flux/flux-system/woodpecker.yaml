@@ -10,13 +10,14 @@ spec:
   # likewise a CR whose CRD ships with the barman plugin, and the plugin must
   # be registered with the operator before the Cluster references it for WAL
   # archiving. db-client-cert.yaml's Issuers and Certificates need
-  # cert-manager's CRDs. The monitoring CRs live in
-  # apps/victoria-metrics-custom-resources (behind the woodpecker marker),
-  # not here, so no victoria-metrics dependency.
+  # cert-manager's CRDs. vm.yaml's VMPodScrape and VMRule need the
+  # VictoriaMetrics CRDs: victoria-metrics-crds, not the whole
+  # victoria-metrics stack, so a broken Grafana upgrade can't hold this app.
   dependsOn:
     - name: cert-manager
     - name: cnpg
     - name: cnpg-barman-plugin
+    - name: victoria-metrics-crds
   interval: 10m0s
   sourceRef:
     kind: GitRepository

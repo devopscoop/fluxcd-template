@@ -265,7 +265,7 @@ spec:
     limits:
       memory: 512Mi
   # Deliberately no monitoring block. The fleet-wide cnpg-instances
-  # VMPodScrape in apps/victoria-metrics-custom-resources scrapes every pod
+  # VMPodScrape in apps/cnpg/vm.yaml scrapes every pod
   # labeled cnpg.io/podRole=instance, so databases are collected with no
   # per-app config. Don't set monitoring.enablePodMonitor: it would duplicate
   # that scrape (every cnpg_* series stored twice under a second job label),

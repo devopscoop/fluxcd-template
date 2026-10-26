@@ -1,0 +1,23 @@
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: victoria-metrics-crds
+  namespace: flux-system
+spec:
+  # No dependsOn, on purpose: everything that ships VictoriaMetrics objects
+  # depends on this, so it must not depend on anything itself. wait: true
+  # holds dependents until the HelmRelease is Ready, i.e. the CRDs are
+  # established. See apps/victoria-metrics-crds/kustomization.yaml.
+  interval: 10m0s
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  path: apps/victoria-metrics-crds
+  prune: true
+  wait: true
+  timeout: 5m0s
+  decryption:
+    provider: sops
+    secretRef:
+      name: sops-age
+  suspend: false

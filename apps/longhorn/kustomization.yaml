@@ -12,6 +12,7 @@ resources:
   - longhorn-crypto.secrets.yaml
   - release.yaml
   - longhorn-crypto-global.sc.yaml
+  - vm.yaml
 configMapGenerator:
   - name: longhorn-values
     files:

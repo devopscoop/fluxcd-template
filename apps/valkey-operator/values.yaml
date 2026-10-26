@@ -6,7 +6,7 @@
 # controller-runtime metrics on :8443 behind the valkey-operator-metrics
 # Service, and metrics.secure=false keeps that endpoint plain HTTP with the
 # Service port named "http" — which is exactly what the VMServiceScrape in
-# apps/victoria-metrics-custom-resources/valkey-vm.yaml scrapes (flipping
+# apps/valkey-operator/vm.yaml scrapes (flipping
 # secure on renames the port "https" and gates it behind TokenReview, so the
 # scrape would need a bearer-token re-work). The chart's ServiceMonitor
 # toggle stays off as always: the monitoring.coreos.com CRDs are

@@ -44,7 +44,7 @@ server:
   # port). The chart sets WOODPECKER_METRICS_SERVER_ADDR, which is also what
   # turns metric collection on, and declares the containerPort as "metrics"
   # (plus a ClusterIP port on both Services; httproute.yaml routes only the
-  # UI), which is what apps/victoria-metrics-custom-resources/woodpecker-vm.yaml
+  # UI), which is what apps/woodpecker/vm.yaml
   # scrapes.
   # Setting only the env var serves /metrics but declares no port, and pod
   # discovery emits targets only for declared ports, so the scrape pool

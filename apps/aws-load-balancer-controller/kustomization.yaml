@@ -11,6 +11,7 @@ namespace: kube-system
 resources:
   - helmrepo.yaml
   - release.yaml
+  - vm.yaml
 configMapGenerator:
   - name: aws-load-balancer-controller-values
     files:

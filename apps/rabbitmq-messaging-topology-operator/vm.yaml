@@ -1,0 +1,33 @@
+# Scrape the RabbitMQ messaging-topology-operator's controller-runtime
+# metrics (reconcile rates/errors, workqueue depth, client-go internals) —
+# it installs no Service, so this is a pod scrape. v1.18.2 serves :8080 but
+# upstream declares only the webhook port, so this app's kustomization
+# patches in a "metrics" containerPort (see the comment there) — pod
+# discovery emits targets only for declared ports. Plain HTTP /metrics, no
+# auth.
+#
+# A separate object from the cluster-operator's scrape
+# (apps/rabbitmq-cluster-operator/vm.yaml): both pods carry
+# app.kubernetes.io/component=rabbitmq-operator (upstream's PodMonitor
+# selects on that), but their metrics ports differ, and one object with two
+# endpoints would probe both ports on both pods. The operators' alert rule
+# lives with the cluster-operator, which this app depends on.
+#
+# Ships with the app: this file is in the app's own kustomization, so it
+# applies exactly when the operator does. The kustomization sets no
+# namespace (the upstream manifest carries its own), so the object names
+# rabbitmq-system itself.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMPodScrape
+metadata:
+  name: rabbitmq-messaging-topology-operator
+  namespace: rabbitmq-system
+spec:
+  namespaceSelector:
+    matchNames:
+      - rabbitmq-system
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: messaging-topology-operator
+  podMetricsEndpoints:
+    - port: metrics

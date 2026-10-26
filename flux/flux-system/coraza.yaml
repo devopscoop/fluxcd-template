@@ -9,6 +9,7 @@ spec:
   # already depends on eg.
   dependsOn:
     - name: eg-custom-resources
+    - name: victoria-metrics-crds # CRDs for vm.yaml's scrape/rule objects
   interval: 10m0s
   sourceRef:
     kind: GitRepository

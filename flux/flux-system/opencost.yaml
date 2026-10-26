@@ -7,8 +7,9 @@ spec:
   # OpenCost queries vmsingle at runtime (see apps/opencost/values.yaml);
   # victoria-metrics has wait: true, so depending on it keeps a fresh
   # bootstrap from crashlooping the exporter while the TSDB is still coming
-  # up. Its scrape object and dashboard live with the VictoriaMetrics stack:
-  # apps/victoria-metrics-custom-resources and apps/victoria-metrics.
+  # up. It also covers the CRD ordering for the scrape in apps/opencost/vm.yaml
+  # (victoria-metrics itself depends on victoria-metrics-crds). The dashboard
+  # lives in apps/victoria-metrics.
   dependsOn:
     - name: victoria-metrics
   interval: 10m0s

@@ -89,7 +89,7 @@ fi
 # Observability is the VictoriaMetrics stack (victoria-metrics, victoria-logs,
 # tempo, otel-collector, goalert; cnpg and cnpg-barman-plugin are here
 # because goalert's database and its S3 backups depend on them).
-core_app_list="cert-manager-custom-resources.yaml cert-manager.yaml external-dns.yaml imagepolicies.yaml imagerepositories.yaml imageupdateautomation.yaml sops-age.secrets.yaml cnpg.yaml cnpg-barman-plugin.yaml victoria-metrics.yaml victoria-metrics-custom-resources.yaml victoria-logs.yaml tempo.yaml otel-collector.yaml goalert.yaml eg.yaml eg-custom-resources.yaml"
+core_app_list="cert-manager-custom-resources.yaml cert-manager.yaml external-dns.yaml imagepolicies.yaml imagerepositories.yaml imageupdateautomation.yaml sops-age.secrets.yaml cnpg.yaml cnpg-barman-plugin.yaml victoria-metrics-crds.yaml victoria-metrics.yaml victoria-logs.yaml tempo.yaml otel-collector.yaml goalert.yaml eg.yaml eg-custom-resources.yaml"
 case "$k8s_platform" in
   eks)
     app_list="metrics-server.yaml aws-load-balancer-controller.yaml eks-storage-classes.yaml cluster-viewers.yaml karpenter-crd.yaml karpenter.yaml karpenter-custom-resources.yaml opencost.yaml"
@@ -142,13 +142,13 @@ commit_and_push "Replacing template placeholders"
 # On EKS, uncomment the eks, karpenter and opencost marker blocks in the app
 # manifests. eks blocks hold EKS-platform config (IRSA serviceAccount
 # annotations, AWS NLB annotations, ...) plus the EKS-only apps' monitoring
-# entries (aws-load-balancer-controller, metrics-server); karpenter blocks
-# pin spot-intolerant workloads to on-demand nodes via
-# karpenter.sh/capacity-type and hold Karpenter's own monitoring — separate
+# dashboard entries (aws-load-balancer-controller, metrics-server); karpenter
+# blocks pin spot-intolerant workloads to on-demand nodes via
+# karpenter.sh/capacity-type and hold Karpenter's own dashboards — separate
 # markers because those labels exist only on Karpenter-provisioned nodes,
 # not on EKS nodes in general, and the pinning (or a removed Karpenter's
 # monitoring) can be toggled on its own (toggle_blocks.sh --disable
-# karpenter); opencost blocks hold OpenCost's monitoring, gated like the app
+# karpenter); opencost blocks hold OpenCost's dashboard, gated like the app
 # itself ($app_list registers opencost.yaml only on eks). On non-EKS
 # platforms none of them apply, so the blocks stay commented.
 # toggle_blocks.sh owns the transform and prints each file it processed;
@@ -166,15 +166,12 @@ if [[ "$k8s_platform" == "eks" ]]; then
 fi
 
 # On non-EKS platforms, uncomment the metallb marker blocks: MetalLB's
-# scrape/rules/dashboard entries in apps/victoria-metrics-custom-resources
-# and apps/victoria-metrics. Gated like the app itself ($app_list registers
-# metallb.yaml only on k0s/talos) because monitoring an app that never
-# deploys leaves an empty scrape pool paging ScrapePoolHasNoTargets — see
-# the marker note in apps/victoria-metrics-custom-resources/kustomization.yaml.
-# Opt-in apps' monitoring markers (longhorn, rook-ceph, rabbitmq, coraza,
-# valkey, woodpecker)
-# are NOT enabled here for the same reason: enable them by hand together
-# with the app. Same converge-on-every-run reasoning as the eks step above.
+# dashboard entry in apps/victoria-metrics. Gated like the app itself
+# ($app_list registers metallb.yaml only on k0s/talos); MetalLB's scrape and
+# rules ship inside apps/metallb, so they need no marker. Opt-in apps'
+# dashboard markers (longhorn, rook-ceph, coraza, uptime-kuma) are NOT
+# enabled here for the same reason: enable them by hand together with the
+# app. Same converge-on-every-run reasoning as the eks step above.
 if [[ "$k8s_platform" != "eks" ]]; then
   ./toggle_blocks.sh --enable metallb | while read -r f; do git add "$f"; done
   commit_and_push "Enabling MetalLB monitoring marker blocks"

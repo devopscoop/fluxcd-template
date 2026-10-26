@@ -22,6 +22,7 @@ resources:
   - envoy-proxy-global-dashboard.yaml
   - envoy-clusters-dashboard.yaml
   - envoy-gateway-global-dashboard.yaml
+  - flux-vm.yaml
 # >>> coraza: ./toggle_blocks.sh --enable coraza when enabling apps/coraza
 #   - coraza-dashboard.yaml
 # <<< coraza

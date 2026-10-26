@@ -2,15 +2,13 @@
 # pv_hourly_cost, container_*_allocation, opencost_build_info, ...) from
 # apps/opencost's "opencost" Service, port "http" (:9003), standard /metrics
 # path (verified in opencost-helm-chart 2.5.30, matching apps/opencost's
-# pin). Lives here rather than in apps/opencost for the CRD-ordering reason
-# in kustomization.yaml. The "OpenCost / Overview" dashboard in
-# apps/victoria-metrics reads these series back out of vmsingle.
+# pin). The "OpenCost / Overview" dashboard in apps/victoria-metrics reads
+# these series back out of vmsingle.
 #
-# EKS-only, like apps/opencost itself (deploy.sh registers the app only
-# when k8s_platform=eks) — referenced from kustomization.yaml inside an
-# opencost marker block, which deploy.sh enables alongside the app; the
-# dashboard entry sits in the same marker in
-# apps/victoria-metrics/values.yaml.
+# Ships with the app (listed in this app's kustomization.yaml), so it
+# applies exactly when OpenCost does — EKS only, via deploy.sh's app list.
+# The dashboard entry sits in the opencost marker block in
+# apps/victoria-metrics/values.yaml, which deploy.sh enables alongside.
 #
 # The exporter also re-emits kube_node_labels with one label_* per Kubernetes
 # node label. On Karpenter nodes that came to 44-48 labels per series, past
