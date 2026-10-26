@@ -50,7 +50,8 @@ env:
   # GOALERT_ prefix + "-"→"_" replacer makes this env var equivalent, and
   # env is the only route this chart offers (it renders exactly one
   # containerPort and one Service port — which is also why vmpodscrape.yaml
-  # scrapes by port NUMBER). Go's ":port" listener is dual-stack, so it
+  # has to relabel the declared :8081 target over to :2112). Go's ":port"
+  # listener is dual-stack, so it
   # works on the IPv6-only pod network. Feeds vmrule.yaml — the
   # paging-system-watching-itself rules; see README.md → "Monitoring".
   - name: GOALERT_LISTEN_PROMETHEUS

@@ -34,19 +34,27 @@ server:
     # schema migrations over this connection at startup.
     WOODPECKER_DATABASE_DRIVER: postgres
     WOODPECKER_DATABASE_DATASOURCE: "postgres://woodpecker@woodpecker-db-rw.woodpecker.svc.cluster.local:5432/woodpecker?sslmode=verify-full&sslcert=/etc/db-client-cert/tls.crt&sslkey=/etc/db-client-cert/tls.key&sslrootcert=/etc/db-server-ca/ca.crt"
-    # Serve Prometheus metrics unauthenticated on :9001, pod-local: the
-    # chart's Service exposes only :80 and :9000, so this port is reachable
-    # by pod scrape alone (apps/victoria-metrics-custom-resources/
-    # woodpecker-vm.yaml selects it by number). Setting it is also what
-    # turns metric collection on; the alternative,
-    # WOODPECKER_PROMETHEUS_AUTH_TOKEN, puts /metrics behind a user API
-    # token on the main listener — more to manage for no gain in-cluster.
-    WOODPECKER_METRICS_SERVER_ADDR: ":9001"
     # Pipeline logs go to Postgres (the default, spelled out) rather than a
     # file store on a server PVC, so the database's barman backups cover
     # them and the server stays stateless. db-cluster.yaml's data volume
     # grows with them.
     WOODPECKER_LOG_STORE: database
+
+  # Serve Prometheus metrics unauthenticated on :9001 (the chart's default
+  # port). The chart sets WOODPECKER_METRICS_SERVER_ADDR, which is also what
+  # turns metric collection on, and declares the containerPort as "metrics"
+  # (plus a ClusterIP port on both Services; httproute.yaml routes only the
+  # UI), which is what apps/victoria-metrics-custom-resources/woodpecker-vm.yaml
+  # scrapes.
+  # Setting only the env var serves /metrics but declares no port, and pod
+  # discovery emits targets only for declared ports, so the scrape pool
+  # stays empty and ScrapePoolHasNoTargets fires. The chart's PodMonitor and
+  # PrometheusRule stay off: they are separate toggles, and they need the
+  # monitoring.coreos.com CRDs this stack doesn't install. The alternative,
+  # WOODPECKER_PROMETHEUS_AUTH_TOKEN, puts /metrics behind a user API token
+  # on the main listener — more to manage for no gain in-cluster.
+  metrics:
+    enabled: true
 
   # The GitHub OAuth client id and secret, from helm_secrets.yaml: the chart
   # creates the named Secret from server.secrets, and this envFroms it.
