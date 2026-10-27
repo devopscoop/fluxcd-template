@@ -2,6 +2,14 @@
 # vim -O <(helm show values uptime-kuma/uptime-kuma --version 4.2.0) values.yaml
 volume:
   size: 1Gi
+
+# Ahead of the chart's appVersion (2.5.0, which runs Node 22.22.3): 2.5.7+
+# runs Node 22.23.4, which fixes the Brotli decoder out-of-bounds write
+# (CVE-2026-111497, ENG-3132) — HTTP monitors decompress Brotli responses
+# from whatever they monitor. 2.5.8 also fixes GHSA-v2p3-6f5h-6hhf. Drop this
+# once the chart's appVersion reaches it.
+image:
+  tag: "2.5.8"
 podEnv:
   # Pre-answer the database step of the first-run wizard so a from-scratch
   # deploy comes up without manual choices (same backend the instance has
