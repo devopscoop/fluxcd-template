@@ -5,6 +5,17 @@ metadata:
   name: eg
 spec:
   interval: 10m
+  # The chart ships its CRDs (Envoy Gateway's and the Gateway API bundle) in
+  # crds/ directories, which Helm installs once and never upgrades; Flux's
+  # default (Skip) does the same. CreateReplace applies them on every chart
+  # bump, before the controller rolls: each Envoy Gateway minor requires its
+  # own Gateway API bundle (1.9 needs v1.6) to be installed first, and since
+  # 1.8 the controller unconditionally watches ListenerSet, which older
+  # bundles lack.
+  install:
+    crds: CreateReplace
+  upgrade:
+    crds: CreateReplace
   valuesFrom:
     - kind: ConfigMap
       name: eg-values
