@@ -45,11 +45,6 @@ spec:
     kubernetes:
       envoyDeployment:
         replicas: 3
-        container:
-          # Patched Envoy pin (CVE-2026-111497) — same image as
-          # envoyproxy-private.yaml, where the rationale lives. Keep the two
-          # in step.
-          image: docker.io/envoyproxy/envoy:distroless-v1.37.11@sha256:3045dea2805bd3a53b3fd0752ac29ba5015b6bc5d90347f92a363e0b2db7c773
         pod:
           topologySpreadConstraints:
             - maxSkew: 1
