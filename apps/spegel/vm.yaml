@@ -1,0 +1,38 @@
+# Scrape Spegel — mirror requests by registry and cache hit/miss
+# (spegel_mirror_requests_total), the last successful mirror timestamp, peer
+# resolve latency, the advertised-digest gauge, and the registry's HTTP
+# histograms — from the chart's metrics Service "spegel", port "metrics"
+# (:9090, plain HTTP; verified by rendering chart 0.8.0, apps/spegel's pin).
+# Mirrors the ServiceMonitor the chart's serviceMonitor.enabled would create,
+# which is unusable here for the CRD-ownership reason in apps/cnpg/vm.yaml.
+# The selector needs app.kubernetes.io/component: metrics because the chart's
+# registry and bootstrap Services carry the same name/instance labels.
+#
+# No VMRule ships with this. Spegel publishes no alert rules, and its failure
+# mode is a fallback, not an outage: a pull no peer can serve goes to the
+# upstream registry as if Spegel weren't there, so a broken mirror costs speed
+# and registry egress, not availability. The DaemonSet itself is covered by
+# the stack's bundled kubernetes-apps group (KubeDaemonSetRolloutStuck,
+# KubeDaemonSetNotScheduled, KubePodCrashLooping). No dashboard either: chart
+# 0.8.0 dropped its bundled one (spegel-org/spegel#1512), and the grafana.com
+# community dashboards (18089, 22104) predate 0.8.0's metric changes
+# (spegel_advertised_images became spegel_advertised_keys in
+# spegel-org/spegel#1562).
+#
+# Ships with the app (listed in this app's kustomization.yaml), so it applies
+# exactly when Spegel does — opt-in, see README.md.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMServiceScrape
+metadata:
+  name: spegel
+spec:
+  namespaceSelector:
+    matchNames:
+      - spegel
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: spegel
+      app.kubernetes.io/instance: spegel
+      app.kubernetes.io/component: metrics
+  endpoints:
+    - port: metrics

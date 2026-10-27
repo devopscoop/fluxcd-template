@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  annotations:
+    kustomize.toolkit.fluxcd.io/prune: disabled
+  name: spegel
+  labels:
+    # hostPath mounts of containerd's socket, content store and certs.d.
+    # https://spegel.dev/docs/getting-started/#talos
+    pod-security.kubernetes.io/enforce: privileged

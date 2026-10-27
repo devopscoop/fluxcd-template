@@ -1,0 +1,8 @@
+# dyff between <(yq . <(helm show values oci://ghcr.io/spegel-org/helm-charts/spegel --version 0.8.0)) <(yq eval '. * load("values.yaml")' <(helm show values oci://ghcr.io/spegel-org/helm-charts/spegel --version 0.8.0))
+# vim -O <(helm show values oci://ghcr.io/spegel-org/helm-charts/spegel --version 0.8.0) values.yaml
+
+# No overrides. The chart's defaults run the DaemonSet on every node: it
+# tolerates every taint, including the managed node groups'
+# CriticalAddonsOnly, which is what we want, since a node without Spegel can
+# neither serve its images to peers nor pull from them. Every node needs the
+# containerd config in README.md -> "Enabling".

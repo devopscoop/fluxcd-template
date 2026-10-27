@@ -48,7 +48,7 @@ spec:
   # DaemonSets ship with this template (kube-system: aws-node, kube-proxy,
   # ebs-csi-node, efs-csi-node, eks-pod-identity-agent,
   # eks-node-monitoring-agent; plus victoria-metrics node-exporter and
-  # otel-collector-agent), so an 8-slot node hosting a single workload pod has
+  # otel-collector-agent; nine with the opt-in spegel), so an 8-slot node hosting a single workload pod has
   # no room for the last DaemonSet. It stays Pending forever — Karpenter does
   # not scale up for an unschedulable DaemonSet pod — and a DaemonSet that
   # never reaches full readiness fails its Helm release wait, that app's Flux
@@ -60,6 +60,30 @@ spec:
   # nodepool.yaml is what keeps nodes big enough to be worth scheduling on.
   kubelet:
     maxPods: 110
+
+  # Containerd settings for the opt-in apps/spegel, as nodeadm config that
+  # Karpenter merges into the user data it generates. The AL2023 AMI
+  # discards compressed layers once they are unpacked, so a node would have
+  # nothing to serve its peers. It also reads mirror config from
+  # "/etc/containerd/certs.d:/etc/docker/certs.d", and Spegel rejects any
+  # multi-entry path on containerd 2.4+. aws-eks-template's enable_spegel
+  # gives the managed node groups the same NodeConfig; keep the two
+  # identical. Enable this block together with the app (apps/spegel/README.md
+  # -> "Enabling"). Changing userData drifts every Karpenter node, so
+  # Karpenter replaces the fleet at nodepool.yaml's disruption pace.
+  # https://spegel.dev/docs/getting-started/#al2023
+# >>> spegel: ./toggle_blocks.sh --enable spegel when enabling apps/spegel
+#   userData: |
+#     apiVersion: node.eks.aws/v1alpha1
+#     kind: NodeConfig
+#     spec:
+#       containerd:
+#         config: |
+#           [plugins.'io.containerd.cri.v1.images']
+#           discard_unpacked_layers = false
+#           [plugins.'io.containerd.cri.v1.images'.registry]
+#           config_path = '/etc/containerd/certs.d'
+# <<< spegel
 
   # Tags applied to every AWS resource Karpenter creates for these nodes
   # (instances, volumes, ENIs). Karpenter also reconciles this list onto
