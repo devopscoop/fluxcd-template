@@ -66,9 +66,11 @@ spec:
   # discards compressed layers once they are unpacked, so a node would have
   # nothing to serve its peers. It also reads mirror config from
   # "/etc/containerd/certs.d:/etc/docker/certs.d", and Spegel rejects any
-  # multi-entry path on containerd 2.4+. Enable this block together with the
-  # app (apps/spegel/README.md). Changing userData drifts every Karpenter
-  # node, so Karpenter replaces the fleet at nodepool.yaml's disruption pace.
+  # multi-entry path on containerd 2.4+. aws-eks-template's enable_spegel
+  # gives the managed node groups the same NodeConfig; keep the two
+  # identical. Enable this block together with the app (apps/spegel/README.md
+  # -> "Enabling"). Changing userData drifts every Karpenter node, so
+  # Karpenter replaces the fleet at nodepool.yaml's disruption pace.
   # https://spegel.dev/docs/getting-started/#al2023
 # >>> spegel: ./toggle_blocks.sh --enable spegel when enabling apps/spegel
 #   userData: |

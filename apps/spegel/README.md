@@ -17,29 +17,27 @@ through it.
 ## Enabling (opt-in)
 
 No deploy.sh list registers it. Read "Security" below first: none of its
-mitigations are configured here. Spegel needs containerd settings the EKS
-AL2023 AMI doesn't ship with, so enabling it is two changes, in one commit:
+mitigations are configured here. The DaemonSet runs on every node, managed
+node groups and Karpenter alike (the chart tolerates every taint, including
+the managed nodes' `CriticalAddonsOnly`), and every node needs containerd
+settings the EKS AL2023 AMI doesn't ship with:
+`discard_unpacked_layers = false` and a single-entry registry `config_path`.
+Each node source gets them from its own repo, so enabling Spegel takes two
+steps, in this order:
 
-1. `./toggle_blocks.sh --enable spegel`, which uncomments the nodeadm
-   `userData` in `apps/karpenter-custom-resources/ec2nodeclass.yaml`:
-   `discard_unpacked_layers = false` and a single-entry registry
-   `config_path`.
-2. Add `spegel.yaml` to `flux/flux-system/kustomization.yaml`'s `resources`.
+1. In aws-eks-template, set `enable_spegel = true` and apply it. That adds
+   the NodeConfig to the managed node groups' launch template, and the apply
+   replaces every managed node.
+2. Here, in one commit: run `./toggle_blocks.sh --enable spegel`, which
+   uncomments the same NodeConfig as `userData` in
+   `apps/karpenter-custom-resources/ec2nodeclass.yaml`, and add `spegel.yaml`
+   to `flux/flux-system/kustomization.yaml`'s `resources`.
 
 Changing the EC2NodeClass's `userData` drifts every Karpenter node, so
 Karpenter replaces the whole fleet at the pace `nodepool.yaml`'s disruption
 budget allows. Until a node is replaced, its Spegel pod runs against the old
 containerd config. On the AMI's containerd 2.2 that is harmless (it has no
 layers to serve); see "Containerd requirements" for 2.4+.
-
-## Why only Karpenter nodes
-
-The `karpenter` block in `values.yaml` keeps the DaemonSet to
-Karpenter-launched nodes, the only ones the EC2NodeClass configures.
-aws-eks-template's managed node groups boot the AMI's stock containerd config
-unless its `enable_spegel` is on, which gives them the same NodeConfig. To
-cover them too, apply `enable_spegel = true` there first (it replaces every
-managed node), then drop the affinity.
 
 ## Containerd requirements
 
@@ -51,8 +49,9 @@ AL2023 AMI (`v20260930`: containerd 2.2.7) defaults to
 `config_path = "/etc/containerd/certs.d:/etc/docker/certs.d"`, so:
 
 - On containerd 2.2–2.3 the config check doesn't run, and a node without the
-  nodeadm config runs Spegel without serving anything. Verify after enabling
-  (below).
+  nodeadm config (a managed node with `enable_spegel` off, or a Karpenter
+  node not yet replaced) runs Spegel without serving anything. Verify after
+  enabling (below).
 - Once an AMI ships containerd 2.4+, a node without it crash-loops Spegel.
 
 Spegel's [compatibility notes](https://spegel.dev/docs/getting-started/#compatibility)
