@@ -1,0 +1,19 @@
+# dyff between <(yq . <(helm show values oci://ghcr.io/spegel-org/helm-charts/spegel --version 0.8.0)) <(yq eval '. * load("values.yaml")' <(helm show values oci://ghcr.io/spegel-org/helm-charts/spegel --version 0.8.0))
+# vim -O <(helm show values oci://ghcr.io/spegel-org/helm-charts/spegel --version 0.8.0) values.yaml
+
+# Run only on Karpenter-launched nodes. Spegel needs containerd to keep
+# unpacked layers and to read mirror config from /etc/containerd/certs.d
+# alone; on EKS only Karpenter nodes get that, from the spegel block in
+# apps/karpenter-custom-resources/ec2nodeclass.yaml. aws-eks-template's
+# managed node groups boot the AMI's stock containerd config. The chart
+# tolerates every taint, so their taint alone doesn't keep it off them. See
+# README.md -> "Why only Karpenter nodes".
+# >>> karpenter: deploy.sh uncomments this block when k8s_platform=eks
+# affinity:
+#   nodeAffinity:
+#     requiredDuringSchedulingIgnoredDuringExecution:
+#       nodeSelectorTerms:
+#         - matchExpressions:
+#             - key: karpenter.sh/nodepool
+#               operator: Exists
+# <<< karpenter
