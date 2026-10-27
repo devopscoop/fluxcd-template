@@ -125,6 +125,17 @@ spec:
     kubernetes:
       envoyDeployment:
         replicas: 3
+        container:
+          # Pinned past Envoy Gateway's default proxy image. gateway-helm 1.7.2
+          # (apps/eg) defaults to envoy 1.37.2, whose bundled Brotli decoder has
+          # the out-of-bounds write behind CVE-2026-111497 / "HTTP2Shell"
+          # (GHSA-3wvj-j6qm-62mr, ENG-3132); 1.37.8 is the first fixed 1.37.x.
+          # No 1.7.x chart ships a fixed Envoy, so this takes the newest patch
+          # of the controller's own Envoy minor rather than an untested pairing.
+          # Renovate doesn't track this field: drop the pin when apps/eg moves
+          # to a chart whose default is fixed (1.8.6+ / 1.9.3+), or it will
+          # hold the fleet on 1.37 after the controller moves on.
+          image: docker.io/envoyproxy/envoy:distroless-v1.37.11@sha256:3045dea2805bd3a53b3fd0752ac29ba5015b6bc5d90347f92a363e0b2db7c773
         pod:
           topologySpreadConstraints:
             - maxSkew: 1

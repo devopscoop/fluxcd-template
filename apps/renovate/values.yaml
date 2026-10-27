@@ -18,7 +18,7 @@ cronjob:
   initContainers:
     - name: github-app-token
       # Keep at the chart's appVersion.
-      image: ghcr.io/renovatebot/renovate:44.138.0
+      image: ghcr.io/renovatebot/renovate:44.186.2
       # Signs a short-lived JWT with the app's private key and exchanges it
       # for an installation token. Any GitHub error fails the Job.
       command:

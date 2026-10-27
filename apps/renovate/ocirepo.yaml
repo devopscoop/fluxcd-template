@@ -11,7 +11,7 @@ spec:
     mediaType: "application/vnd.cncf.helm.chart.content.v1.tar+gzip"
     operation: copy
   ref:
-    tag: 46.341.0
+    tag: 46.385.1
   # For private OCI repos, use a kubernetes.io/dockerconfigjson secret
   # secretRef:
   #   name: registry-auth
