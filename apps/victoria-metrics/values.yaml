@@ -588,6 +588,26 @@ grafana:
 #           - name: DS_PROMETHEUS
 #             value: VictoriaMetrics
 # <<< uptime-kuma
+# >>> kubescape: ./toggle_blocks.sh --enable kubescape when enabling apps/kubescape
+##       "Kubescape Vulnerabilities Overview" — the sample dashboard in
+##       kubescape/prometheus-exporter (nothing is published on
+##       grafana.com): failed-control and image-vulnerability counts by
+##       severity, cluster-wide and per namespace, plus failed controls per
+##       workload — fed by apps/kubescape/vm.yaml. The URL tag matches the
+##       exporter image apps/kubescape's chart pin ships — bump it when
+##       bumping the app. Unlike the other entries, its panels name their
+##       datasource as the plain string "Prometheus" (no ${DS_PROMETHEUS}
+##       placeholder, no datasource variable), hence the string-form
+##       datasource below, which rewrites each of those lines to the stack's
+##       VictoriaMetrics datasource (name and uid both "VictoriaMetrics").
+##       Known gap: no per-workload vulnerability panel, although
+##       apps/kubescape exports those series
+##       (kubescape_vulnerabilities_total_workload_*) — query them in
+##       Explore.
+#       kubescape:
+#         url: https://raw.githubusercontent.com/kubescape/prometheus-exporter/v0.2.27/dashboards/grafana_dashboard.json
+#         datasource: VictoriaMetrics
+# <<< kubescape
   # Memory req=limit, no CPU limit. Doubled to 384Mi after OOMKills
   # (2026-08-25), then OOMKilled again on 2026-08-26 once the kubelet
   # relabelConfigs fix below un-dropped the label-heavy cadvisor series
