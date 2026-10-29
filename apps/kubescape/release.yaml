@@ -1,0 +1,31 @@
+# https://fluxcd.io/flux/components/helm/helmreleases/
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: kubescape
+spec:
+  # The chart carries its SecurityException, ClusterSecurityException,
+  # OperatorCommand, Rules and ServiceScanResult CRDs in its crds/
+  # directory, which Helm installs once and never upgrades — the chart
+  # README's "Upgrade" section tells you to kubectl-apply them by hand
+  # before any release that changes a schema. CreateReplace makes Flux apply
+  # them from the chart on both install and upgrade instead, so a version
+  # bump here is the whole procedure. (The node-agent CRDs live under
+  # templates/ and upgrade with the release.)
+  install:
+    crds: CreateReplace
+  upgrade:
+    crds: CreateReplace
+  interval: 10m
+  valuesFrom:
+    - kind: ConfigMap
+      name: kubescape-values
+    - kind: Secret
+      name: kubescape-secrets
+  chart:
+    spec:
+      chart: kubescape-operator
+      version: 1.41.0
+      sourceRef:
+        kind: HelmRepository
+        name: kubescape

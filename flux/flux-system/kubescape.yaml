@@ -1,0 +1,24 @@
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: kubescape
+  namespace: flux-system
+spec:
+  # The VictoriaMetrics CRDs behind the scrape in this app's vm.yaml. The
+  # CRDs only, not the whole victoria-metrics stack, so a failing Grafana or
+  # vmsingle upgrade can't hold this app back.
+  dependsOn:
+    - name: victoria-metrics-crds
+  interval: 10m0s
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  path: apps/kubescape
+  prune: true
+  wait: true
+  timeout: 5m0s
+  decryption:
+    provider: sops
+    secretRef:
+      name: sops-age
+  suspend: false

@@ -1,0 +1,42 @@
+# Scrape the Kubescape prometheus-exporter — severity counts of failed
+# posture controls (kubescape_controls_total_{cluster,namespace,workload}_*)
+# and of image vulnerabilities (kubescape_vulnerabilities_total_*), which it
+# reads out of the scan results in kubescape's storage API — from the pod's
+# :8080 container port named "metrics", standard /metrics, plain HTTP
+# (verified by rendering chart 1.41.0, apps/kubescape's pin). These series
+# feed the Kubescape dashboard in apps/victoria-metrics.
+#
+# A pod scrape rather than a mirror of the chart's ServiceMonitor
+# (prometheusExporter.serviceMonitor.enabled, unusable here for the
+# CRD-ownership reason in apps/cnpg/vm.yaml): the exporter's Service port
+# carries no name, so a VMServiceScrape would have to select by number,
+# while the container port is named. interval mirrors that ServiceMonitor's
+# 60s. honorLabels keeps the exporter's own "namespace" label (the scanned
+# namespace) instead of the target's ("kubescape"); without it the
+# namespace-level series move to exported_namespace and the dashboard's
+# by (namespace) panels collapse into one.
+#
+# No VMRule, deliberately: every warning and critical here pages
+# (apps/victoria-metrics/README.md → "Alert routing"), and vulnerability or
+# failed-control counts are a standing backlog, not an incident. Component
+# health is covered by the stack's bundled rules — TargetDown on this
+# scrape, the Deployment/DaemonSet/pod rules on everything else.
+#
+# Ships with the app (listed in this app's kustomization.yaml), so it
+# applies exactly when the opt-in kubescape app does.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMPodScrape
+metadata:
+  name: kubescape-prometheus-exporter
+spec:
+  namespaceSelector:
+    matchNames:
+      - kubescape
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kubescape-operator
+      app.kubernetes.io/component: prometheus-exporter
+  podMetricsEndpoints:
+    - port: metrics
+      interval: 60s
+      honorLabels: true

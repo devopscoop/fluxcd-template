@@ -1,0 +1,43 @@
+# dyff between <(yq . <(helm show values kubescape/kubescape-operator --version 1.41.0)) <(yq eval '. * load("values.yaml")' <(helm show values kubescape/kubescape-operator --version 1.41.0))
+# vim -O <(helm show values kubescape/kubescape-operator --version 1.41.0) values.yaml
+
+# Kubescape operator (https://kubescape.io) in standalone mode: server and
+# account stay empty, so the ARMO cloud synchronizer isn't deployed and scan
+# results stay in-cluster as custom resources served by the "storage"
+# aggregated API (kubectl get vulnerabilitymanifests -A). See README.md.
+
+# Identifies the cluster in scan results. project1-dev is rewritten to the
+# real cluster name by deploy.sh.
+clusterName: project1-dev
+
+# Generate the admission-webhook and storage APIService certificates at
+# runtime, in init containers, instead of at template render time. The
+# default ("template") mints a new CA and certs on every helm upgrade — so on
+# every values or chart change Flux applies — and the chart README calls for
+# initContainer under GitOps controllers.
+certificates:
+  strategy: initContainer
+
+capabilities:
+  # Export scan-result summaries as Prometheus metrics, scraped by vm.yaml.
+  prometheusExporter: enable
+
+prometheusExporter:
+  # Per-workload series on top of the cluster and namespace totals:
+  # kubescape_controls_total_workload_* per workload and
+  # kubescape_vulnerabilities_total_workload_* per container, one series per
+  # severity each. The dashboard's workload panel reads them.
+  enableWorkloadMetrics: true
+
+# With nodeSbomGeneration (on by default) the operator triggers vulnerability
+# scans from the SBOMs node-agents write instead of watching pods, so
+# containers on a node the node-agent DaemonSet can't schedule on aren't
+# scanned as they start. Cover the CriticalAddonsOnly-tainted managed node
+# group too (see aws-eks-template), like falcon-sensor in
+# apps/falcon-platform.
+# >>> karpenter: deploy.sh uncomments this block when k8s_platform=eks
+# nodeAgent:
+#   tolerations:
+#     - key: CriticalAddonsOnly
+#       operator: Exists
+# <<< karpenter
