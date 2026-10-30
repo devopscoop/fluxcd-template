@@ -1,0 +1,75 @@
+# Configures Harbor's side of the pull-through cache: runs
+# configure-harbor.sh, which creates a registry endpoint and a public
+# proxy-cache project in Harbor for every upstream in registries.txt.
+#
+# Lives in the harbor namespace because it reads Harbor's admin password
+# from the chart's harbor-core Secret, which only a pod in that namespace
+# can mount. Jobs are immutable, so the force annotation lets Flux delete
+# and recreate this one whenever its spec changes — and the spec includes
+# the ConfigMap's kustomize hash suffix, so editing registries.txt or the
+# script reruns it. Unchanged, Flux leaves the completed Job alone. No
+# ttlSecondsAfterFinished: a Job that deleted itself would just be
+# recreated, and rerun, on every reconcile.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: harbor-proxy-cache
+  namespace: harbor
+  annotations:
+    kustomize.toolkit.fluxcd.io/force: enabled
+spec:
+  backoffLimit: 4
+  # The script waits up to 10m for harbor-core; bound the retries after it.
+  activeDeadlineSeconds: 1800
+  template:
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      containers:
+        - name: configure-harbor
+          image: docker.io/curlimages/curl:8.17.0
+          command: ["/bin/sh", "/config/configure-harbor.sh"]
+          env:
+            - name: HARBOR_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: harbor-core
+                  key: HARBOR_ADMIN_PASSWORD
+            # Optional Docker Hub login (dockerhub-credentials.secrets.yaml);
+            # empty values mean anonymous pulls.
+            - name: DOCKERHUB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: harbor-proxy-cache-dockerhub
+                  key: username
+                  optional: true
+            - name: DOCKERHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: harbor-proxy-cache-dockerhub
+                  key: token
+                  optional: true
+          # The image's USER is the name curl_user, which runAsNonRoot can't
+          # verify, so pin a numeric uid; the script writes nothing.
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 32Mi
+          volumeMounts:
+            - name: config
+              mountPath: /config
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: harbor-proxy-cache

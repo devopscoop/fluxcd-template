@@ -1,0 +1,27 @@
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: dragonfly
+  namespace: flux-system
+spec:
+  # vm.yaml's VMServiceScrape and VMRule need the VictoriaMetrics CRDs:
+  # victoria-metrics-crds, not the whole victoria-metrics stack, so a broken
+  # Grafana upgrade can't hold this app. No dependsOn harbor: Dragonfly
+  # needs nothing from Harbor to start (its seed peers only fetch from it on
+  # demand), and the node config that routes pulls through it comes from
+  # apps/registry-mirrors.
+  dependsOn:
+    - name: victoria-metrics-crds
+  interval: 10m0s
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  path: apps/dragonfly
+  prune: true
+  wait: true
+  timeout: 5m0s
+  decryption:
+    provider: sops
+    secretRef:
+      name: sops-age
+  suspend: false

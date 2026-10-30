@@ -529,6 +529,24 @@ grafana:
 #           - name: DS_PROMETHEUS
 #             value: VictoriaMetrics
 # <<< metallb
+# >>> harbor: ./toggle_blocks.sh --enable harbor when enabling apps/harbor
+##       "Harbor" (grafana.com 16003) — component health, request rates and
+##       latencies on harbor-core, jobservice task throughput and queues,
+##       project and quota usage — fed by apps/harbor/vm.yaml. Chosen over
+##       the more-downloaded "Harbor Overview" (19716), which is published
+##       in Grafana's v2 dashboard schema that file provisioning doesn't
+##       load, and over 15792, whose host panels filter node_uname_info on
+##       a docker-compose "hostname" label this stack's node-exporter
+##       series don't carry. Last revised 2022, but every metric it queries
+##       still exists under the same name in Harbor 2.15 (the exporter's
+##       harbor_*, plus harbor_core_http_* and harbor_jobservice_task_*).
+#       harbor:
+#         gnetId: 16003
+#         revision: latest
+#         datasource:
+#           - name: DS_PROMETHEUS
+#             value: VictoriaMetrics
+# <<< harbor
 # >>> longhorn: ./toggle_blocks.sh --enable longhorn when enabling apps/longhorn
 ##       "Longhorn Monitoring & Backups" (grafana.com 16888) — volume
 ##       robustness/capacity with per-PVC drill-down, node/disk storage

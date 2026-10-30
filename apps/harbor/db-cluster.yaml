@@ -1,0 +1,427 @@
+# Harbor's PostgreSQL, run by the CloudNativePG operator (apps/cnpg — the
+# flux Kustomization for this app dependsOn it). harbor-core applies its own
+# schema migrations at startup, so CNPG only has to provide an empty
+# database. It holds Harbor's metadata — projects, RBAC, robot accounts,
+# the artifact and tag index, scan reports, job history — but not the
+# images: their blobs live on the registry's EBS volume (values.yaml,
+# persistence), which this database's backups don't cover. README.md →
+# "Backups and restore" has how the two are restored as a pair.
+#
+# Three documents: the Cluster, the ObjectStore its barman backups land in,
+# and the daily ScheduledBackup. One file so the database's whole story reads
+# top to bottom — apps/templates/cnpg-database holds the reusable copy this
+# was made from; its header has the step list, including the
+# aws-eks-template entry (local.cnpg_databases in cluster/cnpg-backups.tf)
+# that provisions the bucket and IRSA role referenced below.
+#
+# Connecting with psql: runbooks/connect-cnpg-database.md.
+# Restoring from backup: runbooks/restore-cnpg-database.md.
+# Moving to a new postgres major: runbooks/upgrade-cnpg-database.md.
+#
+# Auth model: the app logs in with the client certificate from
+# db-client-cert.yaml (CN = the owner role below); the pg_hba rules under
+# postgresql: make the cert the ONLY way in for that role. CNPG still
+# auto-creates the `harbor-db-app` Secret (`<cluster>-app`) with a
+# password and a `uri` key, but the reject rule makes them unusable — don't
+# feed them to the app. Harbor's chart has no client-cert settings, so the
+# cert reaches harbor-core, harbor-jobservice, and harbor-exporter (the three
+# components that open database connections) through the postRenderers
+# patches in release.yaml.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: harbor-db
+spec:
+  # One primary + two streaming replicas, CNPG's standard HA shape. Three
+  # matters, not just two: CNPG always creates a PDB requiring the primary to
+  # stay available, so a single-instance cluster blocks node drains outright
+  # ("Cannot evict pod as it would violate the pod's disruption budget",
+  # retrying forever). With replicas the operator instead switches the
+  # primary over ahead of the drain, and at 3+ instances the replica PDB
+  # (minAvailable: instances - 2) releases one replica at a time — a standby
+  # exists to fail over to even mid-drain, which 2 instances can't guarantee.
+  # Replication is synchronous (postgresql.synchronous below); clients
+  # connect through the -rw Service, so switchovers are invisible to them.
+  instances: 3
+  # A restarted replica stays unready until it streams, so the replica PDB
+  # waits for it to catch up. Startup, not readiness: a streaming readiness
+  # probe would block failover under failoverQuorum.
+  probes:
+    startup:
+      type: streaming
+  # A database must not ride Karpenter capacity: consolidation and drift
+  # drains force a switchover whenever the bin-packer rearranges nodes (the
+  # operator switches the primary over as soon as its node is cordoned, so
+  # the primary PDB never gets to object). The affinity pins the instances to
+  # managed-node-group nodes — `Exists` on the label survives node-group
+  # renames and blue/green rotations — and the toleration matches the
+  # CriticalAddonsOnly taint that reserves those nodes for scheduling-critical
+  # workloads (see the managed node group in aws-eks-template).
+# >>> karpenter: deploy.sh uncomments this block when k8s_platform=eks
+#   affinity:
+#     nodeAffinity:
+#       requiredDuringSchedulingIgnoredDuringExecution:
+#         nodeSelectorTerms:
+#           - matchExpressions:
+#               - key: eks.amazonaws.com/nodegroup
+#                 operator: Exists
+#     tolerations:
+#       - key: CriticalAddonsOnly
+#         operator: Exists
+# <<< karpenter
+  # PostgreSQL 18 — what this repo's CNPG operator (1.28) defaults new
+  # clusters to and the template tracks, and also the major Harbor 2.15
+  # bundles in its own harbor-db image (make/photon/db installs
+  # postgresql18-server), so this is the version upstream tests against.
+  # Bump it deliberately, alongside Harbor upgrades that move theirs.
+  # Patch bumps within a major are a rolling restart;
+  # bumping the MAJOR on a live database is an offline, one-way operation
+  # that also has to move the barman archive path — read
+  # runbooks/upgrade-cnpg-database.md before you edit this line.
+  imageName: ghcr.io/cloudnative-pg/postgresql:18.6-system-trixie
+  bootstrap:
+    initdb:
+      database: harbor
+      owner: harbor
+      # No extensions: Harbor's migrations (make/migrations/postgresql in
+      # the Harbor repo) create plain tables and no CREATE EXTENSION.
+  # Hand the CLIENT CA to cert-manager so the app's client cert can be issued
+  # and auto-renewed (db-client-cert.yaml). Providing clientCASecret means
+  # the operator stops signing client certs itself, so the streaming_replica
+  # cert must be provided too; one cert-manager secret serves both fields,
+  # since clientCASecret only reads its ca.crt key and cert-manager writes
+  # ca.crt into every secret it issues. Server certs stay operator-managed
+  # (the `harbor-db-ca` secret holds the server CA — mount its ca.crt
+  # for sslmode=verify-full, see README.md). One operational note: kubectl
+  # cnpg certificate can't mint client certs on this cluster — issue a
+  # Certificate from the harbor-db-client-ca Issuer instead.
+  certificates:
+    clientCASecret: harbor-db-replication-cert # pragma: allowlist secret — the Secret's name, not a value
+    replicationTLSSecret: harbor-db-replication-cert # pragma: allowlist secret — the Secret's name, not a value
+  # 1Gi, this repo's default for every volume. Harbor's metadata grows with
+  # artifacts, tags, and scan reports rather than with image size, so this
+  # lasts a long while; job logs go to stdout (jobservice.jobLoggers in
+  # values.yaml), not here.
+  storage:
+    size: 1Gi
+  # On EKS these volumes opt out of the DLM snapshot policy: barman owns this
+  # database's backups (the ObjectStore below), so daily EBS snapshots would
+  # be redundant spend — and a crash-consistent snapshot of one replica's
+  # volume is a restore footgun next to barman's point-in-time recovery.
+  # The DLM policy in aws-eks-template (cluster/dlm.tf) only snapshots
+  # volumes tagged Backup=dlm (applied by the default gp3 class);
+  # gp3-dangerous (apps/eks-storage-classes) tags them Backup=none instead.
+  # Tags apply at provision time only, so volumes that predate the Backup
+  # tag are already out of the policy — hand-tag them Backup=none anyway so
+  # they read as deliberate, not unaccounted for.
+# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
+#     storageClass: gp3-dangerous
+# <<< eks
+  # Separate WAL volume, so a WAL burst fills this volume instead of the data
+  # volume, and WAL I/O is isolated from table I/O. The failure mode is real
+  # (a fork's production database, 2026-09-05): a nightly batch job wrote WAL
+  # faster than the archiver shipped segments to S3, and WAL that isn't
+  # archived can't be recycled — the WAL volume filled, Postgres PANICked,
+  # and the cluster failed over. Size for the largest plausible burst as
+  # backlog (see also wal.maxParallel on the ObjectStore below, which
+  # attacks the same problem from the throughput side); ships at this
+  # repo's 1Gi default, to be raised if a burst of pushes, tag-retention
+  # runs, or scan-report writes outruns the archiver. walStorage is one-way:
+  # it can be added to a running cluster, but never removed.
+  walStorage:
+    size: 1Gi
+# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
+#     storageClass: gp3-dangerous
+# <<< eks
+  postgresql:
+    # Quorum synchronous replication: a commit returns only once at least one
+    # of the two replicas has flushed its WAL, so a failover can always
+    # promote a replica holding every acknowledged commit. Under CNPG's async
+    # default, an unclean primary death (node or zone loss, OOM kill, all
+    # three pods down with the primary slowest to return) lets the operator
+    # promote a replica that is behind, and the old primary's unreplicated
+    # commits are discarded (pg_rewind) when it rejoins as a replica.
+    #
+    # The cost is one round trip to the faster replica plus its WAL fsync on
+    # every commit — a millisecond or two across AZs. Serial single-
+    # connection writers feel it most; concurrent load amortizes it through
+    # group commit, and a long transaction pays it once, at COMMIT.
+    #
+    # `any`, not `first`: whichever replica answers first satisfies the
+    # quorum, so one slow or lagging replica doesn't slow the primary.
+    # dataDurability `required` (CNPG's default, spelled out) keeps the
+    # guarantee strict: with both replicas down, writes pause — they hang,
+    # they don't error — until one is back, rather than silently degrading to
+    # async as `preferred` would. Three instances is what makes that
+    # survivable: drains and rolling updates take one replica at a time (the
+    # replica PDB above), and the other keeps acknowledging.
+    #
+    # failoverQuorum closes the gap sync alone leaves: if the primary and the
+    # replica holding the newest commits fail together, a plain sync cluster
+    # can still promote the other replica. With it, the operator promotes
+    # only when enough replicas report in to prove one of them has every
+    # acknowledged commit (R + W > N — here W = 1 of N = 2 replicas, so both
+    # must be reachable). The price is availability: lose the primary and a
+    # replica at once and there is no automatic failover; the operator waits
+    # for one of them to return, and `kubectl cnpg promote` is the manual
+    # override, knowingly accepting the loss this guards against. It started
+    # as the experimental alpha.cnpg.io/failoverQuorum annotation, which
+    # still takes precedence if set; the operator tracks its state in a
+    # FailoverQuorum resource named after the Cluster, which it owns — don't
+    # edit that by hand. Changing this block needs no restart.
+    synchronous:
+      method: any
+      number: 1
+      dataDurability: required
+      failoverQuorum: true
+    parameters:
+      # Compress full-page images before they are written to WAL. The first
+      # write to a page after each checkpoint copies the whole 8 KiB page
+      # into WAL (full_page_writes defaults on, and should stay on — it is
+      # what makes a torn page recoverable), so on a write-heavy database
+      # those page images, not the row data, dominate WAL volume. A fork's
+      # production database measured this: ~60 GB of data generating 36-42
+      # GiB of WAL a day, which barman's gzip then took to roughly a quarter
+      # of its size in S3 — a ratio only uncompressed page images produce.
+      #
+      # Compressing them here shrinks the same bytes everywhere they cost
+      # something: the walStorage volume above, what the archiver has to ship
+      # (see wal.maxParallel on the ObjectStore below — the two attack the
+      # same bottleneck from opposite ends), and replica streaming and
+      # catch-up traffic.
+      #
+      # lz4 rather than zstd because this sits in the WAL insert path of
+      # every backend: lz4 costs single-digit microseconds per record, where
+      # zstd trades more CPU for a ratio that pays off in the archive rather
+      # than on the hot path (the ObjectStore below uses zstd for exactly
+      # that reason). Needs a build with --with-lz4, which the upstream
+      # cloudnative-pg images are; on a build without it Postgres refuses the
+      # value at reload and keeps the old one, so use `on` (pglz) there.
+      # Reload-only: no restart and no switchover. Applies to newly written
+      # WAL, and replicas and pg_waldump read either form transparently.
+      wal_compression: lz4
+# >>> pg-oauth: NOT auto-enabled — enable per adoption after building a validator image (see apps/dex/README.md)
+#       oauth_validator_libraries: "pg_oidc_validator"
+#       pg_oidc_validator.authn_field: "email"
+#     extensions:
+#       - name: pg-oidc-validator
+#         image:
+#           reference: ghcr.io/devopscoop/pg-oidc-validator:18-trixie
+#         # system/ in the image carries libcurl and its dependency chain:
+#         # the validator links libcurl, and the postgres image ships none.
+#         ld_library_path:
+#           - system
+# <<< pg-oauth
+    pg_hba:
+      # Possession of a client cert signed by this cluster's client CA
+      # (certificates.clientCASecret above, issued by db-client-cert.yaml)
+      # IS the app's login — the cert method requires TLS and CN == role.
+      # pg_hba is first-match per (type, db, user, address), so this rule
+      # owns every TLS connection from the owner role.
+      - hostssl all harbor all cert
+      # ... and the reject closes the only other path: a non-TLS connection
+      # falling through to CNPG's default scram catch-all, where the
+      # password in the auto-generated `<cluster>-app` Secret would still
+      # work. With both rules the app role has exactly one way in. Other
+      # roles (break-glass, per-developer) keep the scram catch-all.
+      - host all harbor all reject
+# >>> pg-oauth: NOT auto-enabled — enable per adoption after building a validator image (see apps/dex/README.md)
+#       # scope="" disables pg_oidc_validator's scope check — dex doesn't
+#       # write a scope claim into its tokens (validator README, Dex
+#       # section); the hba option is mandatory but may be empty. It also
+#       # requests nothing on the client's behalf: clients must ask for the
+#       # email scope themselves (oauth_scope='openid email', as in the psql
+#       # example above) or dex omits the email claim authn_field maps
+#       # roles from.
+#       - hostssl all +developers all oauth issuer="https://dex.project1-dev.devops.coop" scope="" map=oidc
+#     pg_ident:
+#       # Workspace email -> the role named after its local part
+#       # (alice@example.com logs in as alice; the role must exist below).
+#       - oidc /^(.*)@example\.com$ \1
+# <<< pg-oauth
+  # Continuous WAL archiving + base backups through the Barman Cloud Plugin
+  # (apps/cnpg-barman-plugin). The bucket, retention, and sidecar tuning live
+  # in the ObjectStore below; the daily cadence in the ScheduledBackup at the
+  # bottom of this file.
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: harbor-db
+  # Memory req=limit, no CPU limit; resize with krr after some real usage.
+  # 512Mi is the floor goalert-db landed on after 256Mi was OOMKilled
+  # repeatedly in its first half hour.
+  resources:
+    requests:
+      cpu: 25m
+      memory: 512Mi
+    limits:
+      memory: 512Mi
+  # Deliberately no monitoring block. The fleet-wide cnpg-instances
+  # VMPodScrape in apps/cnpg/vm.yaml scrapes every pod
+  # labeled cnpg.io/podRole=instance, so databases are collected with no
+  # per-app config. Don't set monitoring.enablePodMonitor: it would duplicate
+  # that scrape (every cnpg_* series stored twice under a second job label),
+  # and the field is deprecated upstream ("will be removed in a future
+  # version of the operator").
+  # IRSA: the instance pods run as the harbor-db ServiceAccount (CNPG
+  # names it after the Cluster), and this annotation lets their barman-cloud
+  # sidecars reach the backup bucket. Role and bucket come from
+  # aws-eks-template cluster/cnpg-backups.tf (see the cnpg_db_role_arns
+  # output).
+# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
+#   serviceAccountTemplate:
+#     metadata:
+#       annotations:
+#         eks.amazonaws.com/role-arn: "arn:aws:iam::ACCOUNT_ID:role/harbor-db"
+# <<< eks
+  # Developer SSO straight into Postgres: PostgreSQL 18's native OAuth
+  # (SASL OAUTHBEARER) against the optional dex app (apps/dex). psql runs
+  # dex's device flow — the public `psql` staticClient in
+  # apps/dex/helm_secrets.yaml — and the server validates the resulting JWT
+  # through a validator library, mapping the email claim to a per-developer
+  # role: no passwords, no shared credentials, and offboarding rides the
+  # upstream IdP. Deliberately a separate marker from `dex` (web SSO),
+  # because this side has hard prerequisites:
+  #   - Postgres ships NO validator. The reference below is devopscoop's
+  #     build of Percona-Lab's pg_oidc_validator (JWT/JWKS-based), from
+  #     github.com/devopscoop/pg-oidc-validator-image (which also documents
+  #     building your own). When enabling, pin it to one of that repo's
+  #     dated tags so upgrades stay deliberate git changes.
+  #   - Image-volume extensions need Kubernetes 1.35+ (1.33/1.34 only with
+  #     the ImageVolume feature gate) and a containerd 2.1+ runtime.
+  #   - Clients need psql 18 with libpq built against libcurl: Debian/Ubuntu
+  #     PGDG ship it as the libpq-oauth package, Arch's postgresql-libs and
+  #     Homebrew's postgresql@18 include it (Homebrew's libpq formula
+  #     doesn't).
+  #   - Validator libraries are young. The oauth hba rule (in the pg_hba
+  #     marker block above) is scoped to the developers group; the app
+  #     authenticates by client cert regardless, and break-glass roles keep
+  #     CNPG's default scram catch-all (appended after these rules).
+  #   - Read-only SSO roles (the cluster-viewers group) additionally need
+  #     db-developer-rbac.yaml (alongside this file) in the app's
+  #     kustomization: the `view` role can neither read this Cluster CR nor
+  #     port-forward, both of which psql-oauth.sh does.
+  # The issuer must equal config.issuer in apps/dex/values.yaml byte-for-byte
+  # and be reachable from the instance pods (discovery + JWKS fetch). Then:
+  #   psql "host=<endpoint> dbname=harbor user=alice \
+  #     oauth_issuer=https://dex.project1-dev.devops.coop \
+  #     oauth_client_id=psql oauth_scope='openid email'"
+  # prints a URL and code; the developer approves in the browser via the
+  # upstream IdP and lands in their own audited role.
+# >>> pg-oauth: NOT auto-enabled — enable per adoption after building a validator image (see apps/dex/README.md)
+#   managed:
+#     roles:
+#       # The group the oauth hba rule matches. Grant it what developers may
+#       # do — pg_read_all_data is read-only everywhere; note tables behind
+#       # row-level security additionally need bypassrls on the login roles
+#       # to be readable, a per-app data-access decision.
+#       - name: developers
+#         ensure: present
+#         login: false
+#         inRoles:
+#           - pg_read_all_data
+#       # One login role per human, named after the email local part.
+#       - name: alice
+#         ensure: present
+#         login: true
+#         inRoles:
+#           - developers
+# <<< pg-oauth
+---
+# Where harbor-db's backups live. The Barman Cloud Plugin (apps/
+# cnpg-barman-plugin — this app's flux Kustomization dependsOn it) reads this
+# ObjectStore and runs a barman-cloud sidecar in each instance pod that ships
+# WAL segments continuously and base backups on the ScheduledBackup's cadence
+# (next document).
+#
+# Bucket and IAM role come from aws-eks-template (cluster/cnpg-backups.tf,
+# keyed by app under local.cnpg_databases — adding a database there stamps
+# out its bucket and role, with optional cross-region replication);
+# authentication is IRSA (inheritFromIAMRole) via the serviceAccountTemplate
+# annotation on the Cluster above, so no credentials Secret is needed. On a
+# non-AWS platform, point destinationPath at an S3-compatible store and
+# supply credentials via a Secret referenced from s3Credentials instead.
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: harbor-db
+spec:
+  configuration:
+    destinationPath: s3://devopscoop-project1-dev-harbor-db-backups/
+    s3Credentials:
+      inheritFromIAMRole: true
+    wal:
+      # zstd, not gzip: the archiver's job is to keep up, and gzip is the
+      # slowest option the plugin offers. It is also now compressing segments
+      # that Postgres already handed over lz4-compressed (wal_compression on
+      # the Cluster above), so gzip's remaining ratio advantage is small.
+      # zstd is severalfold faster at a better ratio, and archive throughput
+      # is what bounds how long the WAL volume can absorb a write burst.
+      # Barman records compression per object, so an archive written with
+      # both still restores and this can be changed on a live cluster.
+      compression: zstd
+      # Ship up to 8 WAL segments per archiver invocation. Archive throughput
+      # is what keeps the WAL volume's backlog bounded (WAL that isn't
+      # archived can't be recycled), and single-segment uploads have already
+      # lost that race once — see the walStorage comment on the Cluster
+      # above.
+      maxParallel: 8
+    data:
+      # gzip, not zstd: the ObjectStore CRD (plugin v0.14.0) accepts only
+      # bzip2, gzip, lz4 or snappy for base backups — zstd and xz are
+      # WAL-only — and an unsupported value fails the dry-run of the whole
+      # Kustomization, not just this object. gzip is the middle ground:
+      # smaller objects than lz4 or snappy, far faster than bzip2. Switch to
+      # lz4 if restore time (decompressing the base backup before the
+      # database exists again) ever matters more than bucket size.
+      # Per-object like the WAL setting above, so a change on a live cluster
+      # leaves existing backups restorable.
+      compression: gzip
+  # Recovery-window retention: barman keeps enough base backups and WAL to
+  # restore to any point in the last 30 days, and deletes obsolete objects
+  # itself after each successful backup — which is why the bucket has no
+  # object-expiration lifecycle rule of its own.
+  retentionPolicy: "30d"
+  instanceSidecarConfiguration:
+    # Memory req=limit, no CPU limit, same as the postgres containers in the
+    # Cluster above. 512Mi even for an empty database: wal.maxParallel above
+    # lets the sidecar run one barman-cloud-wal-archive process per ready WAL
+    # segment, and a burst of them OOMKills it at 128Mi. Bursts come on first
+    # start (initdb's and the first base backup's segments) and after every
+    # switchover (the demoted primary flushes its leftover WAL), and while
+    # the sidecar crash-loops the pod is never Ready: a new primary leaves
+    # the -rw Service without endpoints, a demoted one never rejoins. Base
+    # backups of a multi-GB database also OOMKill it mid-stream at 128Mi (the
+    # Backup fails with "rpc error ... EOF"); raise it further if they still
+    # do.
+    resources:
+      requests:
+        cpu: 10m
+        memory: 512Mi
+      limits:
+        memory: 512Mi
+---
+# Daily base backup of harbor-db, on top of the continuous WAL
+# archiving the Barman Cloud Plugin does regardless (the ObjectStore above) —
+# together they give point-in-time recovery anywhere inside the retention
+# window, not just nightly snapshots.
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: harbor-db-daily
+spec:
+  cluster:
+    name: harbor-db
+  # CNPG's cron format has a leading seconds field: daily at 04:00 UTC.
+  schedule: "0 0 4 * * *"
+  method: plugin
+  pluginConfiguration:
+    name: barman-cloud.cloudnative-pg.io
+  # Take the first backup as soon as this resource lands instead of waiting
+  # up to a day — it's what seeds the object store on a fresh bootstrap.
+  immediate: true
+  # Backup objects get an ownerReference to this ScheduledBackup, so deleting
+  # it garbage-collects the Backup resources (the S3 data stays; barman's
+  # retention policy owns that).
+  backupOwnerReference: self

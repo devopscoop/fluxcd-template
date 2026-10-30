@@ -1,0 +1,28 @@
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: registry-mirrors
+  namespace: flux-system
+spec:
+  # job.yaml configures Harbor through its API and reads the harbor-core
+  # Secret the chart creates, so Harbor must be installed and Ready first.
+  # The node DaemonSet would work without it (its files fail open to each
+  # upstream), but pointing every node at a registry that doesn't exist yet
+  # only adds a failed hop to every pull.
+  dependsOn:
+    - name: harbor
+  interval: 10m0s
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+  path: apps/registry-mirrors
+  prune: true
+  wait: true
+  # wait covers the Job running to completion, which includes up to 10m of
+  # waiting for harbor-core to answer.
+  timeout: 15m0s
+  decryption:
+    provider: sops
+    secretRef:
+      name: sops-age
+  suspend: false

@@ -1,0 +1,90 @@
+# Points every node's containerd at Harbor's pull-through cache: an init
+# container runs write-hosts.sh, which writes a hosts.toml per registry in
+# registries.txt into the host's /etc/containerd/certs.d, then a pause
+# container holds the pod so the DaemonSet keeps a pod on every node and
+# reruns the script on new nodes and whenever the ConfigMap changes (its
+# kustomize hash suffix is part of this template, so a change rolls the
+# DaemonSet). The files outlive the pod; deleting this app leaves the last
+# ones in place, which still fail open to each upstream.
+#
+# EKS only, behind the eks marker in kustomization.yaml: AL2023's containerd
+# sets registry.config_path to /etc/containerd/certs.d, so dropping files
+# there is the whole integration. Elsewhere that directory may not be read
+# (k0s) or writable (Talos) — README.md has the per-platform equivalents.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: registry-mirrors
+  namespace: registry-mirrors
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: registry-mirrors
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # Rewriting the files is idempotent and the old ones keep working
+      # until the new ones land, so a config change can roll quickly.
+      maxUnavailable: 25%
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: registry-mirrors
+    spec:
+      # A node agent like apps/otel-collector's collector: it must land on
+      # every node, including the CriticalAddonsOnly-tainted managed node
+      # group, so it tolerates every taint and outranks ordinary pods.
+      priorityClassName: system-node-critical
+      tolerations:
+        - operator: Exists
+      automountServiceAccountToken: false
+      initContainers:
+        - name: write-hosts
+          image: docker.io/library/busybox:1.37.0
+          command: ["/bin/sh", "/config/write-hosts.sh"]
+          env:
+            - name: HARBOR_HOST
+              value: harbor.project1-dev.devops.coop
+          # Root, because the host directory is root-owned; nothing else
+          # about the container is privileged.
+          securityContext:
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              memory: 16Mi
+          volumeMounts:
+            - name: config
+              mountPath: /config
+              readOnly: true
+            - name: certs-d
+              mountPath: /host/certs.d
+            # write-hosts.sh keeps its list of written hosts in /tmp.
+            - name: tmp
+              mountPath: /tmp
+      containers:
+        - name: pause
+          image: registry.k8s.io/pause:3.10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+          resources:
+            requests:
+              cpu: 1m
+              memory: 8Mi
+            limits:
+              memory: 8Mi
+      volumes:
+        - name: config
+          configMap:
+            name: registry-mirrors
+        - name: certs-d
+          hostPath:
+            path: /etc/containerd/certs.d
+            type: DirectoryOrCreate
+        - name: tmp
+          emptyDir: {}

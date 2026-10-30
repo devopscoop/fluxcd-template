@@ -1,0 +1,31 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# No kustomization-wide namespace: this app spans two. The DaemonSet runs in
+# registry-mirrors; the Job and its Secret run in harbor, next to the
+# harbor-core Secret the Job reads. Every resource and generator names its
+# own.
+resources:
+  - namespace.yaml
+  - job.yaml
+  - dockerhub-credentials.secrets.yaml
+  # The node half — see daemonset.yaml's header for why it's EKS-only.
+# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
+#   - daemonset.yaml
+# <<< eks
+
+# The same registries.txt feeds both halves, so the node config and Harbor's
+# projects can't drift apart. Each ConfigMap gets a content-hash suffix that
+# kustomize writes into the pod template referencing it: editing
+# registries.txt rolls the DaemonSet and reruns the Job.
+configMapGenerator:
+  - name: registry-mirrors
+    namespace: registry-mirrors
+    files:
+      - registries.txt
+      - write-hosts.sh
+  - name: harbor-proxy-cache
+    namespace: harbor
+    files:
+      - registries.txt
+      - configure-harbor.sh
