@@ -189,4 +189,4 @@ The decision turns mostly on where the clusters run and how heavy the pulls are,
   -> [Harbor + Dragonfly]
   + <Images carry little gravity>
   - <The references are the gravity>
-  - <Spegel trusts the whole cluster>: Spegel serves cached layers without re-checking pull credentials, so a private image pulled by one workload can be fetched by digest from anywhere that reaches the mirror — fine in a single-tenant cluster, not in a shared one, where the stateful Dragonfly is the only peer option left. #alternative
+  - <P2P trusts the whole cluster>: Spegel serves cached layers without re-checking pull credentials, so a private image pulled by one workload can be fetched by digest from anywhere that reaches the mirror — and Dragonfly's storage servers do the same, serving any cached piece by a task ID derived from the layer digest, with no TLS on that path to gate it. Either peer layer is fine in a single-tenant cluster; a shared one needs network isolation of the peer ports, whichever registry sits behind it. #alternative

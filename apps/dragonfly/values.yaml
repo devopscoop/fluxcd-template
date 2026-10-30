@@ -63,6 +63,12 @@ seedClient:
   config:
     network:
       enableIPv6: true
+    # Nothing uses a seed peer's HTTP proxy — peers fetch from seeds over
+    # the upload and storage ports — so keep it off the pod network
+    # (same key and reasoning as client.config.proxy.server.ip below).
+    proxy:
+      server:
+        ip: 127.0.0.1
 
 # The per-node client: a dfdaemon on every node (hostNetwork), which
 # containerd pulls Harbor's images through.
@@ -92,6 +98,19 @@ client:
     network:
       enableIPv6: true
     proxy:
+      # Listen on loopback only. The proxy is a general-purpose HTTP proxy
+      # (X-Dragonfly-Registry names any upstream), and with hostNetwork its
+      # default of every interface would let any pod make requests from the
+      # node's address. Only this node's containerd uses it, at
+      # 127.0.0.1:4001 (apps/registry-mirrors' hosts.toml). Peer-to-peer
+      # traffic is unaffected: peers and schedulers use the upload (4000)
+      # and storage (4005/4006) servers, which keep listening on the node
+      # IP. The key is proxy.server.ip: the chart documents a proxy.ip
+      # beside server, which dfdaemon's config has no field for and
+      # silently ignores (ProxyServer in dragonfly-client-config's
+      # dfdaemon.rs at client v1.5.10).
+      server:
+        ip: 127.0.0.1
       registryMirror:
         # The default upstream of the node's proxy, used when a request
         # doesn't name its registry. The containerd hosts.toml files
