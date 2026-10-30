@@ -1,0 +1,137 @@
+# dyff between <(yq . <(helm show values dragonfly --repo https://dragonflyoss.github.io/helm-charts/ --version 1.8.7)) <(yq eval '. * load("values.yaml")' <(helm show values dragonfly --repo https://dragonflyoss.github.io/helm-charts/ --version 1.8.7))
+# vim -O <(helm show values dragonfly --repo https://dragonflyoss.github.io/helm-charts/ --version 1.8.7) values.yaml
+
+# Peer-to-peer image distribution for apps/harbor, without the manager: the
+# chart's default (manager.enable: false) runs schedulers, seed peers, and
+# a per-node client, with static config in place of the manager's database
+# and API, so there is no MySQL/Postgres or Redis to run. What that gives up
+# — Harbor's P2P preheat policies, the console, cache jobs — and how to add
+# the manager later is in README.md.
+#
+# The cluster is IPv6-only, and every Dragonfly component defaults to IPv4
+# (network.enableIPv6: false) for the addresses it listens on and announces
+# to peers and schedulers, so each component below turns IPv6 on.
+
+# Two schedulers, not the chart's three: they hold only in-memory peer and
+# task state, clients reach them through the headless Service, and when no
+# scheduler answers a client downloads straight from Harbor
+# (client.config.scheduler.enableBackToSource), so losing both degrades
+# pulls to what they'd be without Dragonfly instead of breaking them.
+scheduler:
+  replicas: 2
+  # Memory req=limit, no CPU limit (as for every component below); resize
+  # with krr after some real usage. The chart's defaults (8 CPU, 16Gi per
+  # pod) are sized for fleets of thousands of nodes.
+  resources:
+    requests:
+      cpu: 25m
+      memory: 256Mi
+    limits:
+      # Drop the chart's CPU limit.
+      cpu: null
+      memory: 256Mi
+  config:
+    network:
+      enableIPv6: true
+
+# Seed peers: the first fetch of every layer from Harbor lands here, and the
+# per-node clients then pull it from seeds and from each other.
+seedClient:
+  replicas: 2
+  resources:
+    requests:
+      cpu: 50m
+      memory: 1Gi
+    limits:
+      # Drop the chart's CPU limit.
+      cpu: null
+      memory: 1Gi
+  # A PVC per seed peer, so its cache survives a restart and isn't competing
+  # with containerd for the node's root volume. Per cluster: 20Gi, not the
+  # chart's 100Gi — size it for the image working set; garbage collection
+  # starts at 90% of the volume (the chart's seedClient.config.gc.policy
+  # defaults). On EKS,
+  # gp3-dangerous keeps this disposable cache out of the DLM snapshot
+  # policy. Each seed's volume pins it to one AZ, which costs nothing here:
+  # peers in every AZ can fetch from it.
+  persistence:
+    size: 20Gi
+# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
+#     storageClass: gp3-dangerous
+# <<< eks
+  config:
+    network:
+      enableIPv6: true
+
+# The per-node client: a dfdaemon on every node (hostNetwork), which
+# containerd pulls Harbor's images through.
+client:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 512Mi
+    limits:
+      # Drop the chart's CPU limit.
+      cpu: null
+      memory: 512Mi
+  # Same reasoning as apps/otel-collector's per-node collector: a node agent
+  # that loses the scheduling race stays Pending (and pages
+  # KubeDaemonSetRolloutStuck) while the node goes on pulling from Harbor
+  # directly. system-node-critical lets it preempt to land, and kubelet
+  # evicts it last under pressure.
+  priorityClassName: system-node-critical
+  # Cover the CriticalAddonsOnly-tainted managed node group too (see
+  # aws-eks-template), so every node pulls through the same path.
+# >>> karpenter: deploy.sh uncomments this block when k8s_platform=eks
+#   tolerations:
+#     - key: CriticalAddonsOnly
+#       operator: Exists
+# <<< karpenter
+  config:
+    network:
+      enableIPv6: true
+    proxy:
+      registryMirror:
+        # The default upstream of the node's proxy, used when a request
+        # doesn't name its registry. containerd's hosts.toml (dfinit below)
+        # names it on every request, so this only matters for clients that
+        # call the proxy directly.
+        addr: https://harbor.project1-dev.devops.coop
+    gc:
+      policy:
+        # The client's cache is an emptyDir on the node's root volume —
+        # 20Gi on Karpenter's AL2023 default, shared with containerd's own
+        # image store. Without a threshold, garbage collection measures the
+        # whole filesystem and only starts at 90% used, past the kubelet's
+        # hard eviction threshold (10% free), so the cache would push the
+        # node into DiskPressure before cleaning up. With one set, it
+        # measures only its own files against this cap
+        # (dragonfly-client-storage content.rs at the chart's client
+        # v1.5.10) and collects from 90% of it down to 70%.
+        diskThreshold: 5GiB
+  dfinit:
+    # dfinit writes containerd's registry config so pulls from Harbor go
+    # through this node's dfdaemon. Where containerd's config.toml already
+    # sets registry.config_path — EKS's AL2023 AMI, per the chart's dfinit
+    # notes — dfinit only drops a hosts.toml under it, which containerd
+    # reloads without a restart. On
+    # other platforms where config_path is unset, dfinit sets it and the
+    # chart's privileged init container restarts containerd once per node.
+    enable: true
+    config:
+      containerRuntime:
+        containerd:
+          # Only Harbor goes through Dragonfly. The chart's default proxies
+          # every registry, which would put Docker Hub, ghcr.io, quay.io,
+          # registry.k8s.io, and public.ecr.aws — the platform's own images
+          # — behind a component that itself runs on the platform.
+          proxyAllRegistries: false
+          # The hosts.toml lists this node's dfdaemon as a mirror of Harbor
+          # for pull and resolve, with Harbor itself as the server: when
+          # the mirror is unreachable, containerd falls back to Harbor
+          # directly, so a missing or crashed dfdaemon degrades pulls
+          # instead of failing them.
+          registries:
+            - hostNamespace: harbor.project1-dev.devops.coop
+              serverAddr: https://harbor.project1-dev.devops.coop
+              capabilities: ['pull', 'resolve']

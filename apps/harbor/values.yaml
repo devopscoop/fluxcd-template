@@ -1,0 +1,231 @@
+# dyff between <(yq . <(helm show values harbor --repo https://helm.goharbor.io --version 1.19.4)) <(yq eval '. * load("values.yaml")' <(helm show values harbor --repo https://helm.goharbor.io --version 1.19.4))
+# vim -O <(helm show values harbor --repo https://helm.goharbor.io --version 1.19.4) values.yaml
+
+# Gateway API, natively: expose.type "route" renders one HTTPRoute
+# (harbor-route) that sends /api/, /service/, /v2/, and /c/ to harbor-core and
+# everything else to harbor-portal — the same path split the chart's Ingress
+# makes, with no nginx Deployment in front (the chart only adds nginx for the
+# clusterIP/nodePort/loadBalancer types). TLS terminates at eg-private's
+# wildcard listener, so expose.tls is off; externalURL still says https,
+# because it is what Harbor hands clients as the token-service realm and
+# prints in the UI's pull commands.
+#
+# eg-private, not eg-public: pushes come from CI and humans on the VPN, pulls
+# from the nodes inside the VPC, and nothing outside needs the registry. The
+# route's /v2/ path is also the origin Dragonfly's seed peers fetch from
+# (apps/dragonfly), so they reach Harbor through the same gateway and
+# hostname containerd uses. Large blobs outlive Envoy's default 15s route
+# timeout, which backendtrafficpolicy.yaml lifts for this route.
+expose:
+  type: route
+  tls:
+    enabled: false
+  route:
+    parentRefs:
+      - name: eg-private
+        namespace: envoy-gateway-system
+        # Bind to the HTTPS listener only. Without sectionName the route also
+        # attaches to the port-80 listener and beats the catch-all redirect
+        # in httproute-redirect-private.yaml on hostname specificity, serving
+        # the registry in cleartext.
+        sectionName: https
+    hosts:
+      - harbor.project1-dev.devops.coop
+externalURL: https://harbor.project1-dev.devops.coop
+
+# The registry's blob store is a ReadWriteOnce EBS volume (persistence
+# below), which two pods on different nodes can't mount at once — a
+# RollingUpdate would leave the new registry pod stuck on a Multi-Attach
+# error until the old one is gone. Recreate stops the old pod first: every
+# upgrade is a short registry outage while the volume moves, and Dragonfly's
+# peers keep serving blobs already in circulation meanwhile. The chart
+# applies this to the registry and jobservice Deployments only.
+updateStrategy:
+  type: Recreate
+
+persistence:
+  persistentVolumeClaim:
+    # The image blobs themselves, on the default gp3 class — deliberately NOT
+    # gp3-dangerous: that class's Backup=dlm tag puts this volume under the
+    # daily DLM snapshot policy from aws-eks-template (cluster/dlm.tf), which
+    # is the registry's only backup (the CNPG database's barman backups
+    # cover metadata, not blobs). README.md → "Backups and restore".
+    #
+    # Per cluster: 20Gi, not this repo's 1Gi volume default — a registry
+    # outgrows 1Gi with its first base image. Size it for the image working
+    # set after tag retention; gp3 grows online (allowVolumeExpansion) but
+    # never shrinks, and a full volume fails every push.
+    registry:
+      size: 20Gi
+    # The Redis-protocol cache and jobservice queue (redis below). Losing it
+    # loses queued jobs and cached manifests, nothing that isn't rebuilt, so
+    # it stays out of the DLM policy.
+    redis:
+      size: 1Gi
+# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
+#       storageClass: gp3-dangerous
+# <<< eks
+    # Trivy's vulnerability database cache, re-downloaded on demand — same
+    # reasoning as redis. The chart's 5Gi default: the Trivy DB plus the
+    # Java index together run a little over 1Gi and grow.
+    trivy:
+      size: 5Gi
+# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
+#       storageClass: gp3-dangerous
+# <<< eks
+
+# Serves core's, registry's, and jobservice's own metrics on :8001 and runs
+# harbor-exporter (component health, project and quota stats, job queues).
+# vm.yaml scrapes them all; the chart's ServiceMonitor stays off because the
+# monitoring.coreos.com CRDs are deliberately absent here
+# (apps/victoria-metrics/README.md → "CRD ownership").
+metrics:
+  enabled: true
+
+# The CloudNativePG cluster in db-cluster.yaml, logged into with the client
+# certificate from db-client-cert.yaml. The chart has no settings for a
+# client cert, but every Harbor component that opens a database connection
+# (core, jobservice, exporter) does so through pgx v5, which reads
+# PGSSLCERT/PGSSLKEY/PGSSLROOTCERT from the environment for anything the
+# connection string leaves out — release.yaml's postRenderers add those env
+# vars and the cert mounts. verify-full checks the server against the
+# operator's CA (harbor-db-ca) by the -rw Service's FQDN, which CNPG puts in
+# its server certificate.
+database:
+  type: external
+  external:
+    host: harbor-db-rw.harbor.svc.cluster.local
+    port: "5432"
+    username: harbor
+    coreDatabase: harbor
+    sslmode: verify-full
+    # Never sent: the `cert` pg_hba rule in db-cluster.yaml authenticates by
+    # certificate and asks for no password. It can't be empty, though —
+    # Harbor formats `password=%s dbname=...` into a keyword/value string,
+    # and pgx (like libpq) skips whitespace after `=`, so an empty value
+    # swallows `dbname=harbor` as the password and connects to the wrong
+    # database. Keep it a single word with no spaces.
+    password: unused-cert-auth # pragma: allowlist secret — a placeholder, never authenticates
+  # Connection pools per pod, and three pods hold them (core, jobservice,
+  # exporter). The chart's 900/100 assume Harbor's bundled Postgres at
+  # max_connections 1024; CNPG's default is 100, so 3 × 20 stays well
+  # under it with room for replication and the operator.
+  maxOpenConns: 20
+  maxIdleConns: 5
+
+# The chart's own single-pod Redis (a Valkey build, goharbor/valkey-photon),
+# not this repo's valkey-operator: its ValkeyCluster is Redis Cluster mode,
+# and Harbor speaks standalone or Sentinel only. Harbor uses Redis as a
+# cache and as jobservice's queue — nothing durable — and the registry
+# behind it is a singleton anyway (updateStrategy above), so one pod costs
+# no availability the rest of the deployment has.
+redis:
+  internal:
+    # Memory req=limit, no CPU limit (as for every component below); resize
+    # with krr after some real usage.
+    resources:
+      requests:
+        cpu: 10m
+        memory: 128Mi
+      limits:
+        memory: 128Mi
+# >>> karpenter: deploy.sh uncomments this block when k8s_platform=eks
+#     nodeSelector:
+#       karpenter.sh/capacity-type: on-demand
+# <<< karpenter
+
+# On EKS every component is pinned to on-demand capacity (the karpenter
+# blocks), per the NodePool contract in
+# apps/karpenter-custom-resources/nodepool.yaml. Each runs one replica, so
+# a spot reclaim is an outage of that component, and for the registry it
+# also means waiting for its EBS volume to detach and reattach.
+core:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 256Mi
+    limits:
+      memory: 256Mi
+# >>> karpenter: deploy.sh uncomments this block when k8s_platform=eks
+#   nodeSelector:
+#     karpenter.sh/capacity-type: on-demand
+# <<< karpenter
+
+portal:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 64Mi
+    limits:
+      memory: 64Mi
+# >>> karpenter: deploy.sh uncomments this block when k8s_platform=eks
+#   nodeSelector:
+#     karpenter.sh/capacity-type: on-demand
+# <<< karpenter
+
+jobservice:
+  # stdout instead of the chart's file default: job logs (garbage
+  # collection, replication, retention, scans) go to the pod log, where
+  # VictoriaLogs collects them like every other pod's, and jobservice needs
+  # no PVC of its own. The trade-off: the UI's per-job "Logs" links show
+  # nothing. The database logger would keep those, but writes every job
+  # log line into the CNPG database above.
+  jobLoggers:
+    - stdout
+  resources:
+    requests:
+      cpu: 25m
+      memory: 256Mi
+    limits:
+      memory: 256Mi
+# >>> karpenter: deploy.sh uncomments this block when k8s_platform=eks
+#   nodeSelector:
+#     karpenter.sh/capacity-type: on-demand
+# <<< karpenter
+
+registry:
+  registry:
+    resources:
+      requests:
+        cpu: 50m
+        memory: 256Mi
+      limits:
+        memory: 256Mi
+  controller:
+    resources:
+      requests:
+        cpu: 10m
+        memory: 64Mi
+      limits:
+        memory: 64Mi
+# >>> karpenter: deploy.sh uncomments this block when k8s_platform=eks
+#   nodeSelector:
+#     karpenter.sh/capacity-type: on-demand
+# <<< karpenter
+
+trivy:
+  # The chart's own memory limit: scanning a large image holds its layers'
+  # file lists in memory. Its CPU limit goes (null deletes the key).
+  resources:
+    requests:
+      cpu: 50m
+      memory: 1Gi
+    limits:
+      cpu: null
+      memory: 1Gi
+# >>> karpenter: deploy.sh uncomments this block when k8s_platform=eks
+#   nodeSelector:
+#     karpenter.sh/capacity-type: on-demand
+# <<< karpenter
+
+exporter:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 64Mi
+    limits:
+      memory: 64Mi
+# >>> karpenter: deploy.sh uncomments this block when k8s_platform=eks
+#   nodeSelector:
+#     karpenter.sh/capacity-type: on-demand
+# <<< karpenter

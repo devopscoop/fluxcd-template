@@ -1,0 +1,142 @@
+# https://fluxcd.io/flux/components/helm/helmreleases/
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: harbor
+spec:
+  interval: 10m
+  valuesFrom:
+    - kind: ConfigMap
+      name: harbor-values
+    - kind: Secret
+      name: harbor-secrets
+  chart:
+    spec:
+      chart: harbor
+      version: 1.19.4
+      sourceRef:
+        kind: HelmRepository
+        name: harbor
+  # Client-certificate login to the CNPG database (db-cluster.yaml,
+  # db-client-cert.yaml), which the chart has no values for. Each of the
+  # three components that open database connections gets the app's client
+  # cert and the operator's server CA mounted, plus the libpq-style env vars
+  # pointing at them: Harbor connects through pgx v5, which fills sslcert,
+  # sslkey, and sslrootcert from PGSSLCERT, PGSSLKEY, and PGSSLROOTCERT when
+  # the connection string doesn't set them (Harbor's sets only sslmode,
+  # verify-full in values.yaml). The migrator harbor-core runs at startup
+  # uses the same driver, so schema migrations log in the same way.
+  #
+  # Container names are the chart's (core, jobservice, exporter); the
+  # strategic-merge patches append to the chart's env, volumeMounts, and
+  # volumes lists by name. 416 is 0640: pgx doesn't check key permissions,
+  # but the pods run as uid 10000 with fsGroup 10000, so group-read is what
+  # makes the key readable.
+  postRenderers:
+    - kustomize:
+        patches:
+          - target:
+              kind: Deployment
+              name: harbor-core
+            patch: | # pragma: allowlist secret — the patches name Secrets, they carry no values
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: harbor-core
+              spec:
+                template:
+                  spec:
+                    containers:
+                      - name: core
+                        env:
+                          - name: PGSSLCERT
+                            value: /etc/db-client-cert/tls.crt
+                          - name: PGSSLKEY
+                            value: /etc/db-client-cert/tls.key
+                          - name: PGSSLROOTCERT
+                            value: /etc/db-server-ca/ca.crt
+                        volumeMounts:
+                          - name: db-client-cert
+                            mountPath: /etc/db-client-cert
+                            readOnly: true
+                          - name: db-server-ca
+                            mountPath: /etc/db-server-ca
+                            readOnly: true
+                    volumes:
+                      - name: db-client-cert
+                        secret:
+                          secretName: harbor-db-client-cert
+                          defaultMode: 416
+                      - name: db-server-ca
+                        secret:
+                          secretName: harbor-db-ca
+          - target:
+              kind: Deployment
+              name: harbor-jobservice
+            patch: | # pragma: allowlist secret — the patches name Secrets, they carry no values
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: harbor-jobservice
+              spec:
+                template:
+                  spec:
+                    containers:
+                      - name: jobservice
+                        env:
+                          - name: PGSSLCERT
+                            value: /etc/db-client-cert/tls.crt
+                          - name: PGSSLKEY
+                            value: /etc/db-client-cert/tls.key
+                          - name: PGSSLROOTCERT
+                            value: /etc/db-server-ca/ca.crt
+                        volumeMounts:
+                          - name: db-client-cert
+                            mountPath: /etc/db-client-cert
+                            readOnly: true
+                          - name: db-server-ca
+                            mountPath: /etc/db-server-ca
+                            readOnly: true
+                    volumes:
+                      - name: db-client-cert
+                        secret:
+                          secretName: harbor-db-client-cert
+                          defaultMode: 416
+                      - name: db-server-ca
+                        secret:
+                          secretName: harbor-db-ca
+          - target:
+              kind: Deployment
+              name: harbor-exporter
+            patch: | # pragma: allowlist secret — the patches name Secrets, they carry no values
+              apiVersion: apps/v1
+              kind: Deployment
+              metadata:
+                name: harbor-exporter
+              spec:
+                template:
+                  spec:
+                    containers:
+                      - name: exporter
+                        env:
+                          - name: PGSSLCERT
+                            value: /etc/db-client-cert/tls.crt
+                          - name: PGSSLKEY
+                            value: /etc/db-client-cert/tls.key
+                          - name: PGSSLROOTCERT
+                            value: /etc/db-server-ca/ca.crt
+                        volumeMounts:
+                          - name: db-client-cert
+                            mountPath: /etc/db-client-cert
+                            readOnly: true
+                          - name: db-server-ca
+                            mountPath: /etc/db-server-ca
+                            readOnly: true
+                    volumes:
+                      - name: db-client-cert
+                        secret:
+                          secretName: harbor-db-client-cert
+                          defaultMode: 416
+                      - name: db-server-ca
+                        secret:
+                          secretName: harbor-db-ca

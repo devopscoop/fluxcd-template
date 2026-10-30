@@ -169,7 +169,7 @@ fi
 # dashboard entry in apps/victoria-metrics. Gated like the app itself
 # ($app_list registers metallb.yaml only on k0s/talos); MetalLB's scrape and
 # rules ship inside apps/metallb, so they need no marker. Opt-in apps'
-# dashboard markers (longhorn, rook-ceph, coraza, uptime-kuma) are NOT
+# dashboard markers (harbor, longhorn, rook-ceph, coraza, uptime-kuma) are NOT
 # enabled here for the same reason: enable them by hand together with the
 # app. Same converge-on-every-run reasoning as the eks step above.
 if [[ "$k8s_platform" != "eks" ]]; then

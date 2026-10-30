@@ -1,0 +1,149 @@
+# Scrape Dragonfly's three components from the per-component metrics
+# Services the chart always renders (client.metrics.enable and friends
+# default to true): the schedulers on :8000, and the seed peers and per-node
+# clients on :4002, each Service's port named "http-metrics", plain HTTP
+# /metrics (chart 1.8.7, templates/*/metrics-svc.yaml). The clients run with
+# hostNetwork, so their endpoints are node IPs — vmagent reaches them over
+# the node security group like any node exporter.
+#
+# Selected by the chart's component label rather than app: dragonfly alone,
+# which would also match the scheduler's and seed peers' main Services.
+# job is the Service name (dragonfly-scheduler-metrics, ...), which the
+# rules below filter on.
+#
+# No dashboard entry in apps/victoria-metrics/values.yaml: Dragonfly's own
+# dashboards (grafana.com 15944 Scheduler, 21053 Client, 21054 Seed Client)
+# hardcode the datasource uid "prometheus" on every panel, with no
+# ${DS_PROMETHEUS} placeholder for the download step to rewrite and no
+# datasource variable to fall back through, so every panel would fail to
+# find its datasource here. A hand-built ConfigMap dashboard is the
+# follow-up if one is wanted.
+#
+# Ships with the app (listed in this app's kustomization.yaml), so it
+# applies exactly when dragonfly does.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMServiceScrape
+metadata:
+  name: dragonfly
+spec:
+  namespaceSelector:
+    matchNames:
+      - dragonfly
+  selector:
+    matchLabels:
+      app: dragonfly
+    matchExpressions:
+      - key: component
+        operator: In
+        values:
+          - scheduler-metrics
+          - seed-client-metrics
+          - client-metrics
+  endpoints:
+    - port: http-metrics
+---
+# Alerting rules for Dragonfly, adapted from the chart's own (the
+# prometheusRule.rules lists under scheduler, seedClient, and client in its
+# values.yaml at 1.8.7). Every alert pages (apps/victoria-metrics/README.md
+# → "Alert routing"), so the upstream set is pruned hard. Deviations:
+#
+#   - Severity is warning throughout, where upstream marks the down and
+#     success-rate rules critical. This deployment fails open: a client that
+#     can't reach a scheduler or peer downloads from Harbor itself, and
+#     containerd falls back to Harbor when the node's client is gone. A
+#     Dragonfly failure makes pulls slower and loads the single
+#     EBS-backed registry pod; it doesn't stop them.
+#   - "Down" uses up{} rather than upstream's sum(dragonfly_*_version) == 0,
+#     which can't fire once every pod is gone: the version series vanish
+#     with them, and a sum over nothing is empty, not 0.
+#   - Kept only the scheduler-down and the two download success-rate rules.
+#     Dropped: ClientDown and SeedClientDown (a DaemonSet or StatefulSet
+#     whose pods are gone already pages through the stack's default
+#     KubeDaemonSet*/KubeStatefulSet* rules), every absolute-rate rule
+#     (">100 failures/s" — calibrated for fleets of thousands of nodes, and
+#     silent on a small cluster until long after the ratio rules fire), and
+#     the scheduler's per-RPC register/leave/announce/stat rules, whose
+#     failures surface in the download success rate anyway.
+#   - Success rates are over 10m windows with a minimum-traffic guard
+#     instead of upstream's 1m windows: with a handful of pulls a minute, a
+#     1m ratio is one failure away from 0.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  name: dragonfly
+spec:
+  groups:
+    - name: dragonfly
+      rules:
+        # With no scheduler, every client downloads straight from Harbor
+        # (enableBackToSource), so a rollout's whole fan-out lands on the
+        # single registry pod. A Running-but-unready scheduler pod already
+        # pages as KubePodNotReady; this catches the schedulers being
+        # unreachable while their pods look fine.
+        - alert: DragonflySchedulersDown
+          annotations:
+            summary: No Dragonfly scheduler is reachable — peer-to-peer distribution is off.
+            description: >-
+              Every dragonfly-scheduler target has been down for 10m. Nodes
+              are pulling Harbor images directly from the registry, which
+              carries the full load of any rollout meanwhile. Check the
+              dragonfly-scheduler StatefulSet in the dragonfly namespace.
+          expr: |-
+            sum(up{namespace="dragonfly", job="dragonfly-scheduler-metrics"}) == 0
+          for: 10m
+          labels:
+            severity: warning
+        # Downloads the per-node clients failed — after P2P and their own
+        # fallback to Harbor both gave up. containerd then retries against
+        # Harbor directly, so these pulls may still succeed, but something
+        # between the nodes and Harbor (the gateway, its timeout policy,
+        # credentials) is failing.
+        - alert: DragonflyClientDownloadsFailing
+          annotations:
+            summary: Over 40% of Dragonfly client downloads have failed for 15m.
+            description: >-
+              Only {{ $value | humanizePercentage }} of the per-node
+              clients' downloads succeeded over the last 10m. Check the
+              client logs on an affected node (dragonfly-client DaemonSet)
+              for the upstream error — a 504 from the gateway points at
+              apps/harbor/backendtrafficpolicy.yaml, a 401 at registry
+              credentials.
+          expr: |-
+            (
+              sum(rate(dragonfly_client_download_task_total{namespace="dragonfly", job="dragonfly-client-metrics"}[10m]))
+              -
+              sum(rate(dragonfly_client_download_task_failure_total{namespace="dragonfly", job="dragonfly-client-metrics"}[10m]))
+            )
+            /
+            sum(rate(dragonfly_client_download_task_total{namespace="dragonfly", job="dragonfly-client-metrics"}[10m]))
+            < 0.6
+            and
+            sum(rate(dragonfly_client_download_task_total{namespace="dragonfly", job="dragonfly-client-metrics"}[10m])) > 0.01
+          for: 15m
+          labels:
+            severity: warning
+        # The seed peers make every first fetch from Harbor; when those fail
+        # the cache never fills and every node falls back to Harbor itself.
+        - alert: DragonflySeedDownloadsFailing
+          annotations:
+            summary: Over 40% of Dragonfly seed peer downloads from Harbor have failed for 15m.
+            description: >-
+              Only {{ $value | humanizePercentage }} of the seed peers'
+              downloads succeeded over the last 10m. Seed peers fetch from
+              https://harbor.project1-dev.devops.coop through eg-private;
+              check the dragonfly-seed-client logs and whether that hostname
+              resolves and answers from inside the cluster.
+          expr: |-
+            (
+              sum(rate(dragonfly_client_download_task_total{namespace="dragonfly", job="dragonfly-seed-client-metrics"}[10m]))
+              -
+              sum(rate(dragonfly_client_download_task_failure_total{namespace="dragonfly", job="dragonfly-seed-client-metrics"}[10m]))
+            )
+            /
+            sum(rate(dragonfly_client_download_task_total{namespace="dragonfly", job="dragonfly-seed-client-metrics"}[10m]))
+            < 0.6
+            and
+            sum(rate(dragonfly_client_download_task_total{namespace="dragonfly", job="dragonfly-seed-client-metrics"}[10m])) > 0.01
+          for: 15m
+          labels:
+            severity: warning
