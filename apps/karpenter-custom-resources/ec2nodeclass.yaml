@@ -21,7 +21,7 @@ spec:
   # is why that script is rerun after every EKS upgrade.
   # https://karpenter.sh/docs/tasks/managing-amis/
   amiSelectorTerms:
-    - alias: al2023@v20260930
+    - alias: al2023@v20261026
 
   # Subnets and the node security group are discovered by tag. aws-eks-template
   # tags the private subnets and the EKS node security group with
