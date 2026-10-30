@@ -1,0 +1,162 @@
+===
+title: "AWS ECR vs. Harbor + Dragonfly"
+subTitle: First-principles comparison map for private container images, organized by decision criterion — the managed AWS registry against self-hosted Harbor on EBS volumes with Dragonfly peer-to-peer distribution, deployed from this template
+author: Claude and evans
+date: 2026-10-29
+color:
+  tagColors:
+    ecr: "#e08214"
+    harbor: "#2166ac"
+    context: "#756bb1"
+    alternative: "#35978f"
+===
+
+# The question
+
+Where should this cluster's private container images (application images pushed by CI, plus mirrored third-party images) live, and how should nodes fetch them? ECR is the AWS-native default on the template's EKS path. The candidate replacement is free, open source, and runs on any platform the template targets, and it answers the wish for something distributed with a peer-to-peer layer. That layer decentralizes the bytes, not the registry: Harbor remains the single source of truth for names, permissions, and tags, just as ECR is. This map assumes Harbor stores image blobs on EBS volumes through the template's default gp3 storage class, not in S3. Neither option is a thesis to defend here — each criterion below collects what both sides have to say, and the context section names the conditions that swing the verdict. Node color marks which side an argument serves; the arrows carry the valence.
+
+[AWS ECR]: Keep images in Amazon ECR — a regional, managed, IAM-authenticated OCI registry backed by S3, with replication, pull-through caches, lifecycle policies, and scanning sold as features, and nothing in the cluster to run. #ecr
+  -> [Harbor + Dragonfly]
+
+[Harbor + Dragonfly]: Run Harbor — the CNCF-graduated registry with projects, RBAC, OIDC login, Trivy scanning, signature enforcement, replication, and proxy caches — with its image blobs on an EBS gp3 PersistentVolumeClaim, and Dragonfly's peer-to-peer layer in front so nodes fetch layers from each other instead of all from the registry. Both are Apache-2.0 and deploy as Flux-managed apps like everything else in this repo. #harbor
+  -> [AWS ECR]
+
+
+# Cost
+
+<Storage is the only line item>: ECR bills about $0.10 per GB-month for bytes actually stored, and in-region pulls to EKS carry no transfer charge; with a lifecycle policy expiring untagged and stale images, a typical team's registry bill is tens of dollars a month — less than the memory Harbor's pods and Dragonfly's per-node daemon would reserve. #ecr
+  +> [AWS ECR]
+  - <The hidden bill is the network path>: Pulls through a NAT gateway pay its per-GB processing charge unless ECR interface endpoints (billed hourly per AZ) and an S3 gateway endpoint are provisioned, cross-region replication and pulls pay inter-region transfer, and every pull from a cluster outside AWS pays internet egress — while Harbor on EBS keeps every pull inside the VPC, touching neither NAT nor endpoints. #harbor
+    - <Cross-AZ is the new path>: An EBS volume lives in one AZ, so the registry pod does too, and every pull from a node in another AZ pays inter-AZ transfer in both directions — as does Dragonfly's peer traffic unless peer selection is scoped by zone — so the network bill shrinks rather than vanishes. #ecr
+
+<Provisioned, not used>: EBS bills provisioned capacity at roughly ECR's per-GB rate whether or not it holds images, with DLM snapshots billed on top; the volume grows online but never shrinks, EBS rate-limits how often a volume can be modified, and a full volume fails every push — so it is sized for peak with headroom and watched like a database disk. #ecr
+  +> [AWS ECR]
+  - <Expansion is a one-line PR>: The default gp3 class allows online volume expansion, so growing the registry is a PVC size bump through the normal PR flow, and tag retention plus scheduled garbage collection keep the working set bounded — the same disk discipline every other stateful app in this repo already follows. #harbor
+
+<Engineering time is the real cost>: Harbor is half a dozen services (core, portal, registry, jobservice, Trivy, exporter) plus Postgres and Redis, and Dragonfly adds a manager backed by its own SQL database and Redis, a scheduler, seed peers, and a daemon on every node; upgrading, backing up, and carrying the pager for that estate costs more engineer-hours per month than ECR costs dollars per year. #ecr
+  +> [AWS ECR]
+  - <The dependencies are already here>: This template already runs CNPG for Postgres, the Valkey operator for a Redis-protocol cache, a default gp3 storage class whose volumes Data Lifecycle Manager snapshots automatically, Dex for OIDC, VictoriaMetrics for monitoring, and Renovate for upgrade PRs — Harbor plugs into patterns the repo already operates instead of introducing new disciplines. #harbor
+    - <Reused patterns are still new instances>: One more CNPG cluster, one more Valkey cluster, one more volume to size, and their backups, alerts, and restore drills are each real instances to size and rehearse — familiarity lowers the cost per component without making the count smaller. #ecr
+
+
+# Operations and availability
+
+<Zero to operate>: ECR has no pods, no database, no upgrades, and no capacity planning; storage scales with S3, availability is multi-AZ by construction under a published 99.9% SLA, and the pager belongs to AWS. #ecr
+  +> [AWS ECR]
+
+<The registry is on every pod's critical path>: Every pod landing on a node without its image — a Karpenter scale-out, a spot replacement, a node-pool upgrade — needs the registry to answer, so a Harbor outage stops rollouts and turns routine node churn into lost capacity; HA Harbor needs replicated services, an HA Postgres, and a Sentinel-backed Redis, since the chart's bundled database and Redis are single instances. #ecr
+  +> [AWS ECR]
+  - <Peers serve what the fleet already has>: With Dragonfly in front, layers that some node already holds come from peers instead of Harbor, so an outage blunts rather than stops pulls of images in circulation, and the HA dependencies are a CNPG cluster and a Valkey cluster this repo already knows how to stamp out. #harbor
+    - <Manifests still need the origin>: A pull by tag resolves its manifest against the registry before any layer moves, and Dragonfly's proxy routes only blob requests through peers; with Harbor down, pods referencing tags still fail to start, so peer caching relieves the registry's bandwidth, not the availability dependency. #ecr
+
+<One volume, one replica, one zone>: Harbor's registry runs more than one replica only on shared storage — object storage or a ReadWriteMany volume — so on an EBS ReadWriteOnce volume it is a singleton pinned to one AZ: every reschedule, node replacement, and chart upgrade (which must use the Recreate strategy) is a registry outage while the volume detaches and reattaches, and an AZ failure strands the images until a snapshot is restored in another zone. #ecr
+  +> [AWS ECR]
+  - <Short, scheduled gaps>: A volume reattach typically takes a minute or two, pinning the registry to on-demand nodes (as the karpenter marker does for other spot-intolerant workloads) keeps spot reclaims away from it, and DLM snapshots are regional, so an AZ loss is a restore runbook rather than data loss — for a service that gates pod starts rather than serving live traffic, minutes of planned downtime are a maintenance window, not an incident. #harbor
+    - <Manifests still need the origin>
+
+<Bootstrap circularity>: An in-cluster Harbor cannot serve its own images, nor those of the CNI, CoreDNS, Flux, CNPG, or Dragonfly that must run before it; a full-cluster rebuild comes up from public registries first, and the registry shares fate with every cluster-wide failure the images need to survive. #ecr
+  +> [AWS ECR]
+  - <Infrastructure images stay upstream>: The platform's own images already come from their public registries (ghcr.io, quay.io, public.ecr.aws, registry.k8s.io), and only first-party application images would move to Harbor — and those deploy after Harbor in any restore anyway, so the circularity only covers images nobody proposes to move. #harbor
+    - <Shared fate survives the ordering>: Ordering solves the cold start, not the coupling: a botched cluster upgrade, a control-plane outage, or the loss of the registry volume's AZ takes Harbor down together with the workloads that would need it to recover, while ECR sits outside the cluster's failure domain entirely. #ecr
+
+<The registry holds state to protect>: Harbor's Postgres holds projects, RBAC, robot accounts, scan results, and the artifact index, and the blobs sit on a single EBS volume whose annual failure rate is measured in tenths of a percent rather than S3's eleven nines; barman backs up the database and DLM snapshots the volume, each on its own schedule, and since Harbor serves only artifacts its database knows about, restoring the two as a consistent pair is a drill to design and rehearse. #ecr
+  +> [AWS ECR]
+  - <Images are rebuildable>: Application images are build outputs of tagged commits and mirrored images are copies of upstream ones, so a lost registry is repopulated by re-running CI and replication; the irreplaceable part is the small Postgres database, which CNPG's barman backups already cover, and the default gp3 class puts the volume under DLM snapshots with no extra work. #harbor
+    - <Rebuilt is not restored>: Builds are rarely reproducible, so a rebuilt image gets a new digest — every digest pin, signature, and attestation for the lost one is orphaned, and old releases whose base images or dependencies have moved on may not rebuild at all. #ecr
+
+
+# Peer-to-peer distribution
+
+<P2P flattens pull storms>: When dozens or hundreds of nodes start the same multi-gigabyte image at once — a large rollout, a Karpenter scale-out, ML images with CUDA layers — Dragonfly fetches each layer from the origin roughly once and spreads it across peers, cutting registry load and the time until the last node is ready. For Harbor on EBS this is load-bearing rather than an optimization: with no object store to redirect downloads to, every byte of every pull streams through one registry pod reading one volume at its provisioned throughput (gp3's baseline is 125 MiB/s). #harbor
+  +> [Harbor + Dragonfly]
+  - <S3 already absorbs the storm>: ECR serves layers from S3, which absorbs this fan-out without help — much of the storm Dragonfly defuses is one that Harbor on a single volume creates, and for a fleet of tens of nodes pulling images of a few hundred megabytes, ECR needs no daemon on every node to survive it. #ecr
+    - <Preheat beats any origin>: Harbor's P2P preheat policies push new artifacts into Dragonfly's seed peers as soon as they land, so the first node to need an image reads it from inside the cluster at local-network speed — a latency win no remote origin offers, however well it scales. #harbor
+  - <P2P is not tied to Harbor>: Dragonfly proxies any OCI registry, ECR included, and Spegel turns each node's containerd store into an in-cluster mirror with no state at all — the peer-to-peer benefit can be bought without replacing the registry, so it weighs on whether to add P2P, not on which registry to run. #ecr
+    +> [Keep ECR, add P2P on demand]
+    - <Harbor makes P2P a policy>: Only Harbor drives Dragonfly from the registry side — preheating on push, scoped by project, tag pattern, signature, or vulnerability status — whereas in front of ECR the peer layer is a cache that warms on first pull and knows nothing about what was just published. #harbor
+
+<Node-level plumbing>: Dragonfly works by rewriting each node's containerd mirror configuration and running a host-networked daemon on every node; on Karpenter-provisioned nodes that config must be in place before the first pull, so it lands in node bootstrap data or a DaemonSet that edits host files — a cluster-wide, node-level dependency that ECR's built-in kubelet credential provider does not need. #ecr
+  +> [AWS ECR]
+  - <Fails open to the origin>: containerd tries the configured mirror and then the upstream registry, so a dead or missing peer daemon degrades pulls to direct-from-registry instead of failing them, and the Helm chart writes the mirror config itself without custom node images. #harbor
+    - <Failing open lands on one pod>: With the registry a single EBS-backed pod, falling back to the origin sends the whole fan-out to the very bottleneck Dragonfly exists to hide, so a peer-layer failure during a large rollout becomes a registry brownout — on EBS, Dragonfly is a dependency, not an accelerator. #ecr
+
+
+# Identity and credentials
+
+<IAM is the credential>: On EKS, nodes pull through the kubelet's ECR credential provider using the node role, Flux's ImageRepository authenticates with `provider: aws` through IRSA or Pod Identity, and CI pushes with an assumed role — no registry passwords exist to encrypt with SOPS, rotate, or leak. #ecr
+  +> [AWS ECR]
+  + <Per-pod pull permissions>: From EKS 1.35, the ECR credential provider exchanges the pod's own projected service account token (the KEP-4412 kubelet feature, beta and on by default since Kubernetes 1.34) for credentials of that workload's IAM role, falling back to the node role when none is mapped — so ECR repository policies can grant pulls per workload, still with no secret anywhere. #ecr
+  - <Twelve-hour tokens off AWS>: Outside EKS, ECR auth is a 12-hour token minted from AWS credentials, so every non-AWS cluster, laptop, and third-party CI needs a long-lived AWS key or a token-refresh CronJob writing pull secrets — the passwordless story holds only inside AWS. #harbor
+  - <SSO for humans, robots for machines>: Harbor users log in through Dex against the workforce IdP with group-mapped project roles, and machines get project-scoped, optionally expiring robot accounts — contractors and developers need no AWS identity to push or pull. #harbor
+    - <Every robot is a secret>: Each cluster's pull secret, each Flux ImageRepository secretRef, and each CI push credential is a robot token encrypted in git and rotated by hand when it expires or leaks — exactly the secret sprawl IAM roles exist to eliminate. #ecr
+      + <Secretless Harbor is commercial>: Native workload identity federation — Harbor verifying a service account token against the cluster's JWKS and mapping its claims to a robot — ships only in 8gears' commercial Harbor distribution; the upstream proposal awaits a maintainer decision after an 8gears maintainer said the feature goes into their commercial product first, so free, open-source Harbor cannot accept a pod's identity in place of a password. #ecr
+      - <Network-private anonymous pulls>: Mark the projects public and expose Harbor only on an internal gateway route fenced by NetworkPolicy — pulls then need no credential at all, Flux's ImageRepository lists tags without a secretRef, and the only robot left to rotate is CI's push account. #harbor
+        - <The network is the only boundary>: Anything that can reach Harbor can pull every image in a public project, so per-workload pull permissions and tenant isolation are gone, and one misrouted exposure (a public listener, a peered VPC, a permissive policy) publishes the whole registry. #ecr
+      - <A bridge confines the robots>: The Aetherize workload-identity bridge works with stock Harbor through the same KEP-4412 feature: a kubelet plugin hands the pod's service account token to the bridge, which validates it and returns the credentials of the robot mapped to that service account — robot passwords live only in the bridge's namespace and rotate every 24 hours, app namespaces hold no pull secrets, and access is granted per service account. #harbor
+        - <Alpha software on the pull path>: The bridge is alpha (v0.11), sits on the critical path of every pull alongside a plugin binary and kubelet configuration that every node needs (Karpenter bootstrap data on EKS), and confines rather than removes the robot passwords; Flux's image-reflector-controller lists tags itself rather than through the kubelet, so it still needs a robot secret of its own. #ecr
+
+
+# Supply-chain controls
+
+<Policy at the registry door>: Harbor can refuse to serve images above a vulnerability severity or lacking a Cosign or Notation signature, scans every push with Trivy at no extra cost, generates SBOMs, and enforces quotas, tag immutability, and retention per project — one enforcement point for every consumer, inside the cluster or out. #harbor
+  +> [Harbor + Dragonfly]
+  - <Admission control is the right gate>: ECR covers the storage-side controls (immutable tags, lifecycle policies, basic scanning, Inspector enhanced scanning, Notation signing through AWS Signer), and pull-time gating belongs in the cluster anyway — a Kyverno or Sigstore policy-controller rule verifies signatures and attestations on every pod, whichever registry served it. #ecr
+    - <The cluster sees only its own pulls>: An admission controller is one more component on every pod's critical path, and it guards only the cluster it runs in; CI jobs, laptops, and other clusters pull straight past it, while a registry-side gate covers them all. #harbor
+
+<A web app to patch>: Harbor is a large application with a web UI, an API, an admin account, and a steady CVE history, on a release cadence the team must track and roll out; ECR's attack surface is the AWS API and the IAM policies around it, patched by AWS. #ecr
+  +> [AWS ECR]
+  - <Internal route, Renovate PRs>: Exposed only on an internal gateway route with OIDC login, Harbor's surface shrinks to the cluster's network boundary, and Renovate already turns each chart release into a pull request like every other app in the repo. #harbor
+
+
+# Portability and lock-in
+
+<Runs wherever the template runs>: The template deploys to EKS and to clusters with MetalLB, Rook-Ceph, and Longhorn; Harbor on a PersistentVolumeClaim is the same chart everywhere — gp3 on EKS, Longhorn or Ceph block volumes elsewhere — with only the storage class changing and no object store to stand up, while ECR is local only to AWS — other clusters reach it over the internet with egress fees, round-trip latency, and AWS credentials. #harbor
+  +> [Harbor + Dragonfly]
+  - <Portability is speculative>: If every cluster this repo stamps out lands on EKS — and the Karpenter, IRSA, and gp3 defaults suggest that is the main path — portability is an option never exercised, paid for every day in operations. #ecr
+
+<No vendor in the path>: Harbor is open source with no license tiers, speaks plain OCI, and replicates to and from any registry, so the image store is not bound to one provider's pricing, regions, or IAM model. #harbor
+  +> [Harbor + Dragonfly]
+  - <Images carry little gravity>: OCI artifacts move between registries with `skopeo sync`, `crane copy`, or Harbor's own replication (which speaks ECR) with digests intact, so ECR is not a trap — the registry is cheaper to revisit later than almost any other substrate choice. #ecr
+    +> [Keep ECR, add P2P on demand]
+    - <The references are the gravity>: The bytes move easily; the registry hostname does not — it is written into every values.yaml, Flux ImageRepository, CI push step, pull secret, and signature-verification policy, and all of them change in one coordinated cutover that grows with every app. #harbor
+
+
+# Cross-cutting context
+
+The decision turns mostly on where the clusters run and how heavy the pulls are, so the platform condition is stated as two mutually exclusive cases.
+
+[EKS in one account]: Every cluster runs on EKS in one AWS account and region — ECR is local, passwordless, and egress-free, and the strongest Harbor arguments (portability, credential sprawl, egress) lose most of their force. #context
+  +> <IAM is the credential>
+  +> <Portability is speculative>
+  -> <Runs wherever the template runs>
+  -> <The hidden bill is the network path>
+
+[Clusters outside AWS]: Some clusters this repo deploys run on bare metal or another cloud — ECR becomes a remote, metered dependency reached with long-lived AWS credentials, and Harbor's run-anywhere chart becomes the deciding property. #context
+  +> <Runs wherever the template runs>
+  +> <Twelve-hour tokens off AWS>
+  +> <The hidden bill is the network path>
+  -> <Portability is speculative>
+
+[One tenant per cluster]: This template is one repo per cluster, and when each cluster serves a single team or product, the network boundary already is the tenant boundary — anonymous in-cluster pulls give up nothing that per-workload pull permissions would protect. #context
+  +> <Network-private anonymous pulls>
+  -> <The network is the only boundary>
+  -> <Per-pod pull permissions>
+
+[Large images, bursty fleets]: Multi-gigabyte images (ML runtimes, CUDA bases) and scale-outs of dozens of nodes at once are routine — pull time dominates pod startup, P2P stops being speculative, and a single EBS-backed registry pod cannot carry the fan-out without it. #context
+  +> <P2P flattens pull storms>
+  +> <Failing open lands on one pod>
+  -> <S3 already absorbs the storm>
+
+[Decentralization is the goal]: If the requirement is no single point of control or failure, not just faster distribution, neither option meets it — Dragonfly decentralizes the bytes, but the index, permissions, and tag resolution stay in one Harbor on one volume, just as they stay in one ECR region. #context
+  +> <Manifests still need the origin>
+  +> <One volume, one replica, one zone>
+
+
+# A middle path
+
+[Keep ECR, add P2P on demand]: Stay on ECR as the origin, and when pull fan-out actually hurts, put Spegel (stateless, no database) or Dragonfly in front of it; the peer-to-peer gain arrives without a stateful registry to run, and a later move to Harbor stays a replication job rather than a rebuild. #alternative
+  -> [AWS ECR]
+  -> [Harbor + Dragonfly]
+  + <Images carry little gravity>
+  - <The references are the gravity>
+  - <Spegel trusts the whole cluster>: Spegel serves cached layers without re-checking pull credentials, so a private image pulled by one workload can be fetched by digest from anywhere that reaches the mirror — fine in a single-tenant cluster, not in a shared one, where the stateful Dragonfly is the only peer option left. #alternative
