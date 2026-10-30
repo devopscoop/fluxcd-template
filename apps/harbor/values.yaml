@@ -51,12 +51,15 @@ persistence:
     # is the registry's only backup (the CNPG database's barman backups
     # cover metadata, not blobs). README.md → "Backups and restore".
     #
-    # Per cluster: 20Gi, not this repo's 1Gi volume default — a registry
-    # outgrows 1Gi with its first base image. Size it for the image working
-    # set after tag retention; gp3 grows online (allowVolumeExpansion) but
-    # never shrinks, and a full volume fails every push.
+    # Per cluster: 50Gi, not this repo's 1Gi volume default. Besides this
+    # cluster's own images, the volume holds the pull-through cache of every
+    # upstream image the cluster runs (apps/registry-mirrors) — the platform
+    # alone pulls some sixty images — kept until they go 7 days unpulled.
+    # Size it for that working set after retention; gp3 grows online
+    # (allowVolumeExpansion) but never shrinks, and a full volume fails
+    # every push and every cache miss.
     registry:
-      size: 20Gi
+      size: 50Gi
     # The Redis-protocol cache and jobservice queue (redis below). Losing it
     # loses queued jobs and cached manifests, nothing that isn't rebuilt, so
     # it stays out of the DLM policy.

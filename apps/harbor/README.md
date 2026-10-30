@@ -1,8 +1,8 @@
 # Harbor
 
-[Harbor](https://goharbor.io/) — a private OCI registry for this cluster's images, on the [upstream Helm chart](https://github.com/goharbor/harbor-helm) (`release.yaml`), served at <https://harbor.project1-dev.devops.coop> on the private Gateway. Image blobs live on an EBS volume, metadata in a CloudNativePG database (`db-cluster.yaml`, cert-authenticated), and nodes pull through [Dragonfly](../dragonfly/README.md)'s peer-to-peer layer, which ships as its own app. The comparison that picked this over ECR, including what it costs, is `arguments/ecr_vs_harbor_dragonfly.argdown`.
+[Harbor](https://goharbor.io/) — a private OCI registry for this cluster's images, on the [upstream Helm chart](https://github.com/goharbor/harbor-helm) (`release.yaml`), served at <https://harbor.project1-dev.devops.coop> on the private Gateway. Image blobs live on an EBS volume, metadata in a CloudNativePG database (`db-cluster.yaml`, cert-authenticated), and nodes pull through [Dragonfly](../dragonfly/README.md)'s peer-to-peer layer, which ships as its own app. Harbor is also the cluster's pull-through cache for Docker Hub, ghcr.io, quay.io, registry.k8s.io, and public.ecr.aws: [`apps/registry-mirrors`](../registry-mirrors/README.md) creates the proxy-cache projects and points every node's containerd at them, so workloads keep their image references unchanged. The comparison that picked this over ECR, including what it costs, is `arguments/ecr_vs_harbor_dragonfly.argdown`.
 
-Opt-in: `deploy.sh` never registers this app. Add `harbor.yaml` — and `dragonfly.yaml`, which this README assumes — to the `resources` list in `flux/flux-system/kustomization.yaml` (`yq -i '.resources += ["harbor.yaml", "dragonfly.yaml"] | .resources |= unique' flux/flux-system/kustomization.yaml`), then follow the steps below.
+Opt-in: `deploy.sh` never registers this app. Add `harbor.yaml` — and `dragonfly.yaml` and `registry-mirrors.yaml`, which this README assumes — to the `resources` list in `flux/flux-system/kustomization.yaml` (`yq -i '.resources += ["harbor.yaml", "dragonfly.yaml", "registry-mirrors.yaml"] | .resources |= unique' flux/flux-system/kustomization.yaml`), then follow the steps below and `apps/registry-mirrors/README.md` → "First run".
 
 ## First run
 
@@ -39,6 +39,12 @@ Image references use the gateway hostname, `harbor.project1-dev.devops.coop/<pro
 - **Private projects with robot pull secrets.** A pull-only robot per project, stored as a `kubernetes.io/dockerconfigjson` Secret (SOPS-encrypted, `*secrets.yaml`) in each namespace that pulls from it, referenced from `imagePullSecrets` and from the Flux `ImageRepository`'s `secretRef`. Per-project isolation, at the cost of one more static secret per namespace to rotate.
 - **A workload-identity bridge.** [harbor-workload-identity-bridge](https://github.com/AetherizeGmbH/harbor-workload-identity-bridge) uses the kubelet's service-account-token credential providers (KEP-4412, beta since Kubernetes 1.34) to hand each pod's identity to a broker that returns a per-service-account robot's credentials — no pull secrets in app namespaces, with robot passwords confined to the bridge's namespace and rotated daily. It's alpha, adds a plugin to every node's kubelet config, and doesn't cover Flux's image-reflector-controller, which lists tags itself rather than through the kubelet.
 
+## Pull-through cache
+
+`apps/registry-mirrors` turns this Harbor into a cache for the upstream registries the cluster pulls from. It creates one public proxy-cache project per upstream — `dockerhub`, `ghcr`, `quay`, `k8s`, `ecr-public` — and writes containerd config on every node that routes `docker.io/...`, `ghcr.io/...`, and the rest through those projects (via Dragonfly), with the upstream itself as the fallback. Nothing in the workloads changes: they keep naming `nginx:1.27` or `ghcr.io/fluxcd/source-controller`, and the node quietly fetches from `harbor.project1-dev.devops.coop/dockerhub/library/nginx:1.27` instead.
+
+The cache is preferred, not enforced: when Harbor is down, nodes pull from the upstreams as before, which is also how Harbor's own images get pulled. Proxy-cache projects drop images unpulled for 7 days, and the weekly garbage collection reclaims their space. The full flow, the list of upstreams, and how to add one are in `apps/registry-mirrors/README.md`.
+
 ## Pushing from GitHub-hosted runners
 
 GitHub-hosted Actions runners can't reach `eg-private`, which raises the question of moving Harbor to `eg-public`. Don't: pushing needs the whole registry API (`/v2/` plus the `/service/token` endpoint), so a public push route is a public registry, and the credential guarding it would be a static robot token stored in GitHub — upstream Harbor can't accept GitHub's OIDC tokens (workload identity federation is in 8gears' commercial distribution only). A leaked token would work from anywhere. The usual mitigations don't help here:
@@ -57,10 +63,10 @@ If exposure is unavoidable after all, use a separate hostname on `eg-public` rat
 
 ## Storage and availability
 
-The registry's blobs sit on one `ReadWriteOnce` gp3 volume (`persistence.persistentVolumeClaim.registry` in `values.yaml`, 20Gi), which shapes everything else:
+The registry's blobs — pushed images and the pull-through cache alike — sit on one `ReadWriteOnce` gp3 volume (`persistence.persistentVolumeClaim.registry` in `values.yaml`, 50Gi), which shapes everything else:
 
 - The registry runs one replica, in that volume's AZ. Every upgrade (`updateStrategy: Recreate`) and reschedule is a short registry outage while the volume detaches and reattaches; an AZ outage takes the registry with it until the volume is restored from a snapshot in another zone (next section).
-- Every byte of every pull streams through that one pod, at the volume's provisioned throughput (gp3's 125 MiB/s baseline). Dragonfly is what makes that workable: each layer leaves Harbor roughly once per rollout, and nodes fetch it from each other.
+- Every byte of every pull streams through that one pod, at the volume's provisioned throughput (gp3's 125 MiB/s baseline) — and with the pull-through cache, that's every image the cluster runs, not just its own. Dragonfly is what makes that workable: each layer leaves Harbor roughly once per rollout, and nodes fetch it from each other.
 - The volume grows online — raise the size in `values.yaml` and Flux patches the PVC — but never shrinks, and a full volume fails every push. The stack's default `KubePersistentVolumeFillingUp` alerts watch it.
 
 On EKS every component is pinned to on-demand capacity (the `karpenter` blocks in `values.yaml`), so spot reclaims don't add to those outages.

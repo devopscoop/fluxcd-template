@@ -5,10 +5,9 @@ metadata:
     kustomize.toolkit.fluxcd.io/prune: disabled
   name: dragonfly
 
-  # The per-node client runs with hostNetwork, hostPID, and hostIPC, mounts
-  # /etc/containerd from the host, and (off EKS) restarts containerd from a
-  # privileged init container — none of which the baseline or restricted
-  # Pod Security levels admit. Talos enforces baseline by default
+  # The per-node client runs with hostNetwork, hostPID, and hostIPC, none of
+  # which the baseline or restricted Pod Security levels admit. Talos
+  # enforces baseline by default
   # (https://docs.siderolabs.com/kubernetes-guides/security/pod-security).
   labels:
     pod-security.kubernetes.io/enforce: privileged

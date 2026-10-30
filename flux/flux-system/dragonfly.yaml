@@ -6,11 +6,10 @@ metadata:
 spec:
   # vm.yaml's VMServiceScrape and VMRule need the VictoriaMetrics CRDs:
   # victoria-metrics-crds, not the whole victoria-metrics stack, so a broken
-  # Grafana upgrade can't hold this app. No dependsOn harbor: dfinit only
-  # writes containerd config naming Harbor's hostname, which is harmless
-  # before Harbor exists (containerd falls back to the server, which then
-  # fails exactly as it would without Dragonfly), and Harbor needs nothing
-  # from Dragonfly to start.
+  # Grafana upgrade can't hold this app. No dependsOn harbor: Dragonfly
+  # needs nothing from Harbor to start (its seed peers only fetch from it on
+  # demand), and the node config that routes pulls through it comes from
+  # apps/registry-mirrors.
   dependsOn:
     - name: victoria-metrics-crds
   interval: 10m0s

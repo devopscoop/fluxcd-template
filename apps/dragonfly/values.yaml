@@ -1,7 +1,8 @@
 # dyff between <(yq . <(helm show values dragonfly --repo https://dragonflyoss.github.io/helm-charts/ --version 1.8.7)) <(yq eval '. * load("values.yaml")' <(helm show values dragonfly --repo https://dragonflyoss.github.io/helm-charts/ --version 1.8.7))
 # vim -O <(helm show values dragonfly --repo https://dragonflyoss.github.io/helm-charts/ --version 1.8.7) values.yaml
 
-# Peer-to-peer image distribution for apps/harbor, without the manager: the
+# Peer-to-peer image distribution for apps/harbor — its own projects and
+# the upstreams it proxies (apps/registry-mirrors) — without the manager: the
 # chart's default (manager.enable: false) runs schedulers, seed peers, and
 # a per-node client, with static config in place of the manager's database
 # and API, so there is no MySQL/Postgres or Redis to run. What that gives up
@@ -93,9 +94,10 @@ client:
     proxy:
       registryMirror:
         # The default upstream of the node's proxy, used when a request
-        # doesn't name its registry. containerd's hosts.toml (dfinit below)
-        # names it on every request, so this only matters for clients that
-        # call the proxy directly.
+        # doesn't name its registry. The containerd hosts.toml files
+        # apps/registry-mirrors writes name it (X-Dragonfly-Registry) on
+        # every request, so this only matters for clients that call the
+        # proxy directly.
         addr: https://harbor.project1-dev.devops.coop
     gc:
       policy:
@@ -110,28 +112,12 @@ client:
         # v1.5.10) and collects from 90% of it down to 70%.
         diskThreshold: 5GiB
   dfinit:
-    # dfinit writes containerd's registry config so pulls from Harbor go
-    # through this node's dfdaemon. Where containerd's config.toml already
-    # sets registry.config_path — EKS's AL2023 AMI, per the chart's dfinit
-    # notes — dfinit only drops a hosts.toml under it, which containerd
-    # reloads without a restart. On
-    # other platforms where config_path is unset, dfinit sets it and the
-    # chart's privileged init container restarts containerd once per node.
-    enable: true
-    config:
-      containerRuntime:
-        containerd:
-          # Only Harbor goes through Dragonfly. The chart's default proxies
-          # every registry, which would put Docker Hub, ghcr.io, quay.io,
-          # registry.k8s.io, and public.ecr.aws — the platform's own images
-          # — behind a component that itself runs on the platform.
-          proxyAllRegistries: false
-          # The hosts.toml lists this node's dfdaemon as a mirror of Harbor
-          # for pull and resolve, with Harbor itself as the server: when
-          # the mirror is unreachable, containerd falls back to Harbor
-          # directly, so a missing or crashed dfdaemon degrades pulls
-          # instead of failing them.
-          registries:
-            - hostNamespace: harbor.project1-dev.devops.coop
-              serverAddr: https://harbor.project1-dev.devops.coop
-              capabilities: ['pull', 'resolve']
+    # Off: apps/registry-mirrors writes the node's containerd registry
+    # config instead, for Harbor's own hostname and for every upstream Harbor
+    # proxies (docker.io, ghcr.io, ...). Routing an upstream through a Harbor
+    # proxy-cache project needs containerd's override_path, so the project
+    # can ride in the mirror's path, and dfinit's registry entries have no
+    # such field. Those hosts.toml files put this node's dfdaemon first,
+    # with Harbor as the X-Dragonfly-Registry header, so proxied pulls are
+    # peer-to-peer too.
+    enable: false
