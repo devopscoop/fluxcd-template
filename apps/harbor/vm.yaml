@@ -1,0 +1,125 @@
+# Scrape Harbor's metrics, which values.yaml's metrics.enabled turns on:
+# harbor-core, harbor-registry, and harbor-jobservice each serve their own
+# process and request metrics (core's HTTP request counters and latencies,
+# the registry's storage-driver and HTTP histograms, jobservice's worker
+# pool), and harbor-exporter serves Harbor-level series — harbor_up per
+# component, project and quota usage, and the job queues
+# (src/pkg/exporter in the Harbor repo at v2.15.4, matching the chart's
+# appVersion). All four listen on :8001 /metrics, and the chart declares
+# that port as "http-metrics" on each one's Service; the portal, Redis, and
+# Trivy Services carry no such port and produce no targets.
+#
+# A service scrape: the chart labels every Service alike (app: harbor), so
+# one selector finds all four, and the port NAME is what narrows it.
+#
+# The dashboard (grafana.com 16003) downloads in apps/victoria-metrics
+# behind the harbor marker — enable it with the app
+# (./toggle_blocks.sh --enable harbor); that entry's comment has why this
+# one. The PV-filling alerts for the registry volume come from the stack's
+# default kubernetes-storage rules (KubePersistentVolumeFillingUp), and the
+# database from the fleet-wide cnpg-instances scrape (apps/cnpg/vm.yaml).
+#
+# Ships with the app (listed in this app's kustomization.yaml), so it
+# applies exactly when harbor does.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMServiceScrape
+metadata:
+  name: harbor
+spec:
+  namespaceSelector:
+    matchNames:
+      - harbor
+  selector:
+    matchLabels:
+      app: harbor
+      app.kubernetes.io/instance: harbor
+  endpoints:
+    - port: http-metrics
+---
+# Alerting rules for Harbor, evaluated by this stack's vmalert over the
+# series above. No upstream rule set exists; these are our own, on the
+# exporter's metric names. Remember the routing model
+# (apps/victoria-metrics/README.md → "Alert routing"): every alert pages,
+# so severity says how urgent, not whether to look.
+#
+# The exporter learns component health by calling harbor-core's
+# /api/v2.0/health, and when that call fails it emits NO health series at
+# all rather than zeros (health_collector.go returns an empty result) — so
+# "core is down" shows up as harbor_health going absent, not as
+# harbor_up{component="core"} == 0. HarborHealthUnknown covers that case
+# and the exporter itself being down.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  name: harbor
+spec:
+  groups:
+    - name: harbor
+      rules:
+        # The components every push and pull goes through. With any of them
+        # unhealthy, image pulls by tag fail — Dragonfly's peers serve blobs
+        # but manifests still resolve against Harbor — so new pods for
+        # Harbor-hosted images can't start anywhere in the cluster.
+        - alert: HarborComponentDown
+          annotations:
+            summary: Harbor's {{ $labels.component }} is unhealthy — pushes and pulls are failing.
+            description: >-
+              harbor-core's health check has reported {{ $labels.component }}
+              unhealthy for 5m. Pods whose images live in Harbor can't start
+              while this lasts. database: check the harbor-db Cluster in the
+              harbor namespace (and the client cert harbor-core logs in
+              with); redis: the harbor-redis StatefulSet; registry: the
+              harbor-registry pod and its EBS volume (a full volume, or a
+              volume stuck attaching after a reschedule).
+          expr: |-
+            harbor_up{component=~"core|database|redis|registry"} == 0
+          for: 5m
+          labels:
+            severity: critical
+        # Components whose loss degrades Harbor without stopping pulls:
+        # jobservice (GC, replication, retention, and scans queue up), Trivy
+        # (scans fail), the portal (UI only), registryctl (GC can't run).
+        - alert: HarborComponentDegraded
+          annotations:
+            summary: Harbor's {{ $labels.component }} has been unhealthy for 15m.
+            description: >-
+              Pushes and pulls still work, but {{ $labels.component }} has
+              been unhealthy for 15m — background jobs, scans, or the UI are
+              affected. Check the harbor-{{ $labels.component }} workload in
+              the harbor namespace.
+          expr: |-
+            harbor_up{component!~"core|database|redis|registry"} == 0
+          for: 15m
+          labels:
+            severity: warning
+        - alert: HarborHealthUnknown
+          annotations:
+            summary: Harbor's health is unknown — harbor-core or harbor-exporter is down.
+            description: >-
+              No harbor_health series for 10m. Either harbor-exporter can't
+              reach harbor-core's /api/v2.0/health (core down: pushes and
+              pulls fail) or harbor-exporter itself isn't being scraped.
+              Check the harbor-core and harbor-exporter Deployments in the
+              harbor namespace.
+          expr: |-
+            absent(harbor_health{namespace="harbor"})
+          for: 10m
+          labels:
+            severity: critical
+        # harbor_task_queue_latency is how long ago the oldest queued job of
+        # each type was enqueued, in seconds. Jobs sitting an hour mean
+        # jobservice isn't draining its queue — retention and GC stop
+        # freeing registry space, and replication falls behind.
+        - alert: HarborJobQueueStalled
+          annotations:
+            summary: Harbor {{ $labels.type }} jobs have been queued for over an hour.
+            description: >-
+              The oldest queued {{ $labels.type }} job was enqueued
+              {{ $value | humanizeDuration }} ago. Check the
+              harbor-jobservice logs (they go to stdout, so to VictoriaLogs)
+              and its connection to harbor-redis.
+          expr: |-
+            harbor_task_queue_latency > 3600
+          for: 30m
+          labels:
+            severity: warning

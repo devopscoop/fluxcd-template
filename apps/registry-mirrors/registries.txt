@@ -1,0 +1,34 @@
+# The upstream registries Harbor proxies, one per line — the single list both
+# halves of this app read:
+#
+#   - write-hosts.sh (the node DaemonSet) writes a containerd hosts.toml per
+#     line, so pulls of <host>/... go to this node's dfdaemon, then Harbor's
+#     proxy-cache project, then the upstream itself.
+#   - configure-harbor.sh (the Job) creates a Harbor registry endpoint and a
+#     public proxy-cache project per line.
+#
+# Columns, whitespace-separated:
+#   host      the registry hostname as it appears in image references
+#             (docker.io for unqualified images like nginx)
+#   server    the upstream's API endpoint — containerd's last resort when
+#             both Dragonfly and Harbor are unreachable
+#   project   the Harbor proxy-cache project, i.e. the path prefix
+#             harbor.project1-dev.devops.coop/<project>/... serves it under
+#   type      Harbor's endpoint provider for the upstream; proxy cache accepts
+#             docker-hub, github-ghcr, docker-registry (any OCI distribution
+#             API), and a few cloud-specific ones
+#   url       the endpoint URL Harbor's provider expects (Docker Hub's is
+#             hub.docker.com, not the registry-1 API host)
+#
+# Only public upstreams belong here: the proxy-cache projects are public, so
+# anything they can fetch, anything that reaches eg-private can pull.
+# Registries that need credentials per workload — registry.crowdstrike.com
+# for falcon-platform, the EKS add-ons' private ECR — stay off this list and
+# pull directly, as before.
+#
+# host            server                         project      type             url
+docker.io         https://registry-1.docker.io   dockerhub    docker-hub       https://hub.docker.com
+ghcr.io           https://ghcr.io                ghcr         github-ghcr      https://ghcr.io
+quay.io           https://quay.io                quay         docker-registry  https://quay.io
+registry.k8s.io   https://registry.k8s.io        k8s          docker-registry  https://registry.k8s.io
+public.ecr.aws    https://public.ecr.aws         ecr-public   docker-registry  https://public.ecr.aws

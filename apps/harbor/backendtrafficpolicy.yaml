@@ -1,0 +1,29 @@
+# Lift Envoy's default 15s route timeout for the registry. Envoy Gateway sets
+# no route timeout unless one is configured (internal/xds/translator/route.go
+# at gateway v1.9.3, matching apps/eg's pin), so Envoy's own default applies:
+# 15s from the end of the request to the end of the response. Every blob
+# that takes longer than that to stream — a push's monolithic PUT/PATCH, a
+# pull's GET of a large layer, a Dragonfly seed peer fetching from this
+# origin — is cut off with a 504 partway through. One hour bounds a
+# multi-gigabyte layer over a slow VPN link without leaving hung requests
+# open forever; Envoy's 5-minute stream idle timeout still reaps a transfer
+# that stops moving.
+#
+# The chart's HTTPRoute (expose.route in values.yaml) has no timeouts field
+# to set, so the timeout comes from this policy on the route instead.
+# StrategicMerge keeps the gateway-level retry-connect-failure policy
+# (apps/eg-custom-resources/backendtrafficpolicy-retry.yaml) in force for
+# this route — a route-level policy otherwise replaces it wholesale.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: harbor-timeout
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: harbor-route
+  mergeType: StrategicMerge
+  timeout:
+    http:
+      requestTimeout: 1h

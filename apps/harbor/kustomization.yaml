@@ -1,0 +1,36 @@
+# https://fluxcd.io/flux/guides/helmreleases/#refer-to-values-in-configmaps-generated-with-kustomize
+# https://fluxcd.io/flux/guides/helmreleases/#refer-to-values-in-secret-generated-with-kustomize-and-sops
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Setting namespace here will ensure that all objects managed by this Kustomization will explicitly be deployed to this namespace. You don't need to put specify `namespace:` anywhere else if you do this.
+namespace: harbor
+
+resources:
+  - namespace.yaml
+  - helmrepo.yaml
+  - release.yaml
+  # The chart renders the HTTPRoute itself (expose.type: route in
+  # values.yaml); this lifts Envoy's 15s route timeout on it, which large
+  # blobs outlive.
+  - backendtrafficpolicy.yaml
+  # Harbor's PostgreSQL — the CloudNativePG Cluster plus its barman backup
+  # wiring (ObjectStore, daily ScheduledBackup) in one file, from the
+  # reusable copy in apps/templates/cnpg-database.
+  - db-cluster.yaml
+  # The client CA chain and certs behind the cert-based login above — needs
+  # the cert-manager CRDs, hence that dependsOn too.
+  - db-client-cert.yaml
+  # The scrape and alert rules; they ship with the app, so no marker.
+  - vm.yaml
+configMapGenerator:
+  - name: harbor-values
+    files:
+      - values.yaml=values.yaml
+secretGenerator:
+  - name: harbor-secrets
+    files:
+      - values.yaml=helm_secrets.yaml
+configurations:
+  - kustomizeconfig.yaml
