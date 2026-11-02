@@ -8,10 +8,20 @@
 #
 # Copied from
 # https://github.com/envoyproxy/gateway/blob/v1.7.2/charts/gateway-addons-helm/dashboards/envoy-proxy-global.json
-# (re-sync against apps/eg's chart pin when bumping the gateway) with one
-# change: the datasource template variable's saved "current" value pointed at
-# the addons chart's own Grafana datasource uid (PBFA97CFB590B2093); cleared
-# so Grafana resolves the variable against this stack's datasources instead.
+# (re-sync against apps/eg's chart pin when bumping the gateway) with these
+# changes, to carry over on a re-sync:
+# - The datasource template variable's saved "current" value pointed at the
+#   addons chart's own Grafana datasource uid (PBFA97CFB590B2093); cleared so
+#   Grafana resolves the variable against this stack's datasources instead.
+# - The two latency panels name what is slow. Upstream, "Downstream Latency"
+#   sums every gateway into one line (by le) and "Upstream Latency" groups
+#   by namespace, which here is always the proxies' own namespace, so every
+#   upstream cluster is one line too — a single slow route disappears into
+#   the fleet's fast traffic. Downstream is grouped by the gateway label
+#   (added by the pod scrape in apps/eg/vm.yaml, legend was a non-existent
+#   {{service}}) and upstream by envoy_cluster_name, legend sorted by max
+#   so the slowest cluster is the top row — the dashboard side of the
+#   EnvoyDownstreamSlowRequests / EnvoyUpstreamSlowRequests pair.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -714,10 +724,10 @@ data:
                 "uid": "$datasource"
               },
               "editorMode": "code",
-              "expr": "histogram_quantile(0.9, sum by(le) (rate(envoy_http_downstream_rq_time_bucket[5m])))",
+              "expr": "histogram_quantile(0.9, sum by(le, gateway) (rate(envoy_http_downstream_rq_time_bucket[5m])))",
               "format": "time_series",
               "intervalFactor": 1,
-              "legendFormat": "{{service}} 90%",
+              "legendFormat": "{{gateway}} 90%",
               "range": true,
               "refId": "A"
             },
@@ -726,11 +736,11 @@ data:
                 "uid": "$datasource"
               },
               "editorMode": "builder",
-              "expr": "histogram_quantile(0.5, sum by(le) (rate(envoy_http_downstream_rq_time_bucket[5m])))",
+              "expr": "histogram_quantile(0.5, sum by(le, gateway) (rate(envoy_http_downstream_rq_time_bucket[5m])))",
               "format": "time_series",
               "hide": false,
               "intervalFactor": 1,
-              "legendFormat": "{{service}} 50% ",
+              "legendFormat": "{{gateway}} 50% ",
               "range": true,
               "refId": "B"
             },
@@ -739,10 +749,10 @@ data:
                 "uid": "$datasource"
               },
               "editorMode": "builder",
-              "expr": "histogram_quantile(0.99, sum by(le) (rate(envoy_http_downstream_rq_time_bucket[5m])))",
+              "expr": "histogram_quantile(0.99, sum by(le, gateway) (rate(envoy_http_downstream_rq_time_bucket[5m])))",
               "format": "time_series",
               "intervalFactor": 1,
-              "legendFormat": "{{service}} 99%",
+              "legendFormat": "{{gateway}} 99%",
               "range": true,
               "refId": "C"
             }
@@ -1526,7 +1536,9 @@ data:
               ],
               "displayMode": "table",
               "placement": "bottom",
-              "showLegend": true
+              "showLegend": true,
+              "sortBy": "Max",
+              "sortDesc": true
             },
             "tooltip": {
               "mode": "multi",
@@ -1540,10 +1552,10 @@ data:
                 "uid": "$datasource"
               },
               "editorMode": "code",
-              "expr": "histogram_quantile(0.99, sum(rate(envoy_cluster_upstream_rq_time_bucket{namespace=~\"$Namespace\"}[5m])) by (le, namespace))",
+              "expr": "histogram_quantile(0.99, sum(rate(envoy_cluster_upstream_rq_time_bucket{namespace=~\"$Namespace\"}[5m])) by (le, envoy_cluster_name))",
               "format": "time_series",
               "intervalFactor": 1,
-              "legendFormat": "{{namespace}} 99%",
+              "legendFormat": "{{envoy_cluster_name}} 99%",
               "range": true,
               "refId": "A"
             },
@@ -1552,10 +1564,10 @@ data:
                 "uid": "$datasource"
               },
               "editorMode": "code",
-              "expr": "histogram_quantile(0.9, sum(rate(envoy_cluster_upstream_rq_time_bucket{namespace=~\"$Namespace\"}[5m])) by (le, namespace))",
+              "expr": "histogram_quantile(0.9, sum(rate(envoy_cluster_upstream_rq_time_bucket{namespace=~\"$Namespace\"}[5m])) by (le, envoy_cluster_name))",
               "format": "time_series",
               "intervalFactor": 1,
-              "legendFormat": "{{namespace}} 90%",
+              "legendFormat": "{{envoy_cluster_name}} 90%",
               "range": true,
               "refId": "C"
             },
@@ -1564,11 +1576,11 @@ data:
                 "uid": "$datasource"
               },
               "editorMode": "code",
-              "expr": "histogram_quantile(0.5, sum(rate(envoy_cluster_upstream_rq_time_bucket{namespace=~\"$Namespace\"}[5m])) by (le, namespace))",
+              "expr": "histogram_quantile(0.5, sum(rate(envoy_cluster_upstream_rq_time_bucket{namespace=~\"$Namespace\"}[5m])) by (le, envoy_cluster_name))",
               "format": "time_series",
               "hide": false,
               "intervalFactor": 1,
-              "legendFormat": "{{namespace}} 50% ",
+              "legendFormat": "{{envoy_cluster_name}} 50% ",
               "range": true,
               "refId": "B"
             }
