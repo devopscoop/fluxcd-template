@@ -101,9 +101,10 @@ spec:
 #   on the full label set ignoring metric name, so where all three exist only
 #   rq_open survives and an open cx/cx_pool breaker is masked by a closed
 #   rq_open=0. A __name__ regex over all three avoids that.
-# The downstream (edge) rules and the latency rule are our own — no public
-# ruleset ships a latency alert (samber/awesome-prometheus-alerts includes
-# downstream 5xx/timeout shapes; ours follow the mixin's ratio+guard form).
+# The downstream (edge) rules and the two latency rules are our own — no
+# public ruleset ships a latency alert (samber/awesome-prometheus-alerts
+# includes downstream 5xx/timeout shapes; ours follow the mixin's
+# ratio+guard form).
 apiVersion: operator.victoriametrics.com/v1beta1
 kind: VMRule
 metadata:
@@ -149,13 +150,61 @@ spec:
             description: >-
               p99 downstream request time through gateway
               {{ $labels.gateway }} has been {{ printf "%.0f" $value }}ms
-              (threshold 1000ms) for 15m. Check the Envoy Global dashboard's
-              upstream-vs-downstream latency split: upstream ≈ backend time,
-              the difference ≈ time inside Envoy.
+              (threshold 1000ms) for 15m. If EnvoyUpstreamSlowRequests fired
+              alongside this, it names the slow backend and carries the log
+              query for its slow requests. If none did, suspect time inside
+              Envoy (filters such as coraza) or slow clients; find the slow
+              requests in Grafana Explore → VictoriaLogs with: _time:30m
+              k8s.namespace.name:="envoy-gateway-system" | unpack_json |
+              filter duration:>1000 | stats by (upstream_cluster,
+              response_flags) count() hits | sort by (hits desc) | limit 10
           expr: |-
             histogram_quantile(0.99,
               sum by (gateway, le) (rate(envoy_http_downstream_rq_time_bucket[5m]))
             ) > 1000
+          for: 15m
+          labels:
+            severity: warning
+        # The backend half of the latency pair, per upstream cluster. The
+        # rule above can only name the gateway, and on a gateway shared by
+        # many routes one slow route hides in the aggregate — a single
+        # client paging slowly through one API endpoint is enough to push a
+        # quiet gateway's edge p99 over while every other route is fast.
+        # envoy_cluster_upstream_rq_time runs from Envoy sending the request
+        # upstream to the response ending, so filter time and the client's
+        # side of the transfer are excluded: when it is high, the backend is
+        # slow, not Envoy. Same unit and bucket traps as the rule above. The
+        # rate guard (~30 requests per 5m window) keeps a near-idle cluster,
+        # where the p99 of a handful of requests is just the slowest one,
+        # from paging; it is low on purpose, so one steady client still
+        # counts. A route serving long-lived streams (WebSocket, SSE, gRPC
+        # streaming, long-poll) completes every request slowly by design —
+        # exclude its envoy_cluster_name here if it pages.
+        # The description's LogsQL runs unpack_json because the access log
+        # lands in VictoriaLogs as a JSON _msg; on a pipeline that already
+        # parses JSON into fields, unpack_json of the non-JSON _msg is a
+        # no-op and the same query works.
+        - alert: EnvoyUpstreamSlowRequests
+          annotations:
+            summary: An upstream cluster's p99 response time is over 1s.
+            description: >-
+              p99 response time from upstream cluster
+              {{ $labels.envoy_cluster_name }} to gateway
+              {{ $labels.gateway }} has been {{ printf "%.0f" $value }}ms
+              (threshold 1000ms) for 15m, so the backend is slow, not Envoy.
+              Find the slow endpoints and their clients in Grafana Explore →
+              VictoriaLogs with: _time:30m
+              k8s.namespace.name:="envoy-gateway-system" | unpack_json |
+              filter upstream_cluster:="{{ $labels.envoy_cluster_name }}"
+              duration:>1000 | extract_regexp "^(?P<path>[^?]*)" from
+              "x-envoy-origin-path" | stats by (method, path, "user-agent")
+              count() hits | sort by (hits desc) | limit 10
+          expr: |-
+            histogram_quantile(0.99,
+              sum by (gateway, envoy_cluster_name, le) (rate(envoy_cluster_upstream_rq_time_bucket{envoy_cluster_name!=""}[5m]))
+            ) > 1000
+            and
+            sum by (gateway, envoy_cluster_name) (rate(envoy_cluster_upstream_rq_time_count{envoy_cluster_name!=""}[5m])) > 0.1
           for: 15m
           labels:
             severity: warning
