@@ -18,7 +18,7 @@ cronjob:
   initContainers:
     - name: github-app-token
       # Keep at the chart's appVersion.
-      image: ghcr.io/renovatebot/renovate:44.186.2
+      image: ghcr.io/renovatebot/renovate:44.210.0
       # Signs a short-lived JWT with the app's private key and exchanges it
       # for an installation token. Any GitHub error fails the Job.
       command:
@@ -114,13 +114,15 @@ renovate:
       # Keeps Renovate's cache and repo clones between runs.
       enabled: true
       # Go module and package caches for a large repo outgrow the chart's
-      # 512Mi, and the osv.dev database below takes about 640Mi more.
+      # 512Mi, and the osv.dev database below takes about 660Mi more.
       storageSize: 2Gi
 
-# osvVulnerabilityAlerts downloads osv.dev's database (75 MiB, 561 MiB
-# unpacked) to /tmp/osv-offline by default, outside the cache volume, so every
-# run would download it again. On the volume, a run downloads it only when the
-# kept copy is a day old.
+# osvVulnerabilityAlerts keeps osv.dev's database (81 MiB, 575 MiB unpacked)
+# on the cache volume, so a run downloads it again only when the kept copy is
+# a day old. Since Renovate 44.209.0 that is the default (osv-offline inside
+# cacheDir, /tmp/renovate/cache/osv-offline); before, it went to /tmp, off the
+# volume. This pins the path this app has always used, so an existing volume
+# isn't left holding a stale copy beside a fresh one.
 env:
   OSV_OFFLINE_ROOT_DIR: /tmp/renovate/osv-offline
 
