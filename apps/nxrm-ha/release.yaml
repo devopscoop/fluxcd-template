@@ -22,7 +22,7 @@ spec:
   chart:
     spec:
       chart: nxrm-ha
-      version: 82.0.0
+      version: 98.0.0
       sourceRef:
         kind: HelmRepository
         name: sonatype
