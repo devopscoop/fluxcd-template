@@ -1,5 +1,15 @@
-# dyff between <(yq . <(helm show values longhorn/longhorn --version v1.11.3)) <(yq eval '. * load("values.yaml")' <(helm show values longhorn/longhorn --version v1.11.3))
-# vim -O <(helm show values longhorn/longhorn --version v1.11.3) values.yaml
+# dyff between <(yq . <(helm show values longhorn/longhorn --version v1.12.1)) <(yq eval '. * load("values.yaml")' <(helm show values longhorn/longhorn --version v1.12.1))
+# vim -O <(helm show values longhorn/longhorn --version v1.12.1) values.yaml
+
+networkPolicies:
+  # 1.12.1 turns on ingress NetworkPolicies for Longhorn's internal
+  # endpoints by default (restrictInternalTraffic: true). On a CNI that
+  # enforces NetworkPolicy (kube-router on k0s, Calico, Cilium) the
+  # longhorn-manager one cuts off apps/longhorn/vm.yaml's :9500 scrape, and
+  # the instance-manager one can block host-originated V1 iSCSI on :3260
+  # (longhorn#13802), leaving volumes stuck attaching. Both are fixed in
+  # 1.13.0 (networkPolicies.metricsScrapeSources), so they stay off here.
+  restrictInternalTraffic: false
 
 persistence:
 
