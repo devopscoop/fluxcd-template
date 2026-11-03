@@ -33,7 +33,7 @@ Two consequences to be clear about before you start:
 
 ## 1. Check the application supports the new major
 
-The database exists for an app, and the app's supported-Postgres matrix governs, not the operator's default. GoAlert is the standing example in this repo: v0.34 is tested against 13-17 only, which is why `apps/goalert/db-cluster.yaml` stays on 17 while `apps/templates/cnpg-database/db-cluster.yaml` tracks 18. Upgrade the app first, or don't upgrade the database.
+The database exists for an app, and the app's supported-Postgres matrix governs, not the operator's default. GoAlert is the standing example in this repo: v0.35 is tested against 13-17 only, which is why `apps/goalert/db-cluster.yaml` stays on 17 while `apps/templates/cnpg-database/db-cluster.yaml` tracks 18. Upgrade the app first, or don't upgrade the database.
 
 ## 2. Preflight against the live cluster
 

@@ -15,11 +15,11 @@ fullnameOverride: goalert
 
 image:
   repository: goalert/goalert
-  # Latest release (2025-10-06). The chart would otherwise default the tag to
+  # Latest release (2026-09-21). The chart would otherwise default the tag to
   # its own appVersion, which has nothing to do with GoAlert. Upstream is
   # active (Target), but releases are infrequent — check the releases page
   # when touching this, not just Docker Hub's `latest`.
-  tag: v0.34.1
+  tag: v0.35.0
 
 # Sets the Service port AND the containerPort (the chart wires both to this
 # one value). The image sets GOALERT_LISTEN=:8081 — all interfaces, and Go's
