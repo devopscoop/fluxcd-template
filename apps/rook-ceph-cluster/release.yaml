@@ -6,7 +6,7 @@ spec:
   chart:
     spec:
       chart: rook-ceph-cluster
-      version: 1.19.12
+      version: 1.20.9
       sourceRef:
         kind: HelmRepository
         name: rook-release

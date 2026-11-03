@@ -22,7 +22,7 @@ spec:
   chart:
     spec:
       chart: rook-ceph
-      version: 1.19.12
+      version: 1.20.9
       sourceRef:
         kind: HelmRepository
         name: rook-release
@@ -32,3 +32,48 @@ spec:
       name: rook-ceph-values
     - kind: Secret
       name: rook-ceph-secrets
+---
+# Since Rook 1.20 the operator no longer configures the CSI drivers, and the
+# rook-ceph chart dropped its csi.* driver settings: the ceph-csi-operator
+# that chart installs (subchart, with its CRDs) is configured through
+# OperatorConfig/Driver CRs that this second chart owns. Without it, CSI
+# provisioning and mounts fail (the driver service accounts live here too).
+# It lives in this app rather than its own so Rook's documented order --
+# rook-ceph, then ceph-csi-drivers, then rook-ceph-cluster -- falls out of
+# the dependsOn below plus rook-ceph-cluster's dependsOn on this app's
+# Kustomization (which has wait: true).
+# https://rook.io/docs/rook/v1.20/Helm-Charts/csi-drivers-chart/
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: ceph-csi-operator
+spec:
+  interval: 60m
+  url: https://ceph.github.io/ceph-csi-operator
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  # Load-bearing name: Rook (1.19.5+) stamps the OperatorConfig/Driver CRs it
+  # created before 1.20 with Helm ownership for a release named
+  # "ceph-csi-drivers" in the operator namespace, which is what lets this
+  # release adopt them on upgrade instead of failing on "exists and cannot
+  # be imported".
+  name: ceph-csi-drivers
+spec:
+  # The csi.ceph.io CRDs come from the rook-ceph release above.
+  dependsOn:
+    - name: rook-ceph
+  chart:
+    spec:
+      chart: ceph-csi-drivers
+      # The drivers chart version Rook's own Helm tests pair with the
+      # operator subchart in rook-ceph 1.20.9 -- bump them together.
+      version: 1.0.4
+      sourceRef:
+        kind: HelmRepository
+        name: ceph-csi-operator
+  interval: 10m
+  valuesFrom:
+    - kind: ConfigMap
+      name: ceph-csi-drivers-values

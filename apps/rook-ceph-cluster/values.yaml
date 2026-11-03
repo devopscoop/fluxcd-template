@@ -1,8 +1,8 @@
-# dyff between <(yq . <(helm show values rook-release/rook-ceph-cluster --version v1.19.12)) <(yq eval '. * load("values.yaml")' <(helm show values rook-release/rook-ceph-cluster --version v1.19.12))
-# vim -O <(helm show values rook-release/rook-ceph-cluster --version v1.19.12) values.yaml
+# dyff between <(yq . <(helm show values rook-release/rook-ceph-cluster --version v1.20.9)) <(yq eval '. * load("values.yaml")' <(helm show values rook-release/rook-ceph-cluster --version v1.20.9))
+# vim -O <(helm show values rook-release/rook-ceph-cluster --version v1.20.9) values.yaml
 
-# The Ceph image is the chart's default (cephImage, v19.2.6 at
-# 1.19.12). Ceph v19.2.6/v20.2.4 fix CVE-2025-30156 (CephX service tickets
+# The Ceph image is the chart's default (cephImage, v20.2.4 Tentacle at
+# 1.20.9). Ceph v19.2.6/v20.2.4 fix CVE-2025-30156 (CephX service tickets
 # could be tampered with to escalate a stolen key to admin) with a new
 # AES256K key type, and raise HEALTH_ERR until the core daemons' keys are
 # rotated to it.
@@ -14,7 +14,7 @@ cephClusterSpec:
       # status.cephx shows keyGeneration 2. The chart already pins the CSI
       # keys to keyType aes: kernel RBD/CephFS clients need Linux 7.0+ for
       # AES256K.
-      # https://rook.io/docs/rook/v1.19/Storage-Configuration/Advanced/cephx-key-rotation/#cve-2025-30156-resolution
+      # https://rook.io/docs/rook/v1.20/Storage-Configuration/Advanced/cephx-key-rotation/#cve-2025-30156-resolution
       daemon:
         keyRotationPolicy: KeyGeneration
         keyGeneration: 2
