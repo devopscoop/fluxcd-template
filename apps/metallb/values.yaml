@@ -1,2 +1,18 @@
-# dyff between <(yq . <(helm show values metallb/metallb --version v0.15.2)) <(yq eval '. * load("values.yaml")' <(helm show values metallb/metallb --version v0.15.2))
-# vim -O <(helm show values metallb/metallb --version v0.15.2) values.yaml
+# dyff between <(yq . <(helm show values metallb/metallb --version v0.16.1)) <(yq eval '. * load("values.yaml")' <(helm show values metallb/metallb --version v0.16.1))
+# vim -O <(helm show values metallb/metallb --version v0.16.1) values.yaml
+
+# Native BGP backend, i.e. no FRR at all. This template advertises via
+# L2Advertisement only (apps/metallb-custom-resources), and L2 announcement
+# doesn't involve the BGP backend. Since 0.16 the chart defaults to frr-k8s,
+# which would add an frr-k8s DaemonSet (five containers per node), a
+# status-cleaner Deployment with its own webhook, and four CRDs, all idle and
+# unscraped. Before 0.16 the default was the now-deprecated FRR mode, an idle
+# FRR sidecar in each speaker. Upstream recommends native mode for L2-only
+# setups. If you add BGPPeers, delete this block to get frr-k8s, the backend
+# that gets new BGP features (native has no BFD and no IPv6 BGP). Then scrape
+# the frr-k8s pods and restore the BGP alert in vm.yaml.
+speaker:
+  frr:
+    enabled: false
+frrk8s:
+  enabled: false
