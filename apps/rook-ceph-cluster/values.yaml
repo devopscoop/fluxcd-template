@@ -1,5 +1,5 @@
-# dyff between <(yq . <(helm show values rook-release/rook-ceph-cluster --version v1.17.5)) <(yq eval '. * load("values.yaml")' <(helm show values rook-release/rook-ceph-cluster --version v1.17.5))
-# vim -O <(helm show values rook-release/rook-ceph-cluster --version v1.17.5) values.yaml
+# dyff between <(yq . <(helm show values rook-release/rook-ceph-cluster --version v1.18.11)) <(yq eval '. * load("values.yaml")' <(helm show values rook-release/rook-ceph-cluster --version v1.18.11))
+# vim -O <(helm show values rook-release/rook-ceph-cluster --version v1.18.11) values.yaml
 
 # Keep every Ceph daemon (mons, mgr, OSDs) off spot capacity: OSD data and mon
 # stores live on node-local disks, so a spot reclaim destroys that node's
