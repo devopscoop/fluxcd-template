@@ -1,7 +1,7 @@
 # Scrape the OpenCost exporter's cost metrics (node_total_hourly_cost,
 # pv_hourly_cost, container_*_allocation, opencost_build_info, ...) from
 # apps/opencost's "opencost" Service, port "http" (:9003), standard /metrics
-# path (verified in opencost-helm-chart 2.5.30, matching apps/opencost's
+# path (verified in opencost-helm-chart 2.5.33, matching apps/opencost's
 # pin). The "OpenCost / Overview" dashboard in apps/victoria-metrics reads
 # these series back out of vmsingle.
 #
