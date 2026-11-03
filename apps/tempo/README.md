@@ -69,22 +69,27 @@ keep working.
   jump; despite the major-version bump, no values keys changed — 2.x mainly
   added an optional Gateway API HTTPRoute and dropped the OpenCensus
   receiver.
-- Retention is 30 days (`tempo.retention`, rendered into the compactor's
-  `block_retention`), parity with the 30-day metrics retention in
-  `apps/victoria-metrics` and the 31-day logs retention in
-  `apps/victoria-logs`.
+- Chart 3.x runs Tempo 3, whose single binary replaces the ingester with a
+  live-store (WAL under `/var/tempo/live-store`, flushed to S3 in-process)
+  and the compactor with an in-process backend scheduler and worker. No
+  Kafka is involved in monolithic mode. There's no downgrade path back to
+  Tempo 2.x; 3.x reads the blocks 2.x left in the bucket.
+- Retention is 30 days (`tempo.retention`, rendered into the backend
+  worker's `compaction.block_retention`, where Tempo 3 enforces it), parity
+  with the 30-day metrics retention in `apps/victoria-metrics` and the
+  31-day logs retention in `apps/victoria-logs`.
 - OTLP receivers are enabled by the chart's defaults; `values.yaml` only
   re-pins their endpoints to `[::]` because the default `0.0.0.0` bind is
   unreachable on an IPv6-only cluster.
-- The other IPv6-only accommodations: every active ring runs on an
-  `inmemory` kvstore with `enable_inet6: true` (memberlist is then never
-  even instantiated), and S3 uses the dualstack endpoint. The
-  metrics-generator ring has no chart values key, so `values.yaml` replaces
-  the chart's whole `config` template with a copy carrying that one addition
-  — re-diff that block against the chart's defaults on upgrades.
+- The other IPv6-only accommodation is the dualstack S3 endpoint. The rings
+  need nothing: in single-binary mode Tempo itself forces every ring onto an
+  in-process kvstore with a `127.0.0.1` instance address, so memberlist is
+  never instantiated and no network interface is scanned (see the comment
+  in `values.yaml`). The chart's own `config` template is used unmodified.
 - Tempo's own metrics are scraped via the `VMServiceScrape` in
   `vmservicescrape.yaml` (the chart only offers a prometheus-operator
   ServiceMonitor, whose CRD this stack doesn't install — see the comment
-  there). That CRD comes from the VictoriaMetrics operator, so
-  `apps/victoria-metrics` must land first — that's the `dependsOn` in
-  `flux/flux-system/tempo.yaml`.
+  there). It excludes the chart's `tempo-headless` Service the same way the
+  chart's ServiceMonitor does, so the pod is scraped once. That CRD comes
+  from the VictoriaMetrics operator, so `apps/victoria-metrics` must land
+  first — that's the `dependsOn` in `flux/flux-system/tempo.yaml`.

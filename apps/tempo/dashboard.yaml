@@ -7,10 +7,10 @@
 # Hand-built for this repo's monolithic deployment rather than vendored: the
 # tempo-mixin dashboards (tempo-operational.json and friends at the chart's
 # appVersion tag) hardcode Grafana Labs' distributed-mode job naming
-# (job="<namespace>/ingester" etc.) and a multi-cluster "cluster" label,
+# (job="<namespace>/querier" etc.) and a multi-cluster "cluster" label,
 # neither of which exists here — every panel would need rewriting, which is
 # worse provenance than owning a small dashboard outright. Panels use only
-# metric names verified against tempo v2.10.8 and this config; the alert-side
+# metric names verified against tempo v3.1.1 and this config; the alert-side
 # counterparts live in vmrule.yaml.
 apiVersion: v1
 kind: ConfigMap
@@ -381,7 +381,7 @@ data:
               "legendFormat": "outstanding compaction blocks"
             }
           ],
-          "description": "Outstanding blocks growing without bound means compaction is not keeping up \u2014 see TempoCompactionsFailing in vmrule.yaml."
+          "description": "Outstanding blocks growing without bound means compaction is not keeping up \u2014 see TempoBackendSchedulerJobsFailureRateHigh and TempoCompactionsFailing in vmrule.yaml."
         },
         {
           "id": 8,
@@ -425,18 +425,18 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "increase(tempo_ingester_failed_flushes_total[1h])",
+              "expr": "sum(increase(tempo_live_store_failed_completions_total[1h]))",
               "refId": "A",
-              "legendFormat": "failed flushes"
+              "legendFormat": "failed block completions"
             },
             {
               "datasource": {
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "increase(tempo_ingester_flush_failed_retries_total[1h])",
+              "expr": "sum(increase(tempo_live_store_local_failed_flushes_total[1h]))",
               "refId": "B",
-              "legendFormat": "failed flush retries"
+              "legendFormat": "failed S3 flushes"
             },
             {
               "datasource": {
@@ -455,6 +455,15 @@ data:
               "expr": "increase(tempodb_blocklist_poll_errors_total[1h])",
               "refId": "D",
               "legendFormat": "blocklist poll errors"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "sum by (job_type) (increase(tempo_backend_scheduler_jobs_failed_total[1h]))",
+              "refId": "E",
+              "legendFormat": "failed {{job_type}} jobs"
             }
           ]
         },

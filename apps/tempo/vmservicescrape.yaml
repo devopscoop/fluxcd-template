@@ -12,6 +12,13 @@
 # every chart bump. VMServiceScrape is an operator.victoriametrics.com CRD,
 # so victoria-metrics must land first — the flux Kustomization's dependsOn
 # enforces that ordering.
+#
+# Since chart 2.4.0 the StatefulSet's tempo-headless Service carries the same
+# instance labels and the same tempo-prom-metrics port; matching it too
+# would scrape the pod twice (job=tempo and job=tempo-headless) and double
+# every sum() in vmrule.yaml and dashboard.yaml. The chart labels it
+# prometheus.io/service-monitor: "false" and its own ServiceMonitor excludes
+# that label, so mirror the exclusion.
 apiVersion: operator.victoriametrics.com/v1beta1
 kind: VMServiceScrape
 metadata:
@@ -21,5 +28,10 @@ spec:
     matchLabels:
       app.kubernetes.io/name: tempo
       app.kubernetes.io/instance: tempo
+    matchExpressions:
+      - key: prometheus.io/service-monitor
+        operator: NotIn
+        values:
+          - "false"
   endpoints:
     - port: tempo-prom-metrics
