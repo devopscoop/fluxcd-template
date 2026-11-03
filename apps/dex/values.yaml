@@ -1,5 +1,13 @@
-# dyff between <(yq . <(helm show values dex/dex --version 0.24.1)) <(yq eval '. * load("values.yaml")' <(helm show values dex/dex --version 0.24.1))
-# vim -O <(helm show values dex/dex --version 0.24.1) values.yaml
+# dyff between <(yq . <(helm show values dex/dex --version 0.26.0)) <(yq eval '. * load("values.yaml")' <(helm show values dex/dex --version 0.26.0))
+# vim -O <(helm show values dex/dex --version 0.26.0) values.yaml
+
+# Pinned one patch past the chart's default (appVersion 2.46.0). v2.46.1 is
+# built with Go 1.27.3 and a refreshed CA bundle, so Dex's outbound TLS to the
+# upstream IdP stops trusting the eight compromised eMudhra intermediates that
+# 2.46.0 still accepts (dexidp/dex#5093). Drop the pin when release.yaml moves
+# to a chart whose appVersion is 2.46.1 or later.
+image:
+  tag: v2.46.1
 
 config:
   # The issuer URL is Dex's identity, and it is load-bearing: OIDC discovery,
