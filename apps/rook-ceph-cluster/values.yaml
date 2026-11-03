@@ -1,13 +1,47 @@
-# dyff between <(yq . <(helm show values rook-release/rook-ceph-cluster --version v1.18.11)) <(yq eval '. * load("values.yaml")' <(helm show values rook-release/rook-ceph-cluster --version v1.18.11))
-# vim -O <(helm show values rook-release/rook-ceph-cluster --version v1.18.11) values.yaml
+# dyff between <(yq . <(helm show values rook-release/rook-ceph-cluster --version v1.19.12)) <(yq eval '. * load("values.yaml")' <(helm show values rook-release/rook-ceph-cluster --version v1.19.12))
+# vim -O <(helm show values rook-release/rook-ceph-cluster --version v1.19.12) values.yaml
 
-# Keep every Ceph daemon (mons, mgr, OSDs) off spot capacity: OSD data and mon
-# stores live on node-local disks, so a spot reclaim destroys that node's
-# copies, and spot reclaims correlate (whole instance pools get reclaimed
-# together), so 3-way replication is not real protection. Volume consumers are
-# unaffected -- RBD/CephFS clients don't need Ceph daemons on their own node.
+# The Ceph image is the chart's default (cephImage, v19.2.6 at
+# 1.19.12). Ceph v19.2.6/v20.2.4 fix CVE-2025-30156 (CephX service tickets
+# could be tampered with to escalate a stolen key to admin) with a new
+# AES256K key type, and raise HEALTH_ERR until the core daemons' keys are
+# rotated to it.
+cephClusterSpec:
+  security:
+    cephx:
+      # Rotate the daemon keys (mons, mgrs, OSDs, MDSes, RGWs, Rook's admin
+      # key) once; Rook moves them to AES256K. A no-op once the cluster's
+      # status.cephx shows keyGeneration 2. The chart already pins the CSI
+      # keys to keyType aes: kernel RBD/CephFS clients need Linux 7.0+ for
+      # AES256K.
+      # https://rook.io/docs/rook/v1.19/Storage-Configuration/Advanced/cephx-key-rotation/#cve-2025-30156-resolution
+      daemon:
+        keyRotationPolicy: KeyGeneration
+        keyGeneration: 2
+  healthCheck:
+    # The warnings Ceph raises for every key still on the old AES type: the
+    # CSI keys above, and Ceph still allowing AES keys at all (it must, for
+    # them). They keep the cluster in HEALTH_WARN, i.e. CephHealthWarning in
+    # vm.yaml paging forever, so mute them as Rook's CVE guide suggests. The
+    # rotating-service-key one clears by itself 2-3h after rotation. Once
+    # every node runs Linux 7.0+ and the CSI keys are rotated to aes256k,
+    # set these to policy: unmute (deleting an entry leaves it muted).
+    muteHealthWarning:
+      AUTH_INSECURE_ROTATING_SERVICE_KEY_TYPE:
+        policy: mute
+      AUTH_INSECURE_CLIENT_KEY_TYPE:
+        policy: mute
+      AUTH_INSECURE_KEYS_ALLOWED:
+        policy: mute
+      AUTH_INSECURE_KEYS_CREATABLE:
+        policy: mute
+
+  # Keep every Ceph daemon (mons, mgr, OSDs) off spot capacity: OSD data and mon
+  # stores live on node-local disks, so a spot reclaim destroys that node's
+  # copies, and spot reclaims correlate (whole instance pools get reclaimed
+  # together), so 3-way replication is not real protection. Volume consumers are
+  # unaffected -- RBD/CephFS clients don't need Ceph daemons on their own node.
 # >>> karpenter: deploy.sh uncomments this block when k8s_platform=eks
-# cephClusterSpec:
 #   placement:
 #     all:
 #       nodeAffinity:
