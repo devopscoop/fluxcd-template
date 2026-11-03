@@ -1,5 +1,5 @@
-# dyff between <(yq . <(helm show values metrics-server/metrics-server --version v3.12.2)) <(yq eval '. * load("values.yaml")' <(helm show values metrics-server/metrics-server --version v3.12.2))
-# vim -O <(helm show values metrics-server/metrics-server --version v3.12.2) values.yaml
+# dyff between <(yq . <(helm show values metrics-server/metrics-server --version v3.14.0)) <(yq eval '. * load("values.yaml")' <(helm show values metrics-server/metrics-server --version v3.14.0))
+# vim -O <(helm show values metrics-server/metrics-server --version v3.14.0) values.yaml
 
 # Sized from krr (2026-08-22, 14d dev usage): peak ~89Mi. Overrides the chart
 # defaults (100m/200Mi requests, no limits); memory req=limit, no CPU limit.
