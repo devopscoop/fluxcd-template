@@ -40,7 +40,7 @@ spec:
       automountServiceAccountToken: false
       initContainers:
         - name: write-hosts
-          image: docker.io/library/busybox:1.37.0
+          image: docker.io/library/busybox:1.38.0
           command: ["/bin/sh", "/config/write-hosts.sh"]
           env:
             - name: HARBOR_HOST
@@ -68,7 +68,7 @@ spec:
               mountPath: /tmp
       containers:
         - name: pause
-          image: registry.k8s.io/pause:3.10
+          image: registry.k8s.io/pause:3.10.2
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
