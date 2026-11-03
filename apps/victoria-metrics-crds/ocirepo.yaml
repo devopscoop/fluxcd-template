@@ -12,11 +12,11 @@ spec:
     operation: copy
   ref:
     # Keep in step with the operator that apps/victoria-metrics runs: chart
-    # 0.14.0 carries the CRDs of operator v0.74.0, the version
-    # victoria-metrics-k8s-stack 0.91.2 bundles (its victoria-metrics-operator
-    # subchart 0.67.2). Bump this with the stack — README.md in
+    # 0.15.2 carries the CRDs of operator v0.75.2, the version
+    # victoria-metrics-k8s-stack 0.97.1 bundles (its victoria-metrics-operator
+    # subchart 0.68.2). Bump this with the stack — README.md in
     # apps/victoria-metrics → "Upgrading" — CRDs first, then the operator.
-    tag: 0.14.0
+    tag: 0.15.2
   # For private OCI repos, use a kubernetes.io/dockerconfigjson secret
   # secretRef:
   #   name: registry-auth
