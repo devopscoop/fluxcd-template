@@ -6,13 +6,14 @@
 # what the chart's prometheus.servicemonitor.enabled would create, which is
 # unusable here for the CRD-ownership reason in apps/cnpg/vm.yaml.
 #
-# One scrape object, three endpoints: the chart names the metrics port
-# differently on each Service (verified by rendering chart v1.20.0,
-# apps/cert-manager's pin), and an endpoint whose port name a Service lacks
-# simply yields no target, so the three coexist. The job label comes from
-# each Service name: cert-manager, cert-manager-webhook,
-# cert-manager-cainjector — job="cert-manager" is what the cert-manager
-# mixin's rules expect.
+# One scrape object, two endpoints: the chart names the metrics port
+# http-metrics on the controller and cainjector Services but metrics on the
+# webhook's (verified by rendering chart v1.21.3, apps/cert-manager's pin;
+# v1.21 renamed the controller's from tcp-prometheus-servicemonitor), and an
+# endpoint whose port name a Service lacks simply yields no target, so the
+# two coexist. The job label comes from each Service name: cert-manager,
+# cert-manager-webhook, cert-manager-cainjector — job="cert-manager" is what
+# the cert-manager mixin's rules expect.
 #
 # honorLabels stays false (the default) on purpose: certificate metrics
 # carry their Certificate's namespace in a "namespace" label, which the
@@ -30,7 +31,6 @@ spec:
     matchLabels:
       app.kubernetes.io/instance: cert-manager
   endpoints:
-    - port: tcp-prometheus-servicemonitor
     - port: metrics
     - port: http-metrics
 ---
