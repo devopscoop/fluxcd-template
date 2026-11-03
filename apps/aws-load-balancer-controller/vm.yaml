@@ -2,7 +2,7 @@
 # counters, AWS API call/error/throttle counters (aws_api_*), and the
 # awslbc_* webhook/reconcile series — from the pods' :8080 container port
 # named "metrics-server", standard /metrics, plain HTTP (verified by
-# rendering chart 3.3.0, apps/aws-load-balancer-controller's pin).
+# rendering chart 3.6.2, apps/aws-load-balancer-controller's pin).
 #
 # A pod scrape, not a service scrape, for two reasons: the chart renders no
 # metrics Service unless serviceMonitor.enabled also emits its unusable
@@ -48,7 +48,7 @@ spec:
 # labels their remote-write injects, and service= assumed a ServiceMonitor
 # scrape — job= is this repo's equivalent). The rest are derived from the
 # metric definitions in kubernetes-sigs/aws-load-balancer-controller
-# v3.3.0 pkg/metrics/{aws,lbc}/instruments.go — note the upstream docs
+# v3.6.2 pkg/metrics/{aws,lbc}/instruments.go — note the upstream docs
 # table misspells several of these names; the source is authoritative.
 apiVersion: operator.victoriametrics.com/v1beta1
 kind: VMRule
