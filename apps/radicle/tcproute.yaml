@@ -16,7 +16,7 @@ metadata:
     # address peers are handed over gossip, and this is what makes it resolve to
     # the Gateway in front of this node. If they drift, peers dial a name that
     # points somewhere else and inbound replication silently stops.
-    external-dns.alpha.kubernetes.io/hostname: radicle.project1-dev.devops.coop
+    external-dns.kubernetes.io/hostname: radicle.project1-dev.devops.coop
 spec:
   parentRefs:
     - name: eg-public

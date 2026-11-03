@@ -1,5 +1,5 @@
-# dyff between <(yq . <(helm show values external-dns/external-dns --version v1.20.0)) <(yq eval '. * load("values.yaml")' <(helm show values external-dns/external-dns --version v1.20.0))
-# vim -O <(helm show values external-dns/external-dns --version v1.20.0) values.yaml
+# dyff between <(yq . <(helm show values external-dns/external-dns --version v1.23.0)) <(yq eval '. * load("values.yaml")' <(helm show values external-dns/external-dns --version v1.23.0))
+# vim -O <(helm show values external-dns/external-dns --version v1.23.0) values.yaml
 
 # In larger environments with lots of records, the default of 1m can trigger rate limiting on Route 53. Uncomment this if needed.
 interval: 10m
@@ -9,6 +9,16 @@ triggerLoopOnEvent: true
 
 # We want to delete records for ingresses that have been deleted.
 policy: sync
+
+# external-dns 0.22 moved its annotation prefix from external-dns.alpha.kubernetes.io/
+# to external-dns.kubernetes.io/ with no fallback, and under policy: sync that deletes
+# every record an old-prefix annotation (hostname, target, ttl, ...) was producing.
+# This flag (added in 0.23) reads the old prefix too; the new one wins when both are
+# set. Upstream calls it a migration aid and will remove it, so drop it once
+# `git grep external-dns.alpha.kubernetes.io` finds nothing but this comment.
+# https://github.com/kubernetes-sigs/external-dns/releases/tag/v0.22.0
+extraArgs:
+  enable-legacy-annotation-prefix: true
 
 # If we have multiple k8s clusters writing to the same DNS zone, each external-dns needs a way to identify the records it owns. And since we can only have one external-dns provider per cluster, the setting this to the cluster name seems reasonable.
 txtOwnerId: project1-dev
@@ -60,6 +70,7 @@ sources:
   - gateway-httproute
 
   # TCPRoutes carry no hostnames of their own, so records come from the
-  # external-dns.alpha.kubernetes.io/hostname annotation on the route. Used by
+  # external-dns.kubernetes.io/hostname annotation on the route (or its legacy
+  # alpha-prefixed form, while the flag in extraArgs above is set). Used by
   # apps/radicle/tcproute.yaml.
   - gateway-tcproute
