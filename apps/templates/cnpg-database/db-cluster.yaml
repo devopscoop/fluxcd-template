@@ -81,7 +81,7 @@ spec:
 # <<< karpenter
   # Per app: pin the postgres major deliberately to one your app supports,
   # and bump it alongside app upgrades. The template tracks PostgreSQL 18 —
-  # what this repo's CNPG operator (1.28) defaults new clusters to, and the
+  # what this repo's CNPG operator (1.30) defaults new clusters to, and the
   # first major with native OAuth support — but drop to an older major when
   # the app's test matrix demands it (goalert stays on 17: its v0.34 tested
   # against 13-17 only). Patch bumps within a major are a rolling restart;

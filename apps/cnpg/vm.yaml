@@ -82,7 +82,7 @@ spec:
 #
 # The cnpg group after it holds the rules the sample has no equivalent
 # for. Its chart-derived rules are adapted from the CNPG "cluster" chart
-# (https://github.com/cloudnative-pg/charts/tree/cluster-v0.8.1/charts/cluster/prometheus_rules,
+# (https://github.com/cloudnative-pg/charts/tree/cluster-v0.9.0/charts/cluster/prometheus_rules,
 # re-check when bumping apps/cnpg), with deliberate deviations:
 # - Fleet-wide instead of per-cluster: upstream templates one PrometheusRule
 #   per database, keyed on its scrape job and a pod-name regex. Here one
@@ -120,6 +120,12 @@ spec:
 #   That rule flags each standby whose WAL receiver is down. The HA rules
 #   count streaming standbys from the primary, so they also catch a standby
 #   that is missing entirely (Pending, deleted) and exports nothing.
+# - Left out the replica-mode guard cluster-v0.9.0 added to the two HA
+#   rules (and on cnpg_collector_replica_mode == 0). It only matters for
+#   replica clusters (spec.replica), and no database in this repo is one.
+#   A replica cluster would also hold CNPGClusterNoPrimary firing, since
+#   all of its instances are in recovery, so guard all three together if
+#   one ever ships.
 # - Added the WAL-archiving and backup rules at the bottom — upstream ships
 #   nothing for either, and they encode this repo's own incident history
 #   (the 2026-09-05 WAL-burst and the barman sidecar OOM documented in

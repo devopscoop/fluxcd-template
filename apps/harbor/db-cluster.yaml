@@ -69,7 +69,7 @@ spec:
 #       - key: CriticalAddonsOnly
 #         operator: Exists
 # <<< karpenter
-  # PostgreSQL 18 — what this repo's CNPG operator (1.28) defaults new
+  # PostgreSQL 18 — what this repo's CNPG operator (1.30) defaults new
   # clusters to and the template tracks, and also the major Harbor 2.15
   # bundles in its own harbor-db image (make/photon/db installs
   # postgresql18-server), so this is the version upstream tests against.
