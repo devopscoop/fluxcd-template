@@ -5,5 +5,34 @@ resources:
   # The RabbitMQ Cluster Kubernetes Operator automates provisioning, management, and operations of RabbitMQ clusters running on Kubernetes.
   # https://www.rabbitmq.com/kubernetes/operator/install-operator
   # https://github.com/rabbitmq/cluster-operator/releases
-  - https://github.com/rabbitmq/cluster-operator/releases/download/v2.19.0/cluster-operator.yml
+  #
+  # Since 2.22 the manifest ships admission webhooks whose serving cert comes
+  # from cert-manager (a self-signed Issuer and two Certificates in
+  # rabbitmq-system), so this app needs cert-manager running first.
+  #
+  # Operator upgrades roll every RabbitmqCluster. Each broker keeps the image
+  # the operator stamped into its spec.image at creation, and since 2.22 the
+  # startup probe is an HTTP health check that only RabbitMQ 4.2.4+/4.3.0+
+  # serve, so a broker on an older image (2.19's default was 4.1.3) never
+  # comes back Ready. Before this pin reaches a cluster running such a
+  # broker, set its spec.image to the latest 4.2.x and enable all feature
+  # flags (khepri_db included) — 4.3, the new default, upgrades only from
+  # 4.2.x with those flags on.
+  - https://github.com/rabbitmq/cluster-operator/releases/download/v2.23.2/cluster-operator.yml
   - vm.yaml
+
+patches:
+  # Upstream's Namespace lacks the prune: disabled annotation every other
+  # Namespace in this repo carries (.githooks/validate-flux.py only sees
+  # local files, not remote resources). This app owns rabbitmq-system — the
+  # messaging-topology-operator app drops its copy — so annotate it here.
+  - target:
+      kind: Namespace
+      name: rabbitmq-system
+    patch: |
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: rabbitmq-system
+        annotations:
+          kustomize.toolkit.fluxcd.io/prune: disabled
