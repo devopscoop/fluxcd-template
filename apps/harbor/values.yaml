@@ -33,20 +33,22 @@ expose:
       - harbor.project1-dev.devops.coop
 externalURL: https://harbor.project1-dev.devops.coop
 
-# The registry's blob store is a ReadWriteOnce EBS volume (persistence
-# below), which two pods on different nodes can't mount at once — a
-# RollingUpdate would leave the new registry pod stuck on a Multi-Attach
-# error until the old one is gone. Recreate stops the old pod first: every
-# upgrade is a short registry outage while the volume moves, and Dragonfly's
-# peers keep serving blobs already in circulation meanwhile. The chart
-# applies this to the registry and jobservice Deployments only.
+# The registry's blob store is a ReadWriteOnce volume (persistence below),
+# which two pods on different nodes can't mount at once — a RollingUpdate
+# would leave the new registry pod stuck on a Multi-Attach error until the
+# old one is gone. Recreate stops the old pod first: every upgrade is a short
+# registry outage while the volume moves, and Dragonfly's peers keep serving
+# blobs already in circulation meanwhile. The chart applies this to the
+# registry and jobservice Deployments only. On EKS, values-eks.yaml moves the
+# blobs to S3 and switches back to RollingUpdate, with two registry replicas.
 updateStrategy:
   type: Recreate
 
 persistence:
   persistentVolumeClaim:
-    # The image blobs themselves, on the default gp3 class — deliberately NOT
-    # gp3-dangerous: that class's Backup=dlm tag puts this volume under the
+    # The image blobs themselves, everywhere but EKS: there values-eks.yaml
+    # stores them in S3, and the chart creates no registry volume at all.
+    # On the default gp3 class — deliberately NOT gp3-dangerous: that class's Backup=dlm tag puts this volume under the
     # daily DLM snapshot policy from aws-eks-template (cluster/dlm.tf), which
     # is the registry's only backup (the CNPG database's barman backups
     # cover metadata, not blobs). README.md → "Backups and restore".
@@ -119,9 +121,11 @@ database:
 # The chart's own single-pod Redis (a Valkey build, goharbor/valkey-photon),
 # not this repo's valkey-operator: its ValkeyCluster is Redis Cluster mode,
 # and Harbor speaks standalone or Sentinel only. Harbor uses Redis as a
-# cache and as jobservice's queue — nothing durable — and the registry
-# behind it is a singleton anyway (updateStrategy above), so one pod costs
-# no availability the rest of the deployment has.
+# cache, for UI sessions, and as jobservice's queue — nothing durable. It
+# stays single even with values-eks.yaml's replicas, the one piece of the
+# registry path that does: README.md → "Storage and availability" has what
+# an outage of it stops (new harbor-core pods, chiefly) and what keeps
+# working.
 redis:
   internal:
     # Memory req=limit, no CPU limit (as for every component below); resize
@@ -139,9 +143,11 @@ redis:
 
 # On EKS every component is pinned to on-demand capacity (the karpenter
 # blocks), per the NodePool contract in
-# apps/karpenter-custom-resources/nodepool.yaml. Each runs one replica, so
-# a spot reclaim is an outage of that component, and for the registry it
-# also means waiting for its EBS volume to detach and reattach.
+# apps/karpenter-custom-resources/nodepool.yaml. Redis, jobservice, Trivy,
+# and the exporter run one replica each, so a spot reclaim is an outage of
+# that component. core, portal, and the registry run two on EKS
+# (values-eks.yaml) and could take spot, but they stay on on-demand with the
+# rest.
 core:
   resources:
     requests:
