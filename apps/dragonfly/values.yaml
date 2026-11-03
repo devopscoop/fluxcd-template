@@ -13,13 +13,17 @@
 # (network.enableIPv6: false) for the addresses it listens on and announces
 # to peers and schedulers, so each component below turns IPv6 on.
 
-# Two schedulers, not the chart's three: they hold only in-memory peer and
-# task state, clients reach them through the headless Service, and when no
-# scheduler answers a client downloads straight from Harbor
-# (client.config.scheduler.enableBackToSource), so losing both degrades
-# pulls to what they'd be without Dragonfly instead of breaking them.
+# One scheduler and one seed peer, not the chart's three of each: Dragonfly
+# fails open, so redundancy here buys speed, not availability. The scheduler
+# holds only in-memory peer and task state, and while it's down every client
+# downloads straight from Harbor (client.config.scheduler.enableBackToSource);
+# while the seed peer is down, first fetches go to Harbor from the clients
+# themselves. Either way pulls degrade to what they'd be without Dragonfly
+# for the length of a restart. Run two of each only past the throughput
+# break-even in README.md → "When it pays off", where a burst landing on
+# Harbor during a restart is the problem Dragonfly is there to prevent.
 scheduler:
-  replicas: 2
+  replicas: 1
   # Memory req=limit, no CPU limit (as for every component below); resize
   # with krr after some real usage. The chart's defaults (8 CPU, 16Gi per
   # pod) are sized for fleets of thousands of nodes.
@@ -35,10 +39,10 @@ scheduler:
     network:
       enableIPv6: true
 
-# Seed peers: the first fetch of every layer from Harbor lands here, and the
-# per-node clients then pull it from seeds and from each other.
+# Seed peer: the first fetch of every layer from Harbor lands here, and the
+# per-node clients then pull it from the seed and from each other.
 seedClient:
-  replicas: 2
+  replicas: 1
   resources:
     requests:
       cpu: 50m
@@ -53,8 +57,9 @@ seedClient:
   # starts at 90% of the volume (the chart's seedClient.config.gc.policy
   # defaults). On EKS,
   # gp3-dangerous keeps this disposable cache out of the DLM snapshot
-  # policy. Each seed's volume pins it to one AZ, which costs nothing here:
-  # peers in every AZ can fetch from it.
+  # policy. Each seed's volume pins it to one AZ, which costs no
+  # availability: peers in every AZ can fetch from it, at cross-zone
+  # transfer rates.
   persistence:
     size: 20Gi
 # >>> eks: deploy.sh uncomments this block when k8s_platform=eks
