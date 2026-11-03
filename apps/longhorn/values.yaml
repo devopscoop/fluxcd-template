@@ -1,5 +1,5 @@
-# dyff between <(yq . <(helm show values longhorn/longhorn --version v1.10.0)) <(yq eval '. * load("values.yaml")' <(helm show values longhorn/longhorn --version v1.10.0))
-# vim -O <(helm show values longhorn/longhorn --version v1.10.0) values.yaml
+# dyff between <(yq . <(helm show values longhorn/longhorn --version v1.11.3)) <(yq eval '. * load("values.yaml")' <(helm show values longhorn/longhorn --version v1.11.3))
+# vim -O <(helm show values longhorn/longhorn --version v1.11.3) values.yaml
 
 persistence:
 

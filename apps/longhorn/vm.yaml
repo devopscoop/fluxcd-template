@@ -3,7 +3,7 @@
 # "longhorn-backend" Service's :9500 port named "manager" (the DaemonSet's
 # metrics port; default /metrics path), mirroring the ServiceMonitor the
 # chart's metrics.serviceMonitor.enabled would create (verified by rendering
-# chart 1.10.0, apps/longhorn's pin), which is unusable here for the
+# chart 1.11.3, apps/longhorn's pin), which is unusable here for the
 # CRD-ownership reason in apps/cnpg/vm.yaml. These series feed
 # the VMRule below and the Longhorn dashboard in apps/victoria-metrics.
 #
@@ -29,8 +29,13 @@ spec:
 # Alerting rules for Longhorn, evaluated by this stack's vmalert over the
 # series collected by the scrape above. Copied from the alert
 # examples in the Longhorn docs matching apps/longhorn's chart pin
-# (https://longhorn.io/docs/1.10.0/monitoring/alert-rules-example/ — re-sync
+# (https://longhorn.io/docs/1.11.3/monitoring/alert-rules-example/ — re-sync
 # when bumping the chart), with deliberate deviations:
+# - The two LonghornVolumeStatus rules select the robustness state by label.
+#   Since 1.11.0 longhorn_volume_robustness is one series per state
+#   (state="unknown|healthy|degraded|faulted", 1 for the current state, 0
+#   for the rest) instead of one series valued 0-3; the docs' examples
+#   still compare against 3 and 2, which under 1.11+ never fires.
 # - Dropped each rule's templated "issue" label: a per-firing label value
 #   fragments Alertmanager groups under this repo's
 #   group_by [alertname, namespace]; the same text lives in the description.
@@ -39,8 +44,9 @@ spec:
 #   reboot, eviction — and this repo pages on warnings
 #   (apps/victoria-metrics/README.md → "Alert routing"), so only rebuilds
 #   that fail to converge should page.
-# Metric values worth knowing when one of these fires:
-# longhorn_volume_robustness 0=unknown 1=healthy 2=degraded 3=faulted.
+# Metric shape worth knowing when one of these fires: longhorn_volume_state
+# is label-based the same way (state="attached", "detached", ...), and
+# longhorn_node_status is 1/0 per condition label.
 apiVersion: operator.victoriametrics.com/v1beta1
 kind: VMRule
 metadata:
@@ -60,7 +66,7 @@ spec:
               volumes.longhorn.io` and the Longhorn UI; recovery may need a
               backup restore.
           expr: |-
-            longhorn_volume_robustness == 3
+            longhorn_volume_robustness{state="faulted"} == 1
           for: 5m
           labels:
             severity: critical
@@ -75,7 +81,7 @@ spec:
               minutes; 15m degraded means the rebuild is stuck or there is
               no node with space for the replacement replica.
           expr: |-
-            longhorn_volume_robustness == 2
+            longhorn_volume_robustness{state="degraded"} == 1
           for: 15m
           labels:
             severity: warning

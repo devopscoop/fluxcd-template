@@ -553,11 +553,13 @@ grafana:
 ##       usage, backup state — fed by apps/longhorn/vm.yaml (plus
 ##       kubelet_volume_stats_* from the stack's kubelet scrape). Preferred
 ##       over the Longhorn docs' 17626, which is schema-26-era and needs
-##       datasource surgery to provision. Known caveats at apps/longhorn's
-##       1.10.0 pin: the backup-freshness panels query
-##       longhorn_volume_last_backup_at, which 1.10.0 does not export (empty
-##       panels); longhorn_backup_state and the capacity/robustness panels
-##       all work.
+##       datasource surgery to provision. Known caveats since Longhorn
+##       1.11: longhorn_volume_last_backup_at is exported since 1.11.0, so
+##       the backup-freshness panels fill. The three robustness stat panels
+##       still query the pre-1.11 numeric value, while 1.11+ exports one
+##       series per state= label: Healthy counts every volume and
+##       Degraded/Fault always read 0, so apps/longhorn/vm.yaml's alerts are
+##       the source of truth. The attached/detached and capacity panels work.
 #       longhorn:
 #         gnetId: 16888
 #         revision: latest
