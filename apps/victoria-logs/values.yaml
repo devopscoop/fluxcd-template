@@ -1,5 +1,5 @@
-# dyff between <(yq . <(helm show values victoria-metrics/victoria-logs-single --version 0.13.9)) <(yq eval '. * load("values.yaml")' <(helm show values victoria-metrics/victoria-logs-single --version 0.13.9))
-# vim -O <(helm show values victoria-metrics/victoria-logs-single --version 0.13.9) values.yaml
+# dyff between <(yq . <(helm show values victoria-metrics/victoria-logs-single --version 0.13.11)) <(yq eval '. * load("values.yaml")' <(helm show values victoria-metrics/victoria-logs-single --version 0.13.11))
+# vim -O <(helm show values victoria-metrics/victoria-logs-single --version 0.13.11) values.yaml
 
 # Single-node VictoriaLogs (StatefulSet, one replica — the chart default).
 # This is the logs half of the VictoriaMetrics stack.
