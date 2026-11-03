@@ -3,9 +3,11 @@
 # "longhorn-backend" Service's :9500 port named "manager" (the DaemonSet's
 # metrics port; default /metrics path), mirroring the ServiceMonitor the
 # chart's metrics.serviceMonitor.enabled would create (verified by rendering
-# chart 1.12.1, apps/longhorn's pin), which is unusable here for the
+# chart 1.13.0, apps/longhorn's pin), which is unusable here for the
 # CRD-ownership reason in apps/cnpg/vm.yaml. These series feed
 # the VMRule below and the Longhorn dashboard in apps/victoria-metrics.
+# Since 1.12.1 a chart NetworkPolicy fences :9500 off; values.yaml's
+# networkPolicies.metricsScrapeSources is what lets vmagent through.
 #
 # Longhorn's runtime-created CSI sidecars expose no metrics endpoints, so
 # the managers are the whole scrape surface.
@@ -29,7 +31,7 @@ spec:
 # Alerting rules for Longhorn, evaluated by this stack's vmalert over the
 # series collected by the scrape above. Copied from the alert
 # examples in the Longhorn docs matching apps/longhorn's chart pin
-# (https://longhorn.io/docs/1.12.1/monitoring/alert-rules-example/ — re-sync
+# (https://longhorn.io/docs/1.13.0/monitoring/alert-rules-example/ — re-sync
 # when bumping the chart), with deliberate deviations:
 # - The two LonghornVolumeStatus rules select the robustness state by label.
 #   Since 1.11.0 longhorn_volume_robustness is one series per state

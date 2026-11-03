@@ -1,15 +1,21 @@
-# dyff between <(yq . <(helm show values longhorn/longhorn --version v1.12.1)) <(yq eval '. * load("values.yaml")' <(helm show values longhorn/longhorn --version v1.12.1))
-# vim -O <(helm show values longhorn/longhorn --version v1.12.1) values.yaml
+# dyff between <(yq . <(helm show values longhorn/longhorn --version v1.13.0)) <(yq eval '. * load("values.yaml")' <(helm show values longhorn/longhorn --version v1.13.0))
+# vim -O <(helm show values longhorn/longhorn --version v1.13.0) values.yaml
 
 networkPolicies:
-  # 1.12.1 turns on ingress NetworkPolicies for Longhorn's internal
-  # endpoints by default (restrictInternalTraffic: true). On a CNI that
-  # enforces NetworkPolicy (kube-router on k0s, Calico, Cilium) the
-  # longhorn-manager one cuts off apps/longhorn/vm.yaml's :9500 scrape, and
-  # the instance-manager one can block host-originated V1 iSCSI on :3260
-  # (longhorn#13802), leaving volumes stuck attaching. Both are fixed in
-  # 1.13.0 (networkPolicies.metricsScrapeSources), so they stay off here.
-  restrictInternalTraffic: false
+  # Since 1.12.1 the chart installs ingress NetworkPolicies for Longhorn's
+  # internal endpoints by default (restrictInternalTraffic: true), and the
+  # longhorn-manager one admits only Longhorn's own pods on :9500. On a CNI
+  # that enforces NetworkPolicy (kube-router on k0s, Calico, Cilium) that
+  # cuts off apps/longhorn/vm.yaml's scrape, so let this stack's vmagent
+  # (apps/victoria-metrics) through. One peer with both selectors: :9500 is
+  # also the manager's REST API, so don't widen it to the whole namespace.
+  metricsScrapeSources:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: victoria-metrics
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: vmagent
 
 persistence:
 
@@ -349,6 +355,15 @@ longhornUI:
   #   value: "value"
   #   effect: "NoSchedule"
   # -- Node selector for Longhorn UI. Specify the nodes allowed to run Longhorn UI.
+# >>> karpenter: deploy.sh uncomments this block when k8s_platform=eks
+#   nodeSelector:
+#     karpenter.sh/capacity-type: on-demand
+# <<< karpenter
+longhornGlobalManager:
+  # -- Replica count for the global manager (new in 1.13). One replica is the active leader; the others are warm standbys.
+  # Set to the chart default so this key stays a map while the block below is commented out.
+  replicas: 3
+  # -- Node selector for global manager pods.
 # >>> karpenter: deploy.sh uncomments this block when k8s_platform=eks
 #   nodeSelector:
 #     karpenter.sh/capacity-type: on-demand
