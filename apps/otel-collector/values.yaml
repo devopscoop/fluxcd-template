@@ -1,5 +1,5 @@
-# dyff between <(yq . <(helm show values open-telemetry/opentelemetry-collector --version 0.170.0)) <(yq eval '. * load("values.yaml")' <(helm show values open-telemetry/opentelemetry-collector --version 0.170.0))
-# vim -O <(helm show values open-telemetry/opentelemetry-collector --version 0.170.0) values.yaml
+# dyff between <(yq . <(helm show values open-telemetry/opentelemetry-collector --version 0.178.2)) <(yq eval '. * load("values.yaml")' <(helm show values open-telemetry/opentelemetry-collector --version 0.178.2))
+# vim -O <(helm show values open-telemetry/opentelemetry-collector --version 0.178.2) values.yaml
 
 # One collector per node: each pod tails its own node's log files AND
 # receives OTLP pushed by that node's
@@ -10,12 +10,13 @@
 mode: daemonset
 
 # The chart refuses to render without an explicit image choice — there is no
-# default distribution. The metrics pipeline's prometheusremotewrite exporter
-# forces the contrib distribution: the slimmer otelcol-k8s distribution ships
-# everything else used here (file_log receiver, k8s_attributes processor,
-# otlp/otlphttp exporters, file_storage extension) but not that exporter.
+# default distribution. The metrics pipeline's prometheus_remote_write
+# exporter forces the contrib distribution: the slimmer otelcol-k8s
+# distribution ships everything else used here (file_log receiver,
+# k8s_attributes processor, otlp_grpc/otlp_http exporters, file_storage
+# extension) but not that exporter.
 # ghcr.io is the canonical registry (also dodges Docker Hub pull limits); the
-# tag defaults to the chart's appVersion (0.158.0), so it is pinned by the
+# tag defaults to the chart's appVersion (0.163.2), so it is pinned by the
 # chart version in release.yaml.
 image:
   repository: ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-contrib
@@ -44,7 +45,9 @@ presets:
   # creates the read RBAC, prepends the k8s_attributes processor to every
   # pipeline, and in daemonset mode scopes its informer to the local node
   # (filter.node_from_env_var), without which API-server watch load grows
-  # quadratically with cluster size.
+  # quadratically with cluster size. Since collector 0.161 the processor
+  # emits the stable k8s semconv names, so the image tag arrives as
+  # container.image.tags (a list), not the old container.image.tag.
   kubernetesAttributes:
     enabled: true
 
@@ -181,19 +184,24 @@ config:
             # (INFO/Info/info all become info), so LogsQL filters and the
             # Grafana logLevelRules only ever deal with one spelling.
             - set(log.severity_text, ToLowerCase(log.severity_text)) where log.severity_text != ""
+  # The exporters use the collector's canonical type names (otlp_grpc,
+  # otlp_http, prometheus_remote_write). The old otlp / otlphttp /
+  # prometheusremotewrite spellings are deprecated aliases; since chart
+  # 0.171.0 the chart rewrites the first two itself and warns that the
+  # rewrite will go away.
   exporters:
     # All three pipelines are rerouted below, so the chart's default debug
     # exporter has no remaining consumer.
     debug: null
-    # Logs → VictoriaLogs (apps/victoria-logs). The otlphttp exporter treats
+    # Logs → VictoriaLogs (apps/victoria-logs). The otlp_http exporter treats
     # `endpoint` as a base URL and appends the standard /v1/logs to it, but
     # VictoriaLogs serves OTLP ingestion under its own prefix, so the full
     # path goes in `logs_endpoint`, which is used verbatim.
-    otlphttp/victoria-logs:
+    otlp_http/victoria-logs:
       logs_endpoint: http://victoria-logs-server.victoria-logs.svc.cluster.local:9428/insert/opentelemetry/v1/logs
     # Traces → Tempo (apps/tempo) over OTLP gRPC. The exporter defaults to
     # TLS; in-cluster traffic here is plaintext, so opt out explicitly.
-    otlp/tempo:
+    otlp_grpc/tempo:
       endpoint: tempo.tempo.svc.cluster.local:4317
       tls:
         insecure: true
@@ -201,7 +209,7 @@ config:
     # remote write. Division of labor: vmagent SCRAPES infrastructure and
     # exporter metrics itself; this pipeline only carries metrics that
     # applications PUSH over OTLP.
-    prometheusremotewrite/victoria-metrics:
+    prometheus_remote_write/victoria-metrics:
       endpoint: http://vmsingle-victoria-metrics.victoria-metrics.svc.cluster.local:8428/api/v1/write
   service:
     pipelines:
@@ -222,17 +230,17 @@ config:
           - transform/severity
           - batch
         exporters:
-          - otlphttp/victoria-logs
+          - otlp_http/victoria-logs
       metrics:
         receivers:
           - otlp
         exporters:
-          - prometheusremotewrite/victoria-metrics
+          - prometheus_remote_write/victoria-metrics
       traces:
         receivers:
           - otlp
         exporters:
-          - otlp/tempo
+          - otlp_grpc/tempo
     telemetry:
       metrics:
         # Same IPv6 bracket fix as the receivers above: the self-telemetry
@@ -244,10 +252,10 @@ config:
         # re-applies without_type_suffix / without_units / without_scope_info
         # (all true) to any pull/prometheus reader declared here
         # (service/telemetry/otelconftelemetry/internal/migration/v0.3.0.go →
-        # applyPrometheusDefaults, v0.158.0), so :8888 serves UNSUFFIXED
-        # names — otelcol_exporter_sent_log_records, not ..._total — whatever
-        # this block says. vmrule.yaml's exprs depend on that; read its
-        # header before touching this, and expect
+        # applyPrometheusDefaults, re-checked at v0.163.0), so :8888 serves
+        # UNSUFFIXED names — otelcol_exporter_sent_log_records, not
+        # ..._total — whatever this block says. vmrule.yaml's exprs depend on
+        # that; read its header before touching this, and expect
         # OtelcolSelfMetricsAbsent to fire if the spelling ever moves.
         readers:
           - pull:

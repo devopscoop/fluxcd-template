@@ -1,14 +1,14 @@
 # Alerting rules for the collector itself, evaluated by this stack's
 # vmalert over the series collected by vmservicescrape.yaml. Transcribed
-# from the chart's own prometheusRule.defaultRules (chart 0.170.0, apps/
-# otel-collector's pin — the canonical rendering of the "critical
-# monitoring" guidance in
+# from the chart's own prometheusRule.defaultRules (chart 0.170.0, unchanged
+# through 0.178.2, apps/otel-collector's pin — the canonical rendering of
+# the "critical monitoring" guidance in
 # https://opentelemetry.io/docs/collector/internal-telemetry/), which can't
 # be enabled directly for the same monitoring.coreos.com CRD reason as
 # vmservicescrape.yaml. Deliberate deviations:
 # - Dropped upstream's "_total" suffixes: the collector does not emit them
 #   (see the metric-name note below), so upstream's exprs match nothing on
-#   a v0.158.0 collector.
+#   a v0.158.0 or v0.163.x collector.
 # - Collapsed the per-signal triplets into one rule each via a __name__
 #   regex (the apps/eg/vm.yaml circuit-breaker pattern) — the signal is
 #   readable from the description's rate split, and nine near-identical
@@ -33,12 +33,13 @@
 # "readers" list replaces that default reader wholesale, the collector
 # re-applies all three to any pull/prometheus reader the config declares
 # (service/telemetry/otelconftelemetry/internal/migration/v0.3.0.go →
-# applyPrometheusDefaults, v0.158.0 — the comment there spells out that it
-# exists precisely for this case). So the names are unsuffixed either way,
-# and upstream's chart rules keeping the _total spelling are simply wrong
-# for this collector. Three of the four rules below carried that spelling
-# from the day this file was added (2026-09-11) until ENG-2284; over the
-# week measured against dev (2026-09-18 to 2026-09-24) they matched nothing.
+# applyPrometheusDefaults, v0.158.0 and unchanged at v0.163.0 — the
+# comment there spells out that it exists precisely for this case). So the
+# names are unsuffixed either way, and upstream's chart rules keeping the
+# _total spelling are simply wrong for this collector. Three of the four
+# rules below carried that spelling from the day this file was added
+# (2026-09-11) until ENG-2284; over the week measured against dev
+# (2026-09-18 to 2026-09-24) they matched nothing.
 apiVersion: operator.victoriametrics.com/v1beta1
 kind: VMRule
 metadata:
