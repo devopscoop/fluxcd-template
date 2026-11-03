@@ -1,5 +1,5 @@
-# dyff between <(yq . <(helm show values valkey/valkey-operator --version 0.6.0)) <(yq eval '. * load("values.yaml")' <(helm show values valkey/valkey-operator --version 0.6.0))
-# vim -O <(helm show values valkey/valkey-operator --version 0.6.0) values.yaml
+# dyff between <(yq . <(helm show values valkey/valkey-operator --version 0.8.0)) <(yq eval '. * load("values.yaml")' <(helm show values valkey/valkey-operator --version 0.8.0))
+# vim -O <(helm show values valkey/valkey-operator --version 0.8.0) values.yaml
 
 # No overrides: the chart's defaults are all right here. Two of them are
 # load-bearing for monitoring — metrics.enabled=true serves the operator's

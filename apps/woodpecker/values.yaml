@@ -1,8 +1,8 @@
-# dyff between <(yq . <(helm show values oci://ghcr.io/woodpecker-ci/helm/woodpecker --version 3.7.5)) <(yq eval '. * load("values.yaml")' <(helm show values oci://ghcr.io/woodpecker-ci/helm/woodpecker --version 3.7.5))
-# vim -O <(helm show values oci://ghcr.io/woodpecker-ci/helm/woodpecker --version 3.7.5) values.yaml
+# dyff between <(yq . <(helm show values oci://ghcr.io/woodpecker-ci/helm/woodpecker --version 3.7.6)) <(yq eval '. * load("values.yaml")' <(helm show values oci://ghcr.io/woodpecker-ci/helm/woodpecker --version 3.7.6))
+# vim -O <(helm show values oci://ghcr.io/woodpecker-ci/helm/woodpecker --version 3.7.6) values.yaml
 
-# Woodpecker CI on its upstream chart (server + agent subcharts; chart 3.7.5
-# ships Woodpecker 3.19.0). The server is a one-replica StatefulSet that
+# Woodpecker CI on its upstream chart (server + agent subcharts; chart 3.7.6
+# ships Woodpecker 3.20.1). The server is a one-replica StatefulSet that
 # keeps all state in Postgres (db-cluster.yaml); the agents run pipelines on
 # the Kubernetes backend, one pod per step, in this namespace. GitHub is the
 # forge: users log in with GitHub OAuth, and the server registers a webhook

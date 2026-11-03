@@ -5,27 +5,27 @@ resources:
   # The RabbitMQ Messaging Topology Operator manages RabbitMQ messaging topologies within a RabbitMQ cluster deployed via the RabbitMQ Cluster Kubernetes Operator.
   # https://www.rabbitmq.com/kubernetes/operator/install-topology-operator
   # https://github.com/rabbitmq/messaging-topology-operator/releases
-  - https://github.com/rabbitmq/messaging-topology-operator/releases/download/v1.18.2/messaging-topology-operator-with-certmanager.yaml
+  #
+  # Since 1.20 every user-provided Secret a topology object references
+  # (importCredentialsSecret, connectionSecret, uriSecret, upstreamSecret)
+  # must carry the label rabbitmq.com/topology-operator: "true" — the
+  # operator only caches labeled Secrets, and its webhook rejects new or
+  # changed objects pointing at an unlabeled one.
+  - https://github.com/rabbitmq/messaging-topology-operator/releases/download/v1.20.5/messaging-topology-operator-with-certmanager.yaml
   - vm.yaml
 
 patches:
-  # The operator serves controller-runtime metrics on :8080 (its
-  # metrics-bind-address default), but upstream's Deployment declares only
-  # the :9443 webhook containerPort — and VMPodScrape can only select
-  # declared ports (the VictoriaMetrics operator generates a keep filter on
-  # the pod's declared container ports; an undeclared port yields zero
-  # targets). Declare it, named "metrics" to match the cluster-operator's
-  # own shape, so the scrape in this app's vm.yaml can find it. A
-  # containerPort
-  # declaration is purely informational to the kubelet, so this changes
-  # nothing about the workload itself.
+  # Both upstream manifests carry the rabbitmq-system Namespace, with
+  # different labels since 1.19, so two Flux Kustomizations applying it
+  # would relabel it back and forth on every reconcile. The cluster-operator
+  # app, which this one depends on, owns it (and annotates it
+  # prune: disabled); drop this copy.
   - target:
-      kind: Deployment
-      name: messaging-topology-operator
+      kind: Namespace
+      name: rabbitmq-system
     patch: |
-      - op: add
-        path: /spec/template/spec/containers/0/ports/-
-        value:
-          containerPort: 8080
-          name: metrics
-          protocol: TCP
+      $patch: delete
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: rabbitmq-system

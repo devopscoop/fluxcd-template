@@ -7,8 +7,11 @@ spec:
   # The VictoriaMetrics CRDs behind the scrape/rule objects in this app's
   # vm.yaml. The CRDs only, not the whole victoria-metrics stack, so a
   # failing Grafana or vmsingle upgrade can't hold this app back.
+  # cert-manager: since 2.22 the operator's webhook serving cert comes from
+  # a cert-manager Issuer/Certificate shipped in the upstream manifest.
   dependsOn:
     - name: victoria-metrics-crds
+    - name: cert-manager
   interval: 10m0s
   sourceRef:
     kind: GitRepository

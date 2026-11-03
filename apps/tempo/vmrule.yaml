@@ -2,24 +2,46 @@
 # series collected by vmservicescrape.yaml. The storage/ingest rules are
 # adapted from the tempo mixin at the tag matching this chart pin's
 # appVersion
-# (https://github.com/grafana/tempo/blob/v2.10.8/operations/tempo-mixin-compiled/alerts.yaml
+# (https://github.com/grafana/tempo/blob/v3.1.1/operations/tempo-mixin-compiled/alerts.yaml
 # — re-sync when bumping the chart), with deliberate deviations for this
 # repo's MONOLITHIC single-binary deployment:
 # - Dropped the multi-cluster "cluster" grouping label (no such external
-#   label here; apps/eg/vm.yaml precedent) and rewrote the mixin's
-#   container="compactor" / job="<ns>/<component>" matchers — every
-#   component runs in the one "tempo" container under one job.
-# - Dropped alerts that cannot apply: the ring-health quartet (all rings
-#   are in-memory singletons here), the Kafka partition-lag set and
-#   live-store/block-builder/backend-scheduler alerts (distributed-mode
-#   features), TempoUserConfigurableOverridesReloadFailing (feature off),
-#   TempoVultureHighErrorRate (vulture not deployed), and
-#   TempoBlockListRisingQuickly (upstream expr has a misplaced `by` and a
-#   compactor-container matcher).
+#   label here; apps/eg/vm.yaml precedent) and the mixin's per-component
+#   container=/job= matchers — every component runs in the one "tempo"
+#   container under one job.
+# - Dropped alerts that cannot apply: the ring-health alerts (single-binary
+#   Tempo forces its rings onto in-memory singletons, and builds no
+#   distributor ring under the default local rate limiting), everything
+#   Kafka- or partition-shaped (the partition-lag set, the block-builder and
+#   live-store partition/zone alerts, TempoDistributorKafkaProduceFailing —
+#   the single binary pushes in-process and runs no Kafka),
+#   TempoNoTenantIndexBuilders (the unsharded in-process backend-worker is
+#   always the builder), TempoCompactionTooManyOutstandingBlocks and the
+#   backend scheduler/worker retry, empty-job and bad-job rate alerts
+#   (tuning signals for a scaled-out worker fleet; the dashboard's
+#   outstanding-compactions panel covers the single worker),
+#   TempoUserConfigurableOverridesReloadFailing (feature off),
+#   TempoDistributorUsageTrackerErrors (cost attribution off),
+#   TempoMemcachedErrorsElevated (no memcached), and
+#   TempoVultureHighErrorRate (vulture not deployed).
+# - Kept TempoCompactionsFailing, but in Tempo 3
+#   tempodb_compaction_errors_total only counts failures to mark blocks
+#   compacted: the compactor loop that also counted failed compactions is
+#   gone, and a failed compaction or retention run is now a failed
+#   backend-scheduler job — hence TempoBackendSchedulerJobsFailureRateHigh
+#   next to it.
+# - The mixin's ingester flush/replay alerts went with the ingester (3.0).
+#   The two flush rules are re-pointed at the live-store, which in single-
+#   binary mode completes WAL blocks and flushes them to S3 itself (the
+#   mixin's own replacement watches distributed mode's block-builder
+#   instead). TempoIngesterReplayErrors has no successor: the live-store
+#   keeps no replay-error counter, and a failed WAL replay fails startup,
+#   which the stack's pod alerts already catch.
 # - Skipped the mixin's recording rules: nothing here consumes them, and
 #   always-empty recording rules trip vmalert's RecordingRulesNoData (the
 #   count:up0 lesson in apps/victoria-metrics/values.yaml).
-# The metrics-generator group at the bottom is our own — the mixin ships
+# The metrics-generator group at the bottom adds our own remote-write and
+# push rules to the mixin's three generator alerts — the mixin ships
 # nothing for remote-write health, and the generator remote-writing into
 # vmsingle is exactly the pipeline this repo depends on for span metrics.
 # Those prometheus_remote_storage_* series come from Tempo's embedded
@@ -47,43 +69,54 @@ spec:
           for: 5m
           labels:
             severity: critical
-        - alert: TempoIngesterFlushesUnhealthy
+        - alert: TempoBackendSchedulerJobsFailureRateHigh
           annotations:
-            summary: Tempo ingester block flushes are retrying.
+            summary: Tempo's compaction/retention jobs are failing.
             description: >-
-              More than two failed block flushes in the last hour — flushes
-              are retrying. Sustained failures back WAL up on the pod's
-              PVC.
+              Over 5% of the backend scheduler's jobs have been failing for
+              10m (job types: compaction, retention, redaction). Failed
+              compactions grow the blocklist until queries slow down;
+              failed retention runs let the bucket grow past
+              tempo.retention. Check the tempo pod's logs ("job failed")
+              and S3 health.
           expr: |-
-            increase(tempo_ingester_failed_flushes_total[1h]) > 2
+            sum by (namespace) (increase(tempo_backend_scheduler_jobs_failed_total[5m]))
+            /
+            sum by (namespace) (increase(tempo_backend_scheduler_jobs_created_total[5m]))
+            > 0.05
+          for: 10m
+          labels:
+            severity: critical
+        # The live-store's two stages, summed so that one rule covers what
+        # the 2.x ingester counted as one: completing a WAL block into a
+        # local block (failed_completions) and flushing that block to S3
+        # (local_failed_flushes, single-binary only). Both retry forever,
+        # and unflushed blocks stay on the PVC until they succeed.
+        - alert: TempoLiveStoreFlushesUnhealthy
+          annotations:
+            summary: Tempo live-store block completions/flushes are retrying.
+            description: >-
+              More than two failed block completions or S3 flushes in the
+              last hour — they are retrying. Sustained failures back
+              blocks up on the pod's PVC.
+          expr: |-
+            sum by (namespace, pod) (increase({__name__=~"tempo_live_store_(failed_completions|local_failed_flushes)_total"}[1h])) > 2
             and
-            increase(tempo_ingester_failed_flushes_total[5m]) > 0
+            sum by (namespace, pod) (increase({__name__=~"tempo_live_store_(failed_completions|local_failed_flushes)_total"}[5m])) > 0
           for: 5m
           labels:
             severity: warning
-        - alert: TempoIngesterFlushesFailing
+        - alert: TempoLiveStoreFlushesFailing
           annotations:
-            summary: Tempo ingester flush retries are failing.
+            summary: Tempo live-store completion/flush retries are failing.
             description: >-
-              Flush RETRIES are failing — past the transient stage; trace
-              blocks can't reach S3 and will be lost if the WAL volume
-              fills or the pod is lost.
+              RETRIES are failing — past the transient stage; trace blocks
+              can't be completed or can't reach S3, and will be lost if the
+              PVC fills or the pod is lost.
           expr: |-
-            increase(tempo_ingester_flush_failed_retries_total[1h]) > 2
+            sum by (namespace, pod) (increase({__name__=~"tempo_live_store_(completion|local_flush)_failed_retries_total"}[1h])) > 2
             and
-            increase(tempo_ingester_flush_failed_retries_total[5m]) > 0
-          for: 5m
-          labels:
-            severity: critical
-        - alert: TempoIngesterReplayErrors
-          annotations:
-            summary: Tempo hit errors replaying its WAL.
-            description: >-
-              WAL replay errors after a restart — with a single replica and
-              one PVC, replay errors mean recently-ingested traces are
-              being dropped during recovery.
-          expr: |-
-            increase(tempo_ingester_replay_errors_total[5m]) > 0
+            sum by (namespace, pod) (increase({__name__=~"tempo_live_store_(completion|local_flush)_failed_retries_total"}[5m])) > 0
           for: 5m
           labels:
             severity: critical
@@ -119,7 +152,7 @@ spec:
             summary: Tempo's tenant index is stale.
             description: >-
               The tenant index is over 10 minutes old — the single binary's
-              compactor (its builder) has stopped refreshing it.
+              backend worker (its builder) has stopped refreshing it.
           expr: |-
             max by (tenant) (tempodb_blocklist_tenant_index_age_seconds) > 600
           for: 5m
@@ -139,6 +172,48 @@ spec:
             severity: warning
     - name: tempo-metrics-generator
       rules:
+        - alert: TempoMetricsGeneratorCollectionsFailing
+          annotations:
+            summary: Tempo's metrics-generator can't collect its series.
+            description: >-
+              Registry collections are failing for tenant
+              {{ $labels.tenant }} — span-metrics and service-graph series
+              aren't being produced for remote write at all.
+          expr: |-
+            sum by (namespace, tenant, pod) (increase(tempo_metrics_generator_registry_collections_failed_total[5m])) > 2
+          for: 5m
+          labels:
+            severity: critical
+        - alert: TempoMetricsGeneratorProcessorUpdatesFailing
+          annotations:
+            summary: Tempo's metrics-generator can't apply its processors.
+            description: >-
+              Updating the active processors for tenant {{ $labels.tenant }}
+              has been failing for 15m — the processor list in the
+              overrides block of values.yaml isn't being applied. Check the
+              tempo pod's logs.
+          expr: |-
+            sum by (namespace, tenant) (increase(tempo_metrics_generator_active_processors_update_failed_total[5m])) > 0
+          for: 15m
+          labels:
+            severity: critical
+        - alert: TempoMetricsGeneratorServiceGraphsDroppingSpans
+          annotations:
+            summary: Tempo's service-graphs processor is dropping spans.
+            description: >-
+              Over 0.5% of tenant {{ $labels.tenant }}'s spans were dropped
+              by the service-graphs processor in the last hour (its edge
+              store is full) — service-graph edges are undercounted. Raise
+              tempo.metricsGenerator.processor.service_graphs.max_items in
+              values.yaml if it persists.
+          expr: |-
+            sum by (namespace, tenant) (increase(tempo_metrics_generator_processor_service_graphs_dropped_spans[1h]))
+            /
+            sum by (namespace, tenant) (increase(tempo_metrics_generator_spans_received_total[1h]))
+            > 0.005
+          for: 15m
+          labels:
+            severity: warning
         - alert: TempoGeneratorRemoteWriteFailing
           annotations:
             summary: Tempo's span metrics aren't reaching vmsingle.

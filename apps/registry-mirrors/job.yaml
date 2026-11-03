@@ -27,7 +27,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: configure-harbor
-          image: docker.io/curlimages/curl:8.17.0
+          image: docker.io/curlimages/curl:8.23.0
           command: ["/bin/sh", "/config/configure-harbor.sh"]
           env:
             - name: HARBOR_ADMIN_PASSWORD

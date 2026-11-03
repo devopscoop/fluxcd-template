@@ -7,7 +7,7 @@
 # ServiceMonitor (templates/servicemonitor.yaml, disabled as always — the
 # monitoring.coreos.com CRDs are deliberately absent on a pure
 # VictoriaMetrics cluster) minus its release-name instance label. Verified
-# against valkey-operator chart 0.6.0, matching apps/valkey-operator's pin.
+# against valkey-operator chart 0.8.0, matching apps/valkey-operator's pin.
 #
 # Note this covers the OPERATOR only. Valkey *instances* (ValkeyCluster CRs
 # — none ship in this repo; apps/templates/valkey is the scaffold) expose
@@ -40,7 +40,7 @@ spec:
     - port: http
 ---
 # Alerting rule for the Valkey operator, evaluated by this stack's vmalert.
-# Upstream ships no alert rules at the valkey-operator 0.6.0 pin, so this is
+# Upstream ships no alert rules at the valkey-operator 0.8.0 pin, so this is
 # modeled on the rabbitmq-operators rule in apps/rabbitmq-cluster-operator/vm.yaml. It
 # deliberately duplicates the bundled KubeDeploymentReplicasMismatch for
 # this one Deployment — kept because it names the operator and what stops
@@ -82,7 +82,7 @@ spec:
 ## pattern as apps/cnpg/vm.yaml and the rabbitmq-instances block: one scrape
 ## covers every cluster ever scaffolded from apps/templates/valkey with no
 ## per-app config. Selector, port and labels verified against
-## valkey-operator v0.6.0 (internal/controller/utils.go baseLabels,
+## valkey-operator v0.8.0 (internal/controller/utils.go baseLabels,
 ## valkeynode_resources.go, metrics_exporter.go).
 ##
 ## Commented out by default (this marker block): no

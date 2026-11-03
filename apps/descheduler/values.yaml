@@ -1,5 +1,5 @@
-# dyff between <(yq . <(helm show values descheduler/descheduler --version v0.34.0)) <(yq eval '. * load("values.yaml")' <(helm show values descheduler/descheduler --version v0.34.0))
-# vim -O <(helm show values descheduler/descheduler --version v0.34.0) values.yaml
+# dyff between <(yq . <(helm show values descheduler/descheduler --version v0.37.0)) <(yq eval '. * load("values.yaml")' <(helm show values descheduler/descheduler --version v0.37.0))
+# vim -O <(helm show values descheduler/descheduler --version v0.37.0) values.yaml
 
 # Default values for descheduler.
 # This is a YAML-formatted file.
@@ -22,6 +22,9 @@ resources:
     cpu: 500m
     memory: 256Mi
   limits:
+    # Drop the chart's CPU limit. Leaving the key out is not enough: Helm
+    # merges these values over the chart's, whose default is cpu: 500m.
+    cpu: null
     memory: 256Mi
 
 ports:

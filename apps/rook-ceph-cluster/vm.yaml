@@ -2,7 +2,7 @@
 # and OSD state, the ceph_health_detail series most of
 # the VMRule below reads — from the rook-ceph-mgr Service's
 # "http-metrics" port (:9283). Rook creates that Service unconditionally
-# (verified in rook v1.17.5, apps/rook-ceph-cluster's pin:
+# (verified in rook v1.21.1, apps/rook-ceph-cluster's pin:
 # pkg/operator/ceph/cluster/mgr reconcileServices), so no chart change is
 # needed; keep the chart's monitoring.enabled OFF — all it adds is
 # prometheus-operator objects, and with the monitoring.coreos.com CRDs
@@ -46,7 +46,7 @@ spec:
 # CephDaemonSlowOps in the VMRule below) — from the rook-ceph-exporter
 # Service's "ceph-exporter-http-metrics" port (:9926). Rook creates the
 # exporter and its Service whenever metrics aren't disabled (verified in
-# rook v1.17.5: pkg/operator/ceph/cluster/nodedaemon), so like the mgr
+# rook v1.21.1: pkg/operator/ceph/cluster/nodedaemon), so like the mgr
 # scrape this needs no chart change — and the same warning applies: leave
 # the chart's monitoring.enabled off.
 #
@@ -73,15 +73,26 @@ spec:
 # vmalert over the series collected by the two scrapes
 # above. Copied from the rule set the
 # rook-ceph-cluster chart's monitoring.createPrometheusRules would install
-# (https://raw.githubusercontent.com/rook/rook/v1.17.5/deploy/charts/rook-ceph-cluster/prometheus/localrules.yaml,
+# (https://raw.githubusercontent.com/rook/rook/v1.21.1/deploy/charts/rook-ceph-cluster/prometheus/localrules.yaml,
 # matching apps/rook-ceph-cluster's pin; itself a curated copy of the ceph
-# mixin -- re-sync when bumping the chart), reduced from 84 rules to the 33
+# mixin -- re-sync when bumping the chart), reduced from 89 rules to the 34
 # that can actually fire and matter on this template's deployment, with
 # deliberate deviations:
 # - Dropped whole groups that can never fire here: rbdmirror and nvmeof (no
 #   such daemons are deployed by apps/rook-ceph-cluster's values), hardware
 #   (ceph_health_detail{name="HARDWARE_*"} comes from the cephadm node-proxy
-#   agent, which Rook does not run).
+#   agent, which Rook does not run), certmgr (CEPHADM_CERT_* is raised by
+#   cephadm's certificate manager, likewise absent under Rook).
+# - Not carried over: the mixin's multi-cluster plumbing (by(cluster) /
+#   on(cluster,...) joins, "on cluster {{ $labels.cluster }}" in every
+#   summary, cluster-scoped query templates). One repo is one cluster and
+#   this stack attaches no cluster label, so those joins match the same
+#   series as the plain ones kept here and the summaries would end in an
+#   empty "on cluster".
+# - CephOSDDownHigh keeps "for: 5m", which Rook added in 2023 and lost when
+#   it re-synced the ceph mixin in 2026: without it, one OSD restarting on
+#   a small cluster (1 of 3 is 33%, over the 10% threshold) pages critical
+#   at once.
 # - Dropped the nodes group: pure node_* exprs with no ceph scoping, so on
 #   this cluster they would fire for EVERY node, duplicating the bundled
 #   node-exporter rules -- and half of them ship without a "for:".
@@ -97,6 +108,11 @@ spec:
 # - Dropped CephMgrPrometheusModuleInactive: its expr is the mixin-legacy
 #   up{job="ceph"}, which never matches here, and PrometheusJobMissing
 #   already covers the same failure with the correct job.
+# - Dropped CephDeviceFailurePredictionTooHigh and
+#   CephDeviceFailureRelocationIncomplete (follow-ups to
+#   CephDeviceFailurePredicted, which already pages on the first
+#   prediction), and CephPoolGrowthWarning (a 5-day predict_linear
+#   forecast; CephPoolNearFull pages on the actionable case).
 # - Stripped the oid (SNMP) and type labels from every rule.
 # The two PrometheusJob* rules work verbatim because the scrape objects'
 # job labels are the Service names rook-ceph-mgr / rook-ceph-exporter --
@@ -541,8 +557,7 @@ spec:
           the cluster.  Please review the job definitions in the prometheus.yml file
           of the prometheus instance.
         summary: The scrape job for Ceph Exporter is missing from Prometheus
-      expr: |-
-        sum(absent(up{job="rook-ceph-exporter"})) and sum(ceph_osd_metadata{ceph_version=~"^ceph version (1[89]|[2-9][0-9]).*"}) > 0
+      expr: sum(absent(up{job="rook-ceph-exporter"}))
       for: 30s
       labels:
         severity: critical

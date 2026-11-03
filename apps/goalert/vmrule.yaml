@@ -10,7 +10,7 @@
 # already anticipates it).
 #
 # No public GoAlert ruleset or dashboard exists; these are our own, on
-# metric names verified in goalert v0.34.1 source (engine cycle time
+# metric names verified in goalert v0.35.0 source (engine cycle time
 # defaults to 5s).
 apiVersion: operator.victoriametrics.com/v1beta1
 kind: VMRule

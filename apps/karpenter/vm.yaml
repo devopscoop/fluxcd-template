@@ -1,7 +1,7 @@
 # Scrape Karpenter — node/nodepool capacity gauges, provisioning and
 # disruption counters, cloudprovider error counters, controller-runtime
 # internals — from the chart's "karpenter" Service, port "http-metrics"
-# (:8080, standard /metrics, plain HTTP; verified by rendering chart 1.14.0,
+# (:8080, standard /metrics, plain HTTP; verified by rendering chart 1.15.1,
 # apps/karpenter's pin). Mirrors the ServiceMonitor the chart's
 # serviceMonitor.enabled would create, which is unusable here for the
 # CRD-ownership reason in apps/cnpg/vm.yaml.

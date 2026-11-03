@@ -12,7 +12,7 @@ The rest of this file is about **major** upgrades — 17 to 18 — which are a d
 
 ## What a major upgrade actually does
 
-Bumping the major in `imageName` (or in the ImageCatalog, if you use one) triggers CNPG's [declarative offline in-place major upgrade](https://cloudnative-pg.io/docs/1.28/postgres_upgrades/), available since operator 1.26 — this repo pins 1.28. On the next reconcile the operator:
+Bumping the major in `imageName` (or in the ImageCatalog, if you use one) triggers CNPG's [declarative offline in-place major upgrade](https://cloudnative-pg.io/docs/1.30/postgres_upgrades/), available since operator 1.26 — this repo pins 1.30. On the next reconcile the operator:
 
 1. **Shuts down every instance.** The database is down from here, and so is every service that talks to it. There is no rolling variant of this.
 2. Runs a Job (its name ends in `-major-upgrade`) that calls `pg_upgrade` against the primary's existing data volume, with the old major's binaries supplied from the previous image. It hard-links the data files rather than copying them, so the time scales with the number of relations, not with gigabytes on disk — minutes, but not seconds.
@@ -33,7 +33,7 @@ Two consequences to be clear about before you start:
 
 ## 1. Check the application supports the new major
 
-The database exists for an app, and the app's supported-Postgres matrix governs, not the operator's default. GoAlert is the standing example in this repo: v0.34 is tested against 13-17 only, which is why `apps/goalert/db-cluster.yaml` stays on 17 while `apps/templates/cnpg-database/db-cluster.yaml` tracks 18. Upgrade the app first, or don't upgrade the database.
+The database exists for an app, and the app's supported-Postgres matrix governs, not the operator's default. GoAlert is the standing example in this repo: v0.35 is tested against 13-17 only, which is why `apps/goalert/db-cluster.yaml` stays on 17 while `apps/templates/cnpg-database/db-cluster.yaml` tracks 18. Upgrade the app first, or don't upgrade the database.
 
 ## 2. Preflight against the live cluster
 

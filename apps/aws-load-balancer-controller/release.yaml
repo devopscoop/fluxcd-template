@@ -4,10 +4,22 @@ kind: HelmRelease
 metadata:
   name: aws-load-balancer-controller
 spec:
+  # The chart keeps its CRDs (TargetGroupBinding, IngressClassParams, and the
+  # gateway.k8s.aws LoadBalancer/TargetGroup/ListenerRuleConfiguration CRDs)
+  # in crds/, which Helm installs once and never upgrades; Flux's default
+  # (Skip) does the same. CreateReplace applies them on every chart bump,
+  # before the controller rolls, which is the "apply the latest CRDs first"
+  # step upstream's release notes ask for. Since 3.5 the controller reads the
+  # gateway.k8s.aws CRDs only at v1, and against the old v1beta1-only CRDs it
+  # quietly disables its Gateway API controllers at startup.
+  install:
+    crds: CreateReplace
+  upgrade:
+    crds: CreateReplace
   chart:
     spec:
       chart: aws-load-balancer-controller
-      version: 3.3.0
+      version: 3.6.2
       sourceRef:
         kind: HelmRepository
         name: aws-load-balancer-controller

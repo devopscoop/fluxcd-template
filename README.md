@@ -5,7 +5,7 @@
 This is a template repo that can be used to deploy applications via FluxCD. It has a helper script that can be used to deploy additional applications that are not already present in this repo. The apps/templates/helm boilerplate that uses configMapGenerator and secretGenerator is a little obtuse, but it allows us to have encrypted Helm values.yaml secrets (as opposed to using external Secrets). It also has the advantage of separate values.yaml and helm_secrets.yaml files (as opposed to putting them in the HelmRelease object under `.spec.values`), so you can easily prototype things by using standard helm commands like:
 
 ```shell
-helm install nxrm-ha sonatype/nxrm-ha --create-namespace --namespace nxrm-ha --version 82.0.0 --values values.yaml --values <(sops -d helm_secrets.yaml)
+helm install nxrm-ha sonatype/nxrm-ha --create-namespace --namespace nexusrepo --version 98.0.0 --values values.yaml --values <(sops -d helm_secrets.yaml)
 ```
 
 ## Install required packages

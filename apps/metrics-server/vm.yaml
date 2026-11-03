@@ -1,7 +1,7 @@
 # Scrape metrics-server's own /metrics — kubelet-scrape success/latency per
 # node (metrics_server_kubelet_*), API freshness, and the standard
 # aggregated-apiserver internals — from its Service's "https" port (:443 →
-# container :10250; verified by rendering chart 3.12.2, apps/metrics-server's
+# container :10250; verified by rendering chart 3.14.0, apps/metrics-server's
 # pin).
 #
 # The endpoint is HTTPS with delegated auth, unlike every other scrape here:

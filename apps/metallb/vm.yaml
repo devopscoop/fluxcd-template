@@ -1,14 +1,23 @@
 # Scrape MetalLB — address-pool allocation gauges, config loaded/stale
 # flags, and the speakers' layer-2 announcement counters — from the
-# controller Deployment and speaker DaemonSet pods. Every metrics container
-# port in chart 0.15.2 (apps/metallb's pin, verified by rendering) is named
-# "monitoring": controller :7472, speaker :7472, and the speaker's
-# frr-metrics sidecar :7473 — one endpoint entry picks up all three, which
-# matches the two-endpoint ServiceMonitor the chart's
+# controller Deployment and speaker DaemonSet pods. In chart 0.16.1
+# (apps/metallb's pin, verified by rendering with this app's values.yaml),
+# both containers name their metrics port "metricshttps" (:9120), so one
+# endpoint entry picks up both. That matches the ServiceMonitor the chart's
 # prometheus.serviceMonitor.enabled would create (unusable here for the
 # CRD-ownership reason in apps/cnpg/vm.yaml; it is also the only thing
 # that renders metrics Services, so a pod scrape is the only option under
-# the default values). Plain HTTP /metrics, no auth.
+# the default values). The native backend in values.yaml runs no FRR
+# sidecar, so there is no frr-metrics port to scrape.
+#
+# Since 0.16 the endpoint is HTTPS with delegated auth (kube-rbac-proxy is
+# gone; the binaries use controller-runtime's secure metrics server), the
+# same shape as apps/metrics-server/vm.yaml:
+# - The serving cert is self-signed (no tls.*MetricsTLSSecret set), so the
+#   scrape skips verification.
+# - /metrics sits behind TokenReview+SubjectAccessReview. vmagent's
+#   operator-generated ClusterRole carries nonResourceURLs ["/metrics"]
+#   get, so its own ServiceAccount token passes.
 #
 # jobLabel makes job="metallb" for every target: the upstream rules in
 # the VMRule below match job=~"metallb.*" (anchored), which the pod-scrape
@@ -31,12 +40,16 @@ spec:
       app.kubernetes.io/name: metallb
       app.kubernetes.io/instance: metallb
   podMetricsEndpoints:
-    - port: monitoring
+    - port: metricshttps
+      scheme: https
+      tlsConfig:
+        insecureSkipVerify: true
+      bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
 ---
 # Alerting rules for MetalLB, evaluated by this stack's vmalert over the
 # series collected by the scrape above. Adapted from the
 # PrometheusRule the metallb chart's prometheus.prometheusRule.enabled
-# would render (charts/metallb/templates/prometheusrules.yaml at v0.15.2,
+# would render (charts/metallb/templates/prometheusrules.yaml at v0.16.1,
 # apps/metallb's pin — unusable directly for the CRD-ownership reason in
 # apps/cnpg/vm.yaml), with deliberate deviations:
 # - MetalLBConfigNotLoaded raised warning -> critical: no config loaded
@@ -49,6 +62,8 @@ spec:
 #   L2Advertisement only, so metallb_bgp_session_up never exists (same
 #   dead-expr reasoning as the count:up0 note in
 #   apps/victoria-metrics/values.yaml). Restore it if BGP is configured.
+#   Under the frr-k8s backend the series is frrk8s_bgp_session_up instead
+#   (the chart's frr-k8s values show a relabeling back to the old name).
 # - Added MetalLBServiceNoIngressIP (not upstream, from kube-state-metrics):
 #   ipaddresspools.yaml documents that a LoadBalancer Service that can't
 #   get an address just sits <pending> forever — a silent failure. Pool

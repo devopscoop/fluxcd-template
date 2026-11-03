@@ -1,11 +1,17 @@
 # Scrape the RabbitMQ cluster-operator's controller-runtime metrics
-# (reconcile rates/errors, workqueue depth, client-go internals) — it
-# installs no Service, so this is a pod scrape. Port verified against the
-# pinned release manifest this app's kustomization pulls: cluster-operator
-# v2.19.0 declares container port "metrics" (:9782) upstream. Plain HTTP
-# /metrics, no auth. The messaging-topology-operator's scrape lives in that
-# app (apps/rabbitmq-messaging-topology-operator/vm.yaml): it can be left
-# out, and a scrape here for it would leave an empty scrape pool.
+# (reconcile rates/errors, workqueue depth, client-go internals) — a pod
+# scrape, mirroring upstream's own PodMonitor
+# (observability/prometheus/monitors); the metrics Service the manifest
+# also ships isn't needed. Port verified against the pinned release
+# manifest this app's kustomization pulls: cluster-operator v2.23.2
+# declares container port "metrics" (:8080 — :9782 before 2.20). Plain
+# HTTP /metrics, no auth: the published cluster-operator.yml leaves
+# --metrics-secure at its false default (only upstream's config/default
+# overlay turns it on). If a release ever flips it, this scrape needs the
+# HTTPS + bearer-token shape of the messaging-topology-operator's, which
+# lives in that app (apps/rabbitmq-messaging-topology-operator/vm.yaml):
+# it can be left out, and a scrape here for it would leave an empty
+# scrape pool.
 #
 # Note this covers the OPERATORS only. RabbitMQ *instances* (RabbitmqCluster
 # CRs — none ship in this repo; apps/templates/rabbitmq is the scaffold)
@@ -38,7 +44,7 @@ spec:
 ---
 # Alerting rule for the RabbitMQ operators, evaluated by this stack's
 # vmalert. Generalised from the one operator rule upstream ships
-# (rabbitmq/cluster-operator v2.19.0
+# (rabbitmq/cluster-operator v2.23.2
 # observability/prometheus/rules/rabbitmq-cluster-operator/unavailable-replicas.yml)
 # to cover the messaging-topology-operator too — it lives here because that
 # operator depends on this one, and the deployment matcher simply finds no
@@ -90,7 +96,7 @@ spec:
 ## (:15692, the container port named "prometheus") is an always-on essential
 ## plugin. Same fleet-wide pattern as apps/cnpg/vm.yaml: one scrape covers
 ## every broker ever scaffolded from apps/templates/rabbitmq with no per-app
-## config. Selector and port verified against cluster-operator v2.19.0
+## config. Selector and port verified against cluster-operator v2.23.2
 ## (internal/metadata/label.go, internal/resource/statefulset.go).
 ##
 ## Commented out by default (this marker block): no RabbitmqCluster ships in

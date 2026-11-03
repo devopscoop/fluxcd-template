@@ -56,8 +56,8 @@ spec:
 #       - key: CriticalAddonsOnly
 #         operator: Exists
 # <<< karpenter
-  # Pinned to PostgreSQL 17, deliberately: GoAlert v0.34 is tested against
-  # PostgreSQL 13-17, while this repo's CNPG operator (1.28) defaults new
+  # Pinned to PostgreSQL 17, deliberately: GoAlert v0.35 is tested against
+  # PostgreSQL 13-17, while this repo's CNPG operator (1.30) defaults new
   # clusters to PostgreSQL 18, which GoAlert's test suite doesn't cover yet.
   # Bump the major here deliberately, alongside GoAlert upgrades.
   imageName: ghcr.io/cloudnative-pg/postgresql:17.11-system-trixie

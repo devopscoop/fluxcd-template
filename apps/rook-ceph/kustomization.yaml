@@ -15,6 +15,9 @@ configMapGenerator:
   - name: rook-ceph-values
     files:
       - values.yaml=values.yaml
+  - name: ceph-csi-drivers-values
+    files:
+      - values.yaml=ceph-csi-drivers-values.yaml
 secretGenerator:
   - name: rook-ceph-secrets
     files:

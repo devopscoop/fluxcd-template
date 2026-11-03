@@ -1,0 +1,41 @@
+# dyff between <(yq . <(helm show values ceph-csi-operator/ceph-csi-drivers --version 1.1.0)) <(yq eval '. * load("ceph-csi-drivers-values.yaml")' <(helm show values ceph-csi-operator/ceph-csi-drivers --version 1.1.0))
+# vim -O <(helm show values ceph-csi-operator/ceph-csi-drivers --version 1.1.0) ceph-csi-drivers-values.yaml
+
+# Values for the ceph-csi-drivers release in release.yaml. Rook warns the
+# drivers fail on the chart's defaults alone; everything below except the
+# kubelet path and the replica counts is Rook's recommended values file
+# (https://github.com/rook/rook/blob/v1.21.1/deploy/charts/ceph-csi-drivers/values.yaml
+# -- re-sync when bumping): the OperatorConfig in the operator namespace,
+# the image set ConfigMap the rook-ceph chart renders, and driver names
+# prefixed with that namespace, which must match the provisioner of the
+# StorageClasses rook-ceph-cluster creates.
+operatorConfig:
+  namespace: rook-ceph
+  driverSpecDefaults:
+    imageSet:
+      name: rook-csi-operator-image-set-configmap
+    nodePlugin:
+      priorityClassName: system-node-critical
+      # https://docs.k0sproject.io/v1.33.1+k0s.1/examples/rook-ceph/#6-deploy-rook
+      kubeletDirPath: /var/lib/k0s/kubelet
+    controllerPlugin:
+      priorityClassName: system-cluster-critical
+drivers:
+  rbd:
+    enabled: true
+    name: rook-ceph.rbd.csi.ceph.com
+    # Two controller replicas, as Rook ran them before 1.20
+    # (csi.provisionerReplicas), so draining one node doesn't stall
+    # provisioning and attach. Per driver, because the chart renders each
+    # Driver's own replicas (default 1) over driverSpecDefaults.
+    controllerPlugin:
+      replicas: 2
+  cephfs:
+    enabled: true
+    name: rook-ceph.cephfs.csi.ceph.com
+    controllerPlugin:
+      replicas: 2
+  nfs:
+    enabled: false
+  nvmeof:
+    enabled: false
