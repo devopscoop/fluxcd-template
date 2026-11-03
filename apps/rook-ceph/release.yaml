@@ -22,7 +22,7 @@ spec:
   chart:
     spec:
       chart: rook-ceph
-      version: 1.20.9
+      version: 1.21.1
       sourceRef:
         kind: HelmRepository
         name: rook-release
@@ -42,7 +42,7 @@ spec:
 # rook-ceph, then ceph-csi-drivers, then rook-ceph-cluster -- falls out of
 # the dependsOn below plus rook-ceph-cluster's dependsOn on this app's
 # Kustomization (which has wait: true).
-# https://rook.io/docs/rook/v1.20/Helm-Charts/csi-drivers-chart/
+# https://rook.io/docs/rook/v1.21/Helm-Charts/csi-drivers-chart/
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: HelmRepository
 metadata:
@@ -68,8 +68,8 @@ spec:
     spec:
       chart: ceph-csi-drivers
       # The drivers chart version Rook's own Helm tests pair with the
-      # operator subchart in rook-ceph 1.20.9 -- bump them together.
-      version: 1.0.4
+      # operator subchart in rook-ceph 1.21.1 -- bump them together.
+      version: 1.1.0
       sourceRef:
         kind: HelmRepository
         name: ceph-csi-operator

@@ -1,5 +1,5 @@
-# dyff between <(yq . <(helm show values rook-release/rook-ceph --version v1.20.9)) <(yq eval '. * load("values.yaml")' <(helm show values rook-release/rook-ceph --version v1.20.9))
-# vim -O <(helm show values rook-release/rook-ceph --version v1.20.9) values.yaml
+# dyff between <(yq . <(helm show values rook-release/rook-ceph --version 1.21.1)) <(yq eval '. * load("values.yaml")' <(helm show values rook-release/rook-ceph --version 1.21.1))
+# vim -O <(helm show values rook-release/rook-ceph --version 1.21.1) values.yaml
 
 # No overrides. The k0s kubelet path (csi.kubeletDirPath until Rook 1.20
 # removed the chart's CSI driver settings) now lives in

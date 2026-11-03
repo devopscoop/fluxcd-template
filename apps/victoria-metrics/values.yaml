@@ -583,12 +583,12 @@ grafana:
 ##       carry no job filter and show all nodes, not just storage nodes — a
 ##       known, harmless imprecision).
 #       ceph-cluster:
-#         url: https://raw.githubusercontent.com/rook/rook/v1.17.5/deploy/examples/monitoring/grafana/Ceph%20Cluster%20Dashboard.json
+#         url: https://raw.githubusercontent.com/rook/rook/v1.21.1/deploy/examples/monitoring/grafana/Ceph%20Cluster%20Dashboard.json
 #         datasource:
 #           - name: DS_PROMETHEUS
 #             value: VictoriaMetrics
 #       ceph-pools:
-#         url: https://raw.githubusercontent.com/rook/rook/v1.17.5/deploy/examples/monitoring/grafana/Ceph%20Pools%20Dashboard.json
+#         url: https://raw.githubusercontent.com/rook/rook/v1.21.1/deploy/examples/monitoring/grafana/Ceph%20Pools%20Dashboard.json
 #         datasource:
 #           - name: DS_PROMETHEUS
 #             value: VictoriaMetrics
