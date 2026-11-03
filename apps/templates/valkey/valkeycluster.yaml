@@ -10,6 +10,8 @@
 # 1. Copy this file into apps/<app>/ and replace every "app-template" with
 #    the app's name, e.g.:
 #      sed -i "s/app-template/myapp/g" apps/myapp/valkeycluster.yaml
+#    The operator caps ValkeyCluster names at 41 characters (since 0.8.0), so
+#    "<app>-valkey" limits the app name to 34.
 # 2. Add the file to that app's kustomization.yaml resources, and give the
 #    app's Kustomization in flux/flux-system/ a dependsOn entry for
 #    valkey-operator — that app's HelmRelease installs the ValkeyCluster CRD,
@@ -46,7 +48,8 @@ spec:
   # the operator and Valkey 9's shutdown-on-sigterm failover hand slots over
   # before the pod exits.) 1 replica per shard makes any single pod loss
   # non-disruptive: a replica's death costs nothing, a primary's death
-  # promotes its replica within cluster-node-timeout. 6 pods total. Scale
+  # promotes its replica within cluster-node-timeout (15s by default since
+  # operator 0.7.0; set it under config: to tune). 6 pods total. Scale
   # shards for keyspace/throughput and replicas for failure tolerance —
   # never below 3x1. per app
   shards: 3

@@ -13,12 +13,15 @@ spec:
   # karpenter-crd chart owns its CRDs; no such chart exists for
   # valkey-operator.
   #
-  # The API is still v1alpha1 and upstream has shipped breaking spec changes
-  # in minor releases (0.5.0 moved spec.tls, 0.6.0 moved
-  # spec.networking.tls.certificate — see the chart's UPGRADE.md), so treat
-  # every bump of the pin below as a real change: read the release notes and
-  # check the ValkeyCluster manifests scaffolded from apps/templates/valkey
-  # against them.
+  # The API is still v1alpha1 and upstream has shipped breaking changes in
+  # minor releases (0.5.0 moved spec.tls, 0.6.0 moved
+  # spec.networking.tls.certificate, 0.7.0 rolled every pod and raised the
+  # default cluster-node-timeout from 2s to Valkey's 15s, 0.8.0 caps
+  # ValkeyCluster names at 41 characters for a StatefulSet cluster with
+  # single-digit shard/node indexes — see the chart's UPGRADE.md), so treat
+  # every bump of the pin below as a real change: read the release notes
+  # and check the ValkeyCluster manifests scaffolded from
+  # apps/templates/valkey against them.
   install:
     crds: CreateReplace
   upgrade:
@@ -32,7 +35,7 @@ spec:
   chart:
     spec:
       chart: valkey-operator
-      version: 0.6.0
+      version: 0.8.0
       sourceRef:
         kind: HelmRepository
         name: valkey
