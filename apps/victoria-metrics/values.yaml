@@ -488,9 +488,9 @@ grafana:
 ##       datasource selection (uid "prometheus") doesn't exist here and the
 ##       datasource variable falls back to the stack's default on load.
 #       karpenter-capacity:
-#         url: https://raw.githubusercontent.com/aws/karpenter-provider-aws/v1.14.0/website/content/en/docs/getting-started/getting-started-with-karpenter/karpenter-capacity-dashboard.json
+#         url: https://raw.githubusercontent.com/aws/karpenter-provider-aws/v1.15.1/website/content/en/docs/getting-started/getting-started-with-karpenter/karpenter-capacity-dashboard.json
 #       karpenter-performance:
-#         url: https://raw.githubusercontent.com/aws/karpenter-provider-aws/v1.14.0/website/content/en/docs/getting-started/getting-started-with-karpenter/karpenter-performance-dashboard.json
+#         url: https://raw.githubusercontent.com/aws/karpenter-provider-aws/v1.15.1/website/content/en/docs/getting-started/getting-started-with-karpenter/karpenter-performance-dashboard.json
 # <<< karpenter
 # >>> eks: deploy.sh uncomments this block when k8s_platform=eks
 ##       "AWS Load Balancer Controller" (grafana.com 18319 — no official
