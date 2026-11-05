@@ -49,7 +49,7 @@ The Job logs in as Harbor's `admin` with the password from the chart's `harbor-c
 
 ## Storage
 
-Harbor attaches a retention policy to each new proxy-cache project that deletes images nobody has pulled for 7 days; Harbor's weekly garbage collection (`apps/harbor/README.md` → "First run", step 6) then frees their blobs. Pulls through Dragonfly still resolve tags against Harbor, so images in use keep counting as pulled. The registry volume is sized for this (`apps/harbor/values.yaml`, 50Gi); `KubePersistentVolumeFillingUp` warns before it fills, and a full volume turns every cache miss into a fallback to the upstream.
+Harbor attaches a retention policy to each new proxy-cache project that deletes images nobody has pulled for 7 days; Harbor's weekly garbage collection (`apps/harbor/README.md` → "First run", step 6) then frees their blobs. Pulls through Dragonfly still resolve tags against Harbor, so images in use keep counting as pulled. On EKS the cache lives in Harbor's S3 bucket, which has no size to outgrow. Elsewhere the registry volume is sized for it (`apps/harbor/values.yaml`, 50Gi); `KubePersistentVolumeFillingUp` warns before it fills, and a full volume turns every cache miss into a fallback to the upstream.
 
 ## Other platforms
 
