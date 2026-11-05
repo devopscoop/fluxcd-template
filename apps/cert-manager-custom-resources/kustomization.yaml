@@ -7,3 +7,10 @@ namespace: cert-manager
 resources:
   - cloudflare-apikey-secret.secrets.yaml
   - clusterissuer.yaml
+
+  # Only for the dns01.acmeDNS solver (apps/acme-dns). Fill in
+  # acme-dns-account.secrets.yaml.decrypted, run ./encrypt_secrets.sh, then
+  # uncomment this -- in the SAME commit as enabling the solver, or this
+  # Kustomization can wedge (apps/acme-dns/README.md, "The two-commit
+  # deadlock").
+  # - acme-dns-account.secrets.yaml

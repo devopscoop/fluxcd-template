@@ -1,0 +1,25 @@
+# Registration/update API. Deliberately ClusterIP: cert-manager reaches it
+# in-cluster at http://acme-dns-api.acme-dns.svc:8080 and nothing outside the
+# cluster can hit /register.
+#
+# Keeping it internal also means acme-dns never needs a TLS certificate of its
+# own, which would be a bootstrap loop -- the thing that issues certificates
+# must not depend on already having one. Plain HTTP is acceptable because the
+# credential never leaves the pod network.
+#
+# To register (once per validated domain):
+#   kubectl -n acme-dns port-forward svc/acme-dns-api 8080:8080
+#   curl -s -X POST http://localhost:8080/register | jq .
+apiVersion: v1
+kind: Service
+metadata:
+  name: acme-dns-api
+spec:
+  type: ClusterIP
+  selector:
+    app: acme-dns
+  ports:
+    - name: api
+      port: 8080
+      targetPort: api
+      protocol: TCP

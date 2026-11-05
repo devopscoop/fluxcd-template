@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: acme-dns
+  annotations:
+    # Flux must never prune this namespace: it would take the PVC holding the
+    # acme-dns registration database with it, and losing that invalidates every
+    # _acme-challenge CNAME in the zone at once. See docs/prune.argdown.
+    kustomize.toolkit.fluxcd.io/prune: disabled

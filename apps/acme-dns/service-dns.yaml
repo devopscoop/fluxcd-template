@@ -1,0 +1,59 @@
+# The authoritative DNS listener. This is the ONLY part of acme-dns exposed
+# outside the cluster, and it has to be: Let's Encrypt's recursive resolvers
+# query it directly when following the _acme-challenge CNAME.
+#
+# That inbound requirement is the one real cost of running acme-dns in-cluster
+# rather than on a separate host. It is UDP/53 from anywhere on the internet. On
+# a cloud LB that is routine; behind a home or office NAT it needs a forward,
+# and some ISPs filter inbound 53 -- verify before committing to this solver.
+# It has been confirmed working through a residential NAT, so it is not a
+# theoretical objection either way: measure it.
+#
+# TCP/53 as well as UDP is required -- resolvers retry over TCP when a response
+# is truncated.
+#
+# The availability trade is bounded: cert-manager renews at 1/3 of remaining
+# lifetime, so a cluster outage has weeks of slack before anything expires. The
+# risk that actually bites is the NS A record going stale, not downtime.
+apiVersion: v1
+kind: Service
+metadata:
+  name: acme-dns
+  annotations:
+    # TODO: pin the address so a router/firewall forward to it stays valid.
+    # MetalLB is otherwise free to pick another address from the pool on
+    # recreate, silently breaking the forward and, with it, every renewal.
+    # This needs a THIRD address in apps/metallb-custom-resources/ipaddresspools.yaml
+    # -- the two there today are consumed by the eg-public and eg-private
+    # Envoy fleets, which cannot share one (see that file's header).
+    #   metallb.io/loadBalancerIPs: 10.16.23.11
+# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
+#     service.beta.kubernetes.io/aws-load-balancer-type: external
+#     service.beta.kubernetes.io/aws-load-balancer-scheme: internet-facing
+#     service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: ip
+#     # NLB health checks cannot speak UDP, so point them at the TCP/53 port
+#     # acme-dns also serves.
+#     service.beta.kubernetes.io/aws-load-balancer-healthcheck-protocol: tcp
+#     service.beta.kubernetes.io/aws-load-balancer-healthcheck-port: "53"
+# <<< eks
+spec:
+  type: LoadBalancer
+  # Preserves the real client IP. Needed if acme-dns `allowfrom` is ever used to
+  # restrict updates, and it makes the logs show which resolver queried --
+  # without it every source appears as a node address, which makes "did the
+  # query reach us from outside?" impossible to answer.
+  externalTrafficPolicy: Local
+  selector:
+    app: acme-dns
+  ports:
+    # One Service carrying both protocols on 53. On EKS this renders as an NLB
+    # TCP_UDP listener; confirm the AWS Load Balancer Controller version in use
+    # supports it before relying on the TCP half.
+    - name: dns-udp
+      port: 53
+      targetPort: dns-udp
+      protocol: UDP
+    - name: dns-tcp
+      port: 53
+      targetPort: dns-tcp
+      protocol: TCP
