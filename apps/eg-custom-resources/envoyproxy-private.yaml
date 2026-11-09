@@ -84,6 +84,18 @@
 #     httproute-healthz-private.yaml); give any Gateway you add its own copy
 #     reusing the shared eg-healthz HTTPRouteFilter — otherwise every one of
 #     its targets goes unhealthy.
+#   - proxy-protocol: the NLB prepends a proxy protocol v2 header carrying the
+#     client's address to every connection — the only way Envoy learns it
+#     here: ip targets don't preserve client IPs, and with IPv6 targets
+#     turning preservation on wouldn't help (IPv4 clients still arrive as the
+#     NLB's address). "*" (the only accepted value) covers every target group,
+#     and the NLB's health checks carry the header too. Every Gateway on an
+#     EnvoyProxy with this annotation needs a ClientTrafficPolicy that accepts
+#     the header (proxyProtocol — see clienttrafficpolicy-public.yaml), and on
+#     a live cluster that policy must be in place BEFORE this annotation: an
+#     Envoy not expecting the header fails every connection and every health
+#     check. That includes any Gateway you add, since this is the GatewayClass
+#     default EnvoyProxy — give it its ClientTrafficPolicy first (ENG-3761).
 apiVersion: gateway.envoyproxy.io/v1alpha1
 kind: EnvoyProxy
 metadata:
@@ -181,4 +193,5 @@ spec:
 #           service.beta.kubernetes.io/aws-load-balancer-healthcheck-protocol: http
 #           service.beta.kubernetes.io/aws-load-balancer-healthcheck-port: "10080"
 #           service.beta.kubernetes.io/aws-load-balancer-healthcheck-path: /healthz
+#           service.beta.kubernetes.io/aws-load-balancer-proxy-protocol: "*"
 # <<< eks
