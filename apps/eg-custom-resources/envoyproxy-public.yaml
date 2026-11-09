@@ -11,9 +11,11 @@
 #         name: eg-public
 #
 # The HA config (replicas + topology spread + PDB + the probes-through-the-
-# filter-chain patch) and the health-check annotations are identical to
-# eg-private — see the rationale in envoyproxy-private.yaml. The only
-# difference is the load-balancer scheme: internet-facing (the eks block
+# filter-chain patch) and the health-check and proxy-protocol annotations are
+# identical to eg-private — see the rationale in envoyproxy-private.yaml,
+# including the rollout order for proxy protocol (every Gateway on this
+# EnvoyProxy needs a ClientTrafficPolicy accepting the header first). The
+# only difference is the load-balancer scheme: internet-facing (the eks block
 # below).
 apiVersion: gateway.envoyproxy.io/v1alpha1
 kind: EnvoyProxy
@@ -101,4 +103,5 @@ spec:
 #           service.beta.kubernetes.io/aws-load-balancer-healthcheck-protocol: http
 #           service.beta.kubernetes.io/aws-load-balancer-healthcheck-port: "10080"
 #           service.beta.kubernetes.io/aws-load-balancer-healthcheck-path: /healthz
+#           service.beta.kubernetes.io/aws-load-balancer-proxy-protocol: "*"
 # <<< eks

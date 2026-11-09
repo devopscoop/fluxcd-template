@@ -88,10 +88,11 @@ spec:
 
   # Accept a proxy protocol v2 header from the NLB. EKS-only: elsewhere nothing
   # in front of Envoy sends one, so a client could send its own and choose the
-  # address Envoy uses. The NLB only sends it once its target groups have
-  # proxy protocol enabled (the aws-load-balancer-proxy-protocol annotation on
-  # the EnvoyProxy Services). Until then a client can still send its own
-  # header, so don't leave this enabled without that annotation for long.
+  # address Envoy uses. The NLB sends it because of the
+  # aws-load-balancer-proxy-protocol annotation in the eks blocks of
+  # envoyproxy-public.yaml / envoyproxy-private.yaml; the NLB's own header
+  # always comes first, so a client's can't take its place. Keep the two
+  # together: without that annotation, a client could send its own header.
   #
   # optional: true for two reasons. Not every connection comes through the
   # NLB — kubelet's probes hit :10080 on the pod directly — and it lets this
