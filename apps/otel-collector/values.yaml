@@ -87,7 +87,9 @@ config:
     # ({"level":..., also severity/lvl keys), JSON and plain-text access logs
     # by HTTP status, timestamp-then-level lines, envoy's own bracketed
     # [ts][thread][level][logger] format, logfmt (level=info), klog (leading
-    # I/W/E/F), and leading uppercase LEVEL: prefixes -- into severity_text.
+    # I/W/E/F), leading uppercase LEVEL: prefixes, and Go GC trace lines --
+    # into severity_text, then normalize the spelling (lowercase, one name
+    # per level: warn becomes warning).
     # Guards on severity_text == "" keep app-pushed OTLP severities untouched,
     # and error_mode: ignore means a statement erroring on an odd body (e.g.
     # non-string, malformed JSON) just skips that statement, never drops the
@@ -180,10 +182,32 @@ config:
             # bracket-style "[ERROR] msg", and bare "WARNING msg".
             - 'set(log.cache, ExtractPatterns(log.body, "^\\[?(?P<level>TRACE|DEBUG|INFO|NOTICE|WARN|WARNING|ERROR|CRITICAL|FATAL|PANIC)\\]?[: ]")) where log.severity_text == ""'
             - set(log.severity_text, log.cache["level"]) where log.severity_text == "" and log.cache["level"] != nil
+            # Go runtime GC trace (GODEBUG=gctrace=1), which no branch above
+            # matches: one "gc 8747 @75104.079s 0%: 0.084+8.6+0.007 ms clock,
+            # ..." line per cycle on stderr, plus "GC forced" ahead of each
+            # forced cycle. Runtime diagnostics rather than app output, so
+            # debug -- otherwise a worker running with the trace on fills
+            # "Unspecified" with them. Quoted because the pattern contains
+            # ": ", which a plain YAML scalar can't carry.
+            - 'set(log.severity_text, "debug") where log.severity_text == "" and IsMatch(log.body, "^gc [0-9]+ @[0-9.]+s [0-9]+%: ")'
+            - set(log.severity_text, "debug") where log.severity_text == "" and log.body == "GC forced"
             # Normalize to lowercase -- covers app-pushed OTLP severities too
             # (INFO/Info/info all become info), so LogsQL filters and the
             # Grafana logLevelRules only ever deal with one spelling.
             - set(log.severity_text, ToLowerCase(log.severity_text)) where log.severity_text != ""
+            # Then fold alternate spellings of one level into a single name,
+            # so severity_text:=warning finds every warning. The branches
+            # above emit "warning", but sources spell it "warn" too (Tempo's
+            # logfmt level=warn, the VictoriaMetrics components' tab-separated
+            # lines, zap/pino JSON), which split warnings across two values.
+            # Only true synonyms fold; distinct levels (fatal, panic,
+            # critical, notice) keep their names, and the Grafana
+            # logLevelRules group those.
+            - set(log.severity_text, "warning") where log.severity_text == "warn"
+            - set(log.severity_text, "error") where log.severity_text == "err"
+            - set(log.severity_text, "info") where log.severity_text == "information"
+            - set(log.severity_text, "debug") where log.severity_text == "dbg"
+            - set(log.severity_text, "critical") where log.severity_text == "crit"
   # The exporters use the collector's canonical type names (otlp_grpc,
   # otlp_http, prometheus_remote_write). The old otlp / otlphttp /
   # prometheusremotewrite spellings are deprecated aliases; since chart
