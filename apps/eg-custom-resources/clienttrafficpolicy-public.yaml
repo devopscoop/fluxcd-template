@@ -33,3 +33,76 @@ spec:
     # request bodies spanning multiple read chunks (>~16KiB) regardless of this
     # buffer — see the request-body note in apps/coraza/README.md.
     bufferLimit: 256Ki
+
+  # Which address Envoy treats as the client: the one it logs as
+  # downstream_remote_address, appends to X-Forwarded-For upstream, and will
+  # key per-client rate limits on (ENG-3761). Without this, on EKS every
+  # request appears to come from one of the NLB's per-AZ addresses: ip-type
+  # target groups have client IP preservation off, and turning it on wouldn't
+  # help — with IPv6 targets, IPv4 clients still arrive as the NLB's address.
+  #
+  # Two layers, so the answer is right whether or not a host is
+  # Cloudflare-proxied:
+  #   1. Proxy protocol (the eks block below) restores the address that
+  #      connected to the NLB — the real client on a DNS-only host, a
+  #      Cloudflare edge on a proxied one.
+  #   2. trustedCIDRs: only when that address is a Cloudflare edge does Envoy
+  #      read X-Forwarded-For, taking the rightmost entry that isn't
+  #      Cloudflare's — the client address Cloudflare appended. From any other
+  #      address the header is ignored, so a client can't spoof it.
+  # Cloudflare's ranges are shared by every Cloudflare customer, so someone
+  # sending through their own Cloudflare account still controls that header:
+  # enough to dodge a per-client rate limit, not to get past authentication.
+  #
+  # The list is pinned (fetched 2026-11-09). Check it against upstream with
+  #   diff <({ curl -s https://www.cloudflare.com/ips-v4; echo; curl -s https://www.cloudflare.com/ips-v6; echo; }) \
+  #     <(yq '.spec.clientIPDetection.xForwardedFor.trustedCIDRs[]' clienttrafficpolicy-public.yaml)
+  # and keep clienttrafficpolicy-private.yaml's copy identical. A stale list
+  # fails safe: Envoy takes an edge missing from it as the client, so proxied
+  # users behind that edge share one address, but nobody can spoof theirs.
+  clientIPDetection:
+    xForwardedFor:
+      trustedCIDRs:
+        - 173.245.48.0/20
+        - 103.21.244.0/22
+        - 103.22.200.0/22
+        - 103.31.4.0/22
+        - 141.101.64.0/18
+        - 108.162.192.0/18
+        - 190.93.240.0/20
+        - 188.114.96.0/20
+        - 197.234.240.0/22
+        - 198.41.128.0/17
+        - 162.158.0.0/15
+        - 104.16.0.0/13
+        - 104.24.0.0/14
+        - 172.64.0.0/13
+        - 131.0.72.0/22
+        - 2400:cb00::/32
+        - 2606:4700::/32
+        - 2803:f800::/32
+        - 2405:b500::/32
+        - 2405:8100::/32
+        - 2a06:98c0::/29
+        - 2c0f:f248::/32
+
+  # Accept a proxy protocol v2 header from the NLB. EKS-only: elsewhere nothing
+  # in front of Envoy sends one, so a client could send its own and choose the
+  # address Envoy uses. The NLB only sends it once its target groups have
+  # proxy protocol enabled (the aws-load-balancer-proxy-protocol annotation on
+  # the EnvoyProxy Services). Until then a client can still send its own
+  # header, so don't leave this enabled without that annotation for long.
+  #
+  # optional: true for two reasons. Not every connection comes through the
+  # NLB — kubelet's probes hit :10080 on the pod directly — and it lets this
+  # roll out BEFORE the NLB starts sending the header. An NLB that sends it to
+  # an Envoy not expecting it fails every connection AND every health check
+  # (the NLB's health checks carry the header too), so on a live cluster sync
+  # this first and the annotation after. It applies to every listener on the
+  # Gateway, including the radicle TCP one; without a header Envoy waits for
+  # the client's first bytes, which is fine for protocols where the client
+  # speaks first (HTTP, TLS, radicle's Noise handshake).
+# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
+#   proxyProtocol:
+#     optional: true
+# <<< eks
