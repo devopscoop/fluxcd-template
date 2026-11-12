@@ -15,9 +15,8 @@
 # The dashboard (grafana.com 16003) downloads in apps/victoria-metrics
 # behind the harbor marker — enable it with the app
 # (./toggle_blocks.sh --enable harbor); that entry's comment has why this
-# one. The PV-filling alerts for the registry volume come from the stack's
-# default kubernetes-storage rules (KubePersistentVolumeFillingUp), and the
-# database from the fleet-wide cnpg-instances scrape (apps/cnpg/vm.yaml).
+# one. The database is covered by the fleet-wide cnpg-instances scrape
+# (apps/cnpg/vm.yaml).
 #
 # Ships with the app (listed in this app's kustomization.yaml), so it
 # applies exactly when harbor does.
@@ -57,9 +56,9 @@ spec:
     - name: harbor
       rules:
         # The components every push and pull goes through. With any of them
-        # unhealthy, image pulls by tag fail — Dragonfly's peers serve blobs
-        # but manifests still resolve against Harbor — so new pods for
-        # Harbor-hosted images can't start anywhere in the cluster.
+        # unhealthy, pulls of Harbor-hosted images fail, so new pods for
+        # them can't start anywhere in the cluster (proxied upstream images
+        # fall back to the upstream).
         - alert: HarborComponentDown
           annotations:
             summary: Harbor's {{ $labels.component }} is unhealthy — pushes and pulls are failing.
@@ -69,8 +68,8 @@ spec:
               while this lasts. database: check the harbor-db Cluster in the
               harbor namespace (and the client cert harbor-core logs in
               with); redis: the harbor-redis StatefulSet; registry: the
-              harbor-registry pod and its EBS volume (a full volume, or a
-              volume stuck attaching after a reschedule).
+              harbor-registry pods and their S3 access (the aws-credentials
+              sidecar's log, and S3 errors in the registry's).
           expr: |-
             harbor_up{component=~"core|database|redis|registry"} == 0
           for: 5m

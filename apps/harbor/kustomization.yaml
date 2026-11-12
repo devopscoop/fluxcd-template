@@ -24,9 +24,9 @@ resources:
   - db-client-cert.yaml
   # The scrape and alert rules; they ship with the app, so no marker.
   - vm.yaml
-  # High availability on EKS: the registry's IRSA identity for its S3
-  # bucket. values-eks.yaml (below) holds the rest; README.md → "Storage and
-  # availability".
+  # The registry's IRSA identity for its S3 bucket, on EKS (values.yaml's
+  # eks blocks hold the bucket and point the registry at this
+  # ServiceAccount; README.md → "Storage and availability").
 # >>> eks: deploy.sh uncomments this block when k8s_platform=eks
 #   - serviceaccount-registry.yaml
 # <<< eks
@@ -34,12 +34,6 @@ configMapGenerator:
   - name: harbor-values
     files:
       - values.yaml=values.yaml
-  # Merged over harbor-values by release.yaml's valuesFrom.
-# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
-#   - name: harbor-values-eks
-#     files:
-#       - values.yaml=values-eks.yaml
-# <<< eks
 secretGenerator:
   - name: harbor-secrets
     files:

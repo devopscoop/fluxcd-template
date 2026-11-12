@@ -8,11 +8,6 @@ spec:
   valuesFrom:
     - kind: ConfigMap
       name: harbor-values
-    # High availability on EKS (values-eks.yaml), merged over the above.
-# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
-#     - kind: ConfigMap
-#       name: harbor-values-eks
-# <<< eks
     - kind: Secret
       name: harbor-secrets
   chart:
@@ -146,8 +141,8 @@ spec:
                         secret:
                           secretName: harbor-db-ca
 # >>> eks: deploy.sh uncomments this block when k8s_platform=eks
-## High availability on EKS: S3 credentials for the registry (values-eks.yaml
-## moves its blobs to S3). Harbor 2.15's registry is goharbor/distribution
+## S3 credentials for the registry on EKS (values.yaml stores its blobs in
+## S3). Harbor 2.15's registry is goharbor/distribution
 ## v2.8.3, whose S3 driver builds a fixed credential chain (static keys,
 ## environment, shared credentials file, EC2 instance role) without the
 ## web-identity provider IRSA needs, so it ignores the pod's role

@@ -3,7 +3,7 @@
 # schema migrations at startup, so CNPG only has to provide an empty
 # database. It holds Harbor's metadata — projects, RBAC, robot accounts,
 # the artifact and tag index, scan reports, job history — but not the
-# images: their blobs live on the registry's EBS volume (values.yaml,
+# images: their blobs live in the registry's S3 bucket (values.yaml,
 # persistence), which this database's backups don't cover. README.md →
 # "Backups and restore" has how the two are restored as a pair.
 #

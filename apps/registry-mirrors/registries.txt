@@ -2,16 +2,16 @@
 # halves of this app read:
 #
 #   - write-hosts.sh (the node DaemonSet) writes a containerd hosts.toml per
-#     line, so pulls of <host>/... go to this node's dfdaemon, then Harbor's
-#     proxy-cache project, then the upstream itself.
+#     line, so pulls of <host>/... go to Harbor's proxy-cache project, then
+#     the upstream itself.
 #   - configure-harbor.sh (the Job) creates a Harbor registry endpoint and a
 #     public proxy-cache project per line.
 #
 # Columns, whitespace-separated:
 #   host      the registry hostname as it appears in image references
 #             (docker.io for unqualified images like nginx)
-#   server    the upstream's API endpoint — containerd's last resort when
-#             both Dragonfly and Harbor are unreachable
+#   server    the upstream's API endpoint — containerd's fallback when
+#             Harbor is unreachable
 #   project   the Harbor proxy-cache project, i.e. the path prefix
 #             harbor.project1-dev.devops.coop/<project>/... serves it under
 #   type      Harbor's endpoint provider for the upstream; proxy cache accepts

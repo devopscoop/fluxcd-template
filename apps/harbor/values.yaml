@@ -11,11 +11,9 @@
 # prints in the UI's pull commands.
 #
 # eg-private, not eg-public: pushes come from CI and humans on the VPN, pulls
-# from the nodes inside the VPC, and nothing outside needs the registry. The
-# route's /v2/ path is also the origin Dragonfly's seed peers fetch from
-# (apps/dragonfly), so they reach Harbor through the same gateway and
-# hostname containerd uses. Large blobs outlive Envoy's default 15s route
-# timeout, which backendtrafficpolicy.yaml lifts for this route.
+# from the nodes inside the VPC, and nothing outside needs the registry.
+# Large blobs outlive Envoy's default 15s route timeout, which
+# backendtrafficpolicy.yaml lifts for this route.
 expose:
   type: route
   tls:
@@ -33,35 +31,31 @@ expose:
       - harbor.project1-dev.devops.coop
 externalURL: https://harbor.project1-dev.devops.coop
 
-# The registry's blob store is a ReadWriteOnce volume (persistence below),
-# which two pods on different nodes can't mount at once — a RollingUpdate
-# would leave the new registry pod stuck on a Multi-Attach error until the
-# old one is gone. Recreate stops the old pod first: every upgrade is a short
-# registry outage while the volume moves, and Dragonfly's peers keep serving
-# blobs already in circulation meanwhile. The chart applies this to the
-# registry and jobservice Deployments only. On EKS, values-eks.yaml moves the
-# blobs to S3 and switches back to RollingUpdate, with two registry replicas.
-updateStrategy:
-  type: Recreate
-
+# Image blobs live in object storage, never on a volume: shared storage is
+# what lets the registry run two replicas (below) in different zones and
+# replace them with rolling updates (the chart's default, so no
+# updateStrategy here), with no volume to detach, reattach, or fill. With
+# redirects on (the chart default, disableredirect: false), a pull's blob GET
+# is answered with a presigned URL and the node downloads the bytes from the
+# bucket directly; pushes still stream through the registry.
+#
+# On EKS the bucket is S3, from aws-eks-template's cluster/harbor.tf
+# (enable_harbor = true); replace_placeholders.sh fills in its org and
+# cluster names and the region from variables.sh. There are no access keys
+# here: the registry reads short-lived ones from a file that release.yaml's
+# aws-credentials sidecar refreshes from the pod's IRSA role (release.yaml
+# explains why it can't use IRSA itself). Other platforms have no object
+# store wired in yet, so Harbor runs on EKS only (README.md → "Storage and
+# availability").
 persistence:
+  imageChartStorage:
+    type: s3
+# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
+#     s3:
+#       region: us-east-2
+#       bucket: devopscoop-project1-dev-harbor-registry
+# <<< eks
   persistentVolumeClaim:
-    # The image blobs themselves, everywhere but EKS: there values-eks.yaml
-    # stores them in S3, and the chart creates no registry volume at all.
-    # On the default gp3 class — deliberately NOT gp3-dangerous: that class's Backup=dlm tag puts this volume under the
-    # daily DLM snapshot policy from aws-eks-template (cluster/dlm.tf), which
-    # is the registry's only backup (the CNPG database's barman backups
-    # cover metadata, not blobs). README.md → "Backups and restore".
-    #
-    # Per cluster: 50Gi, not this repo's 1Gi volume default. Besides this
-    # cluster's own images, the volume holds the pull-through cache of every
-    # upstream image the cluster runs (apps/registry-mirrors) — the platform
-    # alone pulls some sixty images — kept until they go 7 days unpulled.
-    # Size it for that working set after retention; gp3 grows online
-    # (allowVolumeExpansion) but never shrinks, and a full volume fails
-    # every push and every cache miss.
-    registry:
-      size: 50Gi
     # The Redis-protocol cache and jobservice queue (redis below). Losing it
     # loses queued jobs and cached manifests, nothing that isn't rebuilt, so
     # it stays out of the DLM policy.
@@ -111,10 +105,11 @@ database:
     # swallows `dbname=harbor` as the password and connects to the wrong
     # database. Keep it a single word with no spaces.
     password: unused-cert-auth # pragma: allowlist secret — a placeholder, never authenticates
-  # Connection pools per pod, and three pods hold them (core, jobservice,
-  # exporter). The chart's 900/100 assume Harbor's bundled Postgres at
-  # max_connections 1024; CNPG's default is 100, so 3 × 20 stays well
-  # under it with room for replication and the operator.
+  # Connection pools per pod, and four pods hold them (core's two replicas,
+  # jobservice, exporter). The chart's 900/100 assume Harbor's bundled
+  # Postgres at max_connections 1024; CNPG's default is 100, so 4 × 20 stays
+  # under it with room for replication and the operator. Revisit before
+  # adding replicas.
   maxOpenConns: 20
   maxIdleConns: 5
 
@@ -122,10 +117,9 @@ database:
 # not this repo's valkey-operator: its ValkeyCluster is Redis Cluster mode,
 # and Harbor speaks standalone or Sentinel only. Harbor uses Redis as a
 # cache, for UI sessions, and as jobservice's queue — nothing durable. It
-# stays single even with values-eks.yaml's replicas, the one piece of the
-# registry path that does: README.md → "Storage and availability" has what
-# an outage of it stops (new harbor-core pods, chiefly) and what keeps
-# working.
+# stays a single pod while core, portal, and the registry run two: README.md
+# → "Storage and availability" has what an outage of it stops (new
+# harbor-core pods, chiefly) and what keeps working.
 redis:
   internal:
     # Memory req=limit, no CPU limit (as for every component below); resize
@@ -141,14 +135,38 @@ redis:
 #       karpenter.sh/capacity-type: on-demand
 # <<< karpenter
 
+# core, portal, and the registry, which every push and pull goes through,
+# run two replicas each: one per node and spread across zones, with a
+# PodDisruptionBudget so a node drain can't take both. The spread follows
+# the eg EnvoyProxy rules (apps/eg-custom-resources/envoyproxy-private.yaml
+# has the reasoning). hostname is DoNotSchedule, so Karpenter consolidation
+# can't stack both replicas on one node; zone is ScheduleAnyway, so a zone
+# without capacity doesn't block scheduling. The chart adds each
+# component's labelSelector, and pod-template-hash scopes the spread to one
+# ReplicaSet, so a rolling update spreads the new pods instead of counting
+# the old ones. jobservice, Trivy, and the exporter stay single: none is on
+# the pull path, and their work waits out a restart.
+#
 # On EKS every component is pinned to on-demand capacity (the karpenter
 # blocks), per the NodePool contract in
-# apps/karpenter-custom-resources/nodepool.yaml. Redis, jobservice, Trivy,
-# and the exporter run one replica each, so a spot reclaim is an outage of
-# that component. core, portal, and the registry run two on EKS
-# (values-eks.yaml) and could take spot, but they stay on on-demand with the
-# rest.
+# apps/karpenter-custom-resources/nodepool.yaml, the replicated ones
+# included.
 core:
+  replicas: 2
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: topology.kubernetes.io/zone
+      whenUnsatisfiable: ScheduleAnyway
+      matchLabelKeys:
+        - pod-template-hash
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: DoNotSchedule
+      matchLabelKeys:
+        - pod-template-hash
   resources:
     requests:
       cpu: 50m
@@ -161,6 +179,21 @@ core:
 # <<< karpenter
 
 portal:
+  replicas: 2
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: topology.kubernetes.io/zone
+      whenUnsatisfiable: ScheduleAnyway
+      matchLabelKeys:
+        - pod-template-hash
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: DoNotSchedule
+      matchLabelKeys:
+        - pod-template-hash
   resources:
     requests:
       cpu: 10m
@@ -193,6 +226,27 @@ jobservice:
 # <<< karpenter
 
 registry:
+  # serviceaccount-registry.yaml: the ServiceAccount carrying the IRSA role
+  # that can read and write the bucket. The chart creates no ServiceAccounts,
+  # so only the registry pod runs as it.
+# >>> eks: deploy.sh uncomments this block when k8s_platform=eks
+#   serviceAccountName: harbor-registry
+# <<< eks
+  replicas: 2
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: topology.kubernetes.io/zone
+      whenUnsatisfiable: ScheduleAnyway
+      matchLabelKeys:
+        - pod-template-hash
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: DoNotSchedule
+      matchLabelKeys:
+        - pod-template-hash
   registry:
     resources:
       requests:
