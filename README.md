@@ -57,17 +57,17 @@ your `PATH`, or run `go install github.com/home-operations/flate/cmd/flate@lates
    1. Go to your GitHub organization settings: **Settings → Developer settings → GitHub Apps**.
    1. Click **New GitHub App**.
    1. Fill in the form:
-      - **GitHub App name**: `furlai-dev-infra-flux` (or any unique name)
-      - **Homepage URL**: `https://github.com/furlai/dev-infra`
+      - **GitHub App name**: `devopscoop-project1-dev-flux` (or any unique name)
+      - **Homepage URL**: `https://github.com/devopscoop/project1-dev-fluxcd`
       - **Webhook**: uncheck **Active** (Flux doesn't need webhooks)
       - **Permissions → Repository permissions**:
         - **Contents**: Read and write (Flux reads the repo; image-automation-controller writes commits)
         - **Metadata**: Read-only (required by GitHub)
       - **Where can this GitHub App be installed**: Only on this account
    1. Click **Create GitHub App**. Note the **App ID** shown at the top of the next page.
-   1. Scroll down to **Private keys** and click **Generate a private key**. Save the downloaded `.pem` file somewhere safe (e.g., `~/.config/flux/furlai-dev-infra-flux.pem`).
-   1. Click **Install App** in the left sidebar, then install it on the `furlai` organization and select only the `dev-infra` repository.
-   1. After installing, the URL will be `https://github.com/organizations/furlai/settings/installations/<installation-id>`. Note that **Installation ID**.
+   1. Scroll down to **Private keys** and click **Generate a private key**. Save the downloaded `.pem` file somewhere safe (e.g., `~/.config/flux/devopscoop-project1-dev-flux.pem`).
+   1. Click **Install App** in the left sidebar, then install it on the `devopscoop` organization and select only the `project1-dev-fluxcd` repository.
+   1. After installing, the URL will be `https://github.com/organizations/devopscoop/settings/installations/<installation-id>`. Note that **Installation ID**.
    1. Download the `*.pem` file - you will need it later. DO NOT COMMIT IT - IT IS A SECRET!
 1. Edit variables.sh.
 1. Source variables.sh:

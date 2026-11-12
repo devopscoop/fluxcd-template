@@ -56,4 +56,4 @@ export SOPS_AGE_KEY=$(age -d "${sops_dir}/keys.txt")
 # environment means child processes can't read it from their env.
 # SCRIPT_DIR is set by deploy.sh before it sources this file.
 # shellcheck disable=SC2034 # consumed by deploy.sh, which sources this file
-GITHUB_APP_PRIVATE_KEY=$(age -d -i <(printf '%s\n' "$SOPS_AGE_KEY") "${SCRIPT_DIR}/furlai-dev-infra-flux.2026-05-05.private-key.pem.age")
+GITHUB_APP_PRIVATE_KEY=$(age -d -i <(printf '%s\n' "$SOPS_AGE_KEY") "${SCRIPT_DIR}/devopscoop-project1-dev-flux.2026-05-05.private-key.pem.age")
