@@ -27,6 +27,8 @@ This split is deliberate — it keeps secrets encryptable and lets you prototype
 helm install <app> <repo>/<chart> --namespace <app> --version <ver> --values values.yaml --values <(sops -d helm_secrets.yaml)
 ```
 
+Configure charts through `values.yaml` only — no `HelmRelease` `postRenderers` patches. When a chart has no setting for something, find a values-level route (an `extraEnvVars`, an `initContainers`, a volume the chart already mounts) or accept the trade-off, and record it in the app's README; `apps/harbor` (password database login, the S3 credentials sidecar on the chart's own `registry-data` volume) is the worked example. Platform differences go in marker blocks inside that one `values.yaml`, not in extra values files.
+
 Convention for `values.yaml`: strip everything you are not overriding, so the file contains no chart defaults. `apps/templates/helm/values.yaml` ships `dyff`/`vim` one-liners for diffing your file against the chart's defaults.
 
 ## Secrets

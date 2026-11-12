@@ -66,8 +66,8 @@ spec:
               harbor-core's health check has reported {{ $labels.component }}
               unhealthy for 5m. Pods whose images live in Harbor can't start
               while this lasts. database: check the harbor-db Cluster in the
-              harbor namespace (and the client cert harbor-core logs in
-              with); redis: the harbor-redis StatefulSet; registry: the
+              harbor namespace (and the harbor-db-app Secret harbor-core
+              reads its password from); redis: the harbor-redis StatefulSet; registry: the
               harbor-registry pods and their S3 access (the aws-credentials
               sidecar's log, and S3 errors in the registry's).
           expr: |-

@@ -19,9 +19,6 @@ resources:
   # wiring (ObjectStore, daily ScheduledBackup) in one file, from the
   # reusable copy in apps/templates/cnpg-database.
   - db-cluster.yaml
-  # The client CA chain and certs behind the cert-based login above — needs
-  # the cert-manager CRDs, hence that dependsOn too.
-  - db-client-cert.yaml
   # The scrape and alert rules; they ship with the app, so no marker.
   - vm.yaml
   # The registry's IRSA identity for its S3 bucket, on EKS (values.yaml's

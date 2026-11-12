@@ -1,6 +1,6 @@
 # Harbor
 
-[Harbor](https://goharbor.io/) — a private OCI registry for this cluster's images, on the [upstream Helm chart](https://github.com/goharbor/harbor-helm) (`release.yaml`), served at <https://harbor.project1-dev.devops.coop> on the private Gateway. It runs highly available, with image blobs in S3 and two replicas of everything on the push and pull path; for now that means EKS only ("Storage and availability" below). Metadata lives in a CloudNativePG database (`db-cluster.yaml`, cert-authenticated). Harbor is also the cluster's pull-through cache for Docker Hub, ghcr.io, quay.io, registry.k8s.io, and public.ecr.aws: [`apps/registry-mirrors`](../registry-mirrors/README.md) creates the proxy-cache projects and points every node's containerd at them, so workloads keep their image references unchanged. The comparison that picked this over ECR, including what it costs, is `arguments/ecr_vs_harbor_dragonfly.argdown`.
+[Harbor](https://goharbor.io/) — a private OCI registry for this cluster's images, on the [upstream Helm chart](https://github.com/goharbor/harbor-helm) (`release.yaml`), served at <https://harbor.project1-dev.devops.coop> on the private Gateway. It runs highly available, with image blobs in S3 and two replicas of everything on the push and pull path; for now that means EKS only ("Storage and availability" below). Metadata lives in a CloudNativePG database (`db-cluster.yaml`). Harbor is also the cluster's pull-through cache for Docker Hub, ghcr.io, quay.io, registry.k8s.io, and public.ecr.aws: [`apps/registry-mirrors`](../registry-mirrors/README.md) creates the proxy-cache projects and points every node's containerd at them, so workloads keep their image references unchanged. The comparison that picked this over ECR, including what it costs, is `arguments/ecr_vs_harbor_dragonfly.argdown`.
 
 Opt-in: `deploy.sh` never registers this app. Add `harbor.yaml` — and `registry-mirrors.yaml`, which this README assumes — to the `resources` list in `flux/flux-system/kustomization.yaml` (`yq -i '.resources += ["harbor.yaml", "registry-mirrors.yaml"] | .resources |= unique' flux/flux-system/kustomization.yaml`), then follow the steps below and `apps/registry-mirrors/README.md` → "First run".
 
@@ -15,7 +15,7 @@ Opt-in: `deploy.sh` never registers this app. Add `harbor.yaml` — and `registr
    ```
 
 2. On EKS, provision Harbor's two buckets and their IRSA roles in aws-eks-template, then apply: the database's (add it to `local.cnpg_databases` in `cluster/cnpg-backups.tf`, `{ harbor = "harbor-db" }`) and the registry's blobs (`enable_harbor = true` in `cluster/terraform.tfvars`, which applies `cluster/harbor.tf`). The bucket names and role ARNs in `db-cluster.yaml`, `values.yaml`'s `eks` blocks, and `serviceaccount-registry.yaml` need no edits: `replace_placeholders.sh` fills in their org, cluster, region, and account from `variables.sh` (set `aws_account_id` there).
-3. Let Flux reconcile; the flux Kustomization `dependsOn` cert-manager, cnpg, cnpg-barman-plugin, and eg, so ordering is handled. harbor-core crash-loops until the database is up, then runs the schema migrations:
+3. Let Flux reconcile; the flux Kustomization `dependsOn` cnpg, cnpg-barman-plugin, and eg, so ordering is handled. harbor-core crash-loops until the database is up, then runs the schema migrations:
 
    ```shell
    kubectl -n harbor get cluster harbor-db   # wait for "Cluster in healthy state"
@@ -68,7 +68,7 @@ The registry keeps its blobs (pushed images and the pull-through cache alike) in
 - **core, portal, and the registry run two replicas each.** They're one per node (the hostname spread is `DoNotSchedule`) and spread across zones where capacity allows (`ScheduleAnyway`), with a PodDisruptionBudget of one and rolling updates. Losing a node or a zone, an upgrade, or a Karpenter consolidation leaves a replica serving.
 - **The database** is CNPG: three instances with synchronous replication and automatic failover (Database below).
 - **Pulls don't stream through Harbor.** The registry answers each blob request with a redirect to a presigned URL, and the node downloads from the bucket. There's no volume to fill or to move, and no single pod's throughput to share.
-- **On EKS the bucket is S3**, from aws-eks-template's `cluster/harbor.tf`, and its region and name sit in an `eks` block in `values.yaml`. Credentials come from the registry pod's IRSA role, through a sidecar: Harbor 2.15's registry can't use IRSA itself, so `release.yaml` adds an `aws-credentials` sidecar that exchanges the role for one-hour keys every 30 minutes and hands them over in a credentials file. If refreshes keep failing (its log says so every minute), the registry runs on its last keys until they expire, then fails its S3 calls, which pages through `vm.yaml`'s registry-health alert.
+- **On EKS the bucket is S3**, from aws-eks-template's `cluster/harbor.tf`, and its region and name sit in an `eks` block in `values.yaml`. Credentials come from the registry pod's IRSA role, through a sidecar: Harbor 2.15's registry can't use IRSA itself, so an `eks` block in `values.yaml` adds an `aws-credentials` sidecar that exchanges the role for one-hour keys every 30 minutes and hands them over in a credentials file. If refreshes keep failing (its log says so every minute), the registry runs on its last keys until they expire, then fails its S3 calls, which pages through `vm.yaml`'s registry-health alert.
 
 What stays single:
 
@@ -106,9 +106,15 @@ That reaches back 14 days. Blobs pushed after the restore point stay in the buck
 
 ## Database
 
-`db-cluster.yaml` is the standard per-app CNPG cluster: three instances, synchronous replication, barman backups to S3, and client-certificate auth (`db-client-cert.yaml`) as the only login for the `harbor` role. Harbor's chart has no client-cert settings, so `release.yaml` patches the cert and the server CA into the three components that connect — harbor-core, harbor-jobservice, and harbor-exporter — with Flux `postRenderers`, and points pgx at them with `PGSSLCERT`/`PGSSLKEY`/`PGSSLROOTCERT`. The password in `values.yaml` is a placeholder the `cert` rule never asks for; it only has to be non-empty, because Harbor splices it into a keyword/value connection string. Connection pools are capped at 20 per pod (`database.maxOpenConns`), and four pods hold them (two core replicas, jobservice, exporter), which stays inside CNPG's default `max_connections` of 100.
+`db-cluster.yaml` is the standard per-app CNPG cluster, with three instances, synchronous replication, and barman backups to S3, but with a different login. The template's other databases log in by client certificate. Harbor logs in as the `harbor` role with the password CNPG generates into the `harbor-db-app` Secret (`database.external.existingSecret` in `values.yaml`).
 
-The certificate renews a month before it expires, but these components read it once, when they build their connection pool, so a renewal reaches them at the next restart. Chart upgrades restart them; a Harbor left un-upgraded for eleven months needs a manual `kubectl -n harbor rollout restart deployment harbor-core harbor-jobservice harbor-exporter`.
+The reason is that this repo configures charts through values only. A client certificate would have to be mounted into harbor-core, harbor-jobservice, and harbor-exporter, and Harbor's chart has no setting for extra volumes, so it would take Flux `postRenderers` patches.
+
+`db-cluster.yaml`'s pg_hba accepts that password only over TLS (`hostssl ... scram-sha-256`, with a `reject` for everything else from that role). Harbor connects with `sslmode: require`, which encrypts but doesn't verify the server's certificate; verifying would need the operator's CA mounted as a file, the same problem.
+
+CNPG rotates nothing on its own, so the password stays put until someone changes it. Harbor splices it unquoted into a keyword/value connection string, so a hand-set password must contain no spaces or quotes.
+
+Connection pools are capped at 20 per pod (`database.maxOpenConns`), and four pods hold them (two core replicas, jobservice, exporter), which stays inside CNPG's default `max_connections` of 100.
 
 Connecting a client: `runbooks/connect-cnpg-database.md`.
 
@@ -127,7 +133,7 @@ Connecting a client: `runbooks/connect-cnpg-database.md`.
 
 This app was assembled from the chart, Harbor's source, and this repo's patterns, and has only been rendered offline (`./flux_diff.sh`). Check these first on the first deploy:
 
-- **Cert login.** Harbor's database code uses pgx v5 (`src/common/dao/pgsql.go` at v2.15.4), which takes `PGSSLCERT`/`PGSSLKEY`/`PGSSLROOTCERT` from the environment. Confirm with the `pg_stat_ssl` query in `apps/templates/cnpg-database/README.md` that every `harbor` connection carries `/CN=harbor`.
+- **Database login over TLS.** Confirm every `harbor` connection is encrypted: `kubectl cnpg psql harbor-db -n harbor -- -c "SELECT s.ssl, count(*) FROM pg_stat_ssl s JOIN pg_stat_activity a USING (pid) WHERE a.usename = 'harbor' GROUP BY 1;"` should show only `t`.
 - **IPv6.** The cluster's pods are IPv6-only. The chart's portal nginx listens on both families (`ipFamily.ipv6.enabled`, default true) and the Go components on dual-stack sockets, but whether the bundled Redis (goharbor/valkey-photon) binds `::` hasn't been checked; if harbor-core can't reach `harbor-redis`, that's the first suspect.
 - **Pulls through the cache.** See [`apps/registry-mirrors/README.md`](../registry-mirrors/README.md) → "First run", step 3, and check that nodes follow the registry's redirects to S3.
 - **S3 credentials on EKS.** Check that the `aws-credentials` sidecar logs "refreshed S3 credentials" and the registry starts after it. Then watch the registry's log around the one-hour mark: expect at most one `ExpiredToken` retry, after which it re-reads the credentials file, and no S3 errors. Others report this workaround working on Harbor 2.12 ([goharbor/harbor#16490](https://github.com/goharbor/harbor/issues/16490#issuecomment-3133783502)); it hasn't been run here.

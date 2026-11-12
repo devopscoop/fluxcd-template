@@ -18,15 +18,16 @@
 # Restoring from backup: runbooks/restore-cnpg-database.md.
 # Moving to a new postgres major: runbooks/upgrade-cnpg-database.md.
 #
-# Auth model: the app logs in with the client certificate from
-# db-client-cert.yaml (CN = the owner role below); the pg_hba rules under
-# postgresql: make the cert the ONLY way in for that role. CNPG still
-# auto-creates the `harbor-db-app` Secret (`<cluster>-app`) with a
-# password and a `uri` key, but the reject rule makes them unusable — don't
-# feed them to the app. Harbor's chart has no client-cert settings, so the
-# cert reaches harbor-core, harbor-jobservice, and harbor-exporter (the three
-# components that open database connections) through the postRenderers
-# patches in release.yaml.
+# Auth model: unlike the template's other databases, which log in by client
+# certificate, Harbor logs in as the owner role below with the password CNPG
+# generates into the `harbor-db-app` Secret (`<cluster>-app`), wired in by
+# values.yaml's database.external.existingSecret. A client certificate would
+# have to be mounted into harbor-core, harbor-jobservice, and
+# harbor-exporter, and the chart has no setting for extra volumes; this repo
+# configures charts through values only, never postRenderers patches. The
+# pg_hba rules under postgresql: accept that password only over TLS, and
+# the operator signs its own client and replication certificates (no
+# certificates block here).
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
@@ -85,19 +86,6 @@ spec:
       owner: harbor
       # No extensions: Harbor's migrations (make/migrations/postgresql in
       # the Harbor repo) create plain tables and no CREATE EXTENSION.
-  # Hand the CLIENT CA to cert-manager so the app's client cert can be issued
-  # and auto-renewed (db-client-cert.yaml). Providing clientCASecret means
-  # the operator stops signing client certs itself, so the streaming_replica
-  # cert must be provided too; one cert-manager secret serves both fields,
-  # since clientCASecret only reads its ca.crt key and cert-manager writes
-  # ca.crt into every secret it issues. Server certs stay operator-managed
-  # (the `harbor-db-ca` secret holds the server CA — mount its ca.crt
-  # for sslmode=verify-full, see README.md). One operational note: kubectl
-  # cnpg certificate can't mint client certs on this cluster — issue a
-  # Certificate from the harbor-db-client-ca Issuer instead.
-  certificates:
-    clientCASecret: harbor-db-replication-cert # pragma: allowlist secret — the Secret's name, not a value
-    replicationTLSSecret: harbor-db-replication-cert # pragma: allowlist secret — the Secret's name, not a value
   # 1Gi, this repo's default for every volume. Harbor's metadata grows with
   # artifacts, tags, and scan reports rather than with image size, so this
   # lasts a long while; job logs go to stdout (jobservice.jobLoggers in
@@ -213,17 +201,14 @@ spec:
 #           - system
 # <<< pg-oauth
     pg_hba:
-      # Possession of a client cert signed by this cluster's client CA
-      # (certificates.clientCASecret above, issued by db-client-cert.yaml)
-      # IS the app's login — the cert method requires TLS and CN == role.
-      # pg_hba is first-match per (type, db, user, address), so this rule
-      # owns every TLS connection from the owner role.
-      - hostssl all harbor all cert
-      # ... and the reject closes the only other path: a non-TLS connection
-      # falling through to CNPG's default scram catch-all, where the
-      # password in the auto-generated `<cluster>-app` Secret would still
-      # work. With both rules the app role has exactly one way in. Other
-      # roles (break-glass, per-developer) keep the scram catch-all.
+      # The owner role logs in with its password (the `harbor-db-app`
+      # Secret), and only over TLS. pg_hba is first-match per (type, db,
+      # user, address), so this rule owns every TLS connection from the
+      # owner role and checks the password with SCRAM ...
+      - hostssl all harbor all scram-sha-256
+      # ... and the reject closes the non-TLS path, where CNPG's default
+      # scram catch-all would otherwise accept the same password in the
+      # clear. Other roles (break-glass, per-developer) keep the catch-all.
       - host all harbor all reject
 # >>> pg-oauth: NOT auto-enabled — enable per adoption after building a validator image (see apps/dex/README.md)
 #       # scope="" disables pg_oidc_validator's scope check — dex doesn't
@@ -296,7 +281,7 @@ spec:
   #     doesn't).
   #   - Validator libraries are young. The oauth hba rule (in the pg_hba
   #     marker block above) is scoped to the developers group; the app
-  #     authenticates by client cert regardless, and break-glass roles keep
+  #     authenticates by password over TLS regardless, and break-glass roles keep
   #     CNPG's default scram catch-all (appended after these rules).
   #   - Read-only SSO roles (the cluster-viewers group) additionally need
   #     db-developer-rbac.yaml (alongside this file) in the app's
