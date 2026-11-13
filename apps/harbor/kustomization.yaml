@@ -27,6 +27,12 @@ resources:
 # >>> eks: deploy.sh uncomments this block when k8s_platform=eks
 #   - serviceaccount-registry.yaml
 # <<< eks
+  # harbor-core's IRSA identity for pulling this account's private ECR into
+  # the pull-through cache (values.yaml's ecr-proxy block points core at it;
+  # README.md → "Caching this account's private ECR").
+# >>> ecr-proxy: ./toggle_blocks.sh --enable ecr-proxy to cache this account's private ECR (EKS only; README.md)
+#   - serviceaccount-core.yaml
+# <<< ecr-proxy
 configMapGenerator:
   - name: harbor-values
     files:

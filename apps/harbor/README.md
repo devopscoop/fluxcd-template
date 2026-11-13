@@ -1,6 +1,6 @@
 # Harbor
 
-[Harbor](https://goharbor.io/) — a private OCI registry for this cluster's images, on the [upstream Helm chart](https://github.com/goharbor/harbor-helm) (`release.yaml`), served at <https://harbor.project1-dev.devops.coop> on the private Gateway. It runs highly available, with image blobs in S3 and two replicas of everything on the push and pull path; for now that means EKS only ("Storage and availability" below). Metadata lives in a CloudNativePG database (`db-cluster.yaml`). Harbor is also the cluster's pull-through cache for Docker Hub, ghcr.io, quay.io, registry.k8s.io, and public.ecr.aws: [`apps/registry-mirrors`](../registry-mirrors/README.md) creates the proxy-cache projects and points every node's containerd at them, so workloads keep their image references unchanged. The comparison that picked this over ECR, including what it costs, is `arguments/ecr_vs_harbor_dragonfly.argdown`.
+[Harbor](https://goharbor.io/) — a private OCI registry for this cluster's images, on the [upstream Helm chart](https://github.com/goharbor/harbor-helm) (`release.yaml`), served at <https://harbor.project1-dev.devops.coop> on the private Gateway. It runs highly available, with image blobs in S3 and two replicas of everything on the push and pull path; for now that means EKS only ("Storage and availability" below). Metadata lives in a CloudNativePG database (`db-cluster.yaml`). Harbor is also the cluster's pull-through cache for Docker Hub, ghcr.io, quay.io, registry.k8s.io, and public.ecr.aws, plus, opt-in on EKS, the account's own private ECR: [`apps/registry-mirrors`](../registry-mirrors/README.md) creates the proxy-cache projects and points every node's containerd at them, so workloads keep their image references unchanged. The comparison that picked this over ECR, including what it costs, is `arguments/ecr_vs_harbor_dragonfly.argdown`.
 
 Opt-in: `deploy.sh` never registers this app. Add `harbor.yaml` — and `registry-mirrors.yaml`, which this README assumes — to the `resources` list in `flux/flux-system/kustomization.yaml` (`yq -i '.resources += ["harbor.yaml", "registry-mirrors.yaml"] | .resources |= unique' flux/flux-system/kustomization.yaml`), then follow the steps below and `apps/registry-mirrors/README.md` → "First run".
 
@@ -44,6 +44,21 @@ Image references use the gateway hostname, `harbor.project1-dev.devops.coop/<pro
 `apps/registry-mirrors` turns this Harbor into a cache for the upstream registries the cluster pulls from. It creates one public proxy-cache project per upstream — `dockerhub`, `ghcr`, `quay`, `k8s`, `ecr-public` — and writes containerd config on every node that routes `docker.io/...`, `ghcr.io/...`, and the rest through those projects, with the upstream itself as the fallback. Nothing in the workloads changes: they keep naming `nginx:1.27` or `ghcr.io/fluxcd/source-controller`, and the node quietly fetches from `harbor.project1-dev.devops.coop/dockerhub/library/nginx:1.27` instead.
 
 The cache is preferred, not enforced: when Harbor is down, nodes pull from the upstreams as before, which is also how Harbor's own images get pulled. Proxy-cache projects drop images unpulled for 7 days, and the weekly garbage collection reclaims their space. The full flow, the list of upstreams, and how to add one are in `apps/registry-mirrors/README.md`.
+
+## Caching this account's private ECR
+
+Opt-in, and EKS only. The `ecr-proxy` marker adds the cluster account's own ECR registry, `ACCOUNT_ID.dkr.ecr.us-east-2.amazonaws.com`, to the pull-through cache. Workloads that name ECR images then pull them through Harbor like the public upstreams: through an `ecr` proxy-cache project, with ECR itself as the node's fallback.
+
+To turn it on:
+
+1. In aws-eks-template, set `enable_harbor_ecr_proxy = true` (alongside `enable_harbor`) in `cluster/terraform.tfvars` and apply. That creates the `harbor-core` IRSA role in `cluster/harbor.tf`, with `ecr:GetAuthorizationToken` plus the three read calls an image pull makes, on this account's repositories in this region.
+2. Run `./toggle_blocks.sh --enable ecr-proxy` and commit. That adds `serviceaccount-core.yaml` (the role's ServiceAccount), points harbor-core at it in `values.yaml`, and opens the ECR line in `apps/registry-mirrors/registries.txt`. `replace_placeholders.sh` fills in the account ID from `aws_account_id` in `variables.sh`.
+
+Harbor fetches upstream images in harbor-core, and harbor-core can use the role directly. Harbor's aws-ecr adapter builds its ECR client from the AWS SDK's default credential chain when the registry endpoint has no access key, and that chain reads IRSA's token. So unlike the registry, core needs no credentials sidecar, and `configure-harbor.sh` creates the endpoint with an empty credential.
+
+**Who can pull.** The `ecr` project is public like the other proxy-cache projects. Anything that can reach `eg-private` (every pod and node in the cluster, and people on the VPN) can pull every image the role can read, with no AWS credentials. Enable it only where the network boundary may be the image-access boundary.
+
+What stays the same: CI keeps pushing to ECR, Flux's image-reflector-controller still lists tags from ECR directly, and nodes still pull from ECR with their own role whenever Harbor can't answer.
 
 ## Pushing from GitHub-hosted runners
 
@@ -137,4 +152,5 @@ This app was assembled from the chart, Harbor's source, and this repo's patterns
 - **IPv6.** The cluster's pods are IPv6-only. The chart's portal nginx listens on both families (`ipFamily.ipv6.enabled`, default true) and the Go components on dual-stack sockets, but whether the bundled Redis (goharbor/valkey-photon) binds `::` hasn't been checked; if harbor-core can't reach `harbor-redis`, that's the first suspect.
 - **Pulls through the cache.** See [`apps/registry-mirrors/README.md`](../registry-mirrors/README.md) → "First run", step 3, and check that nodes follow the registry's redirects to S3.
 - **S3 credentials on EKS.** Check that the `aws-credentials` sidecar logs "refreshed S3 credentials" and the registry starts after it. Then watch the registry's log around the one-hour mark: expect at most one `ExpiredToken` retry, after which it re-reads the credentials file, and no S3 errors. Others report this workaround working on Harbor 2.12 ([goharbor/harbor#16490](https://github.com/goharbor/harbor/issues/16490#issuecomment-3133783502)); it hasn't been run here.
+- **ECR through the cache.** With `ecr-proxy` enabled, `kubectl -n harbor logs job/harbor-proxy-cache` should show the `ecr` endpoint created. Creating it runs a health check that calls `GetAuthorizationToken` with harbor-core's role, so a broken role fails there. Then delete a pod that runs an ECR image and watch the `ecr` project fill. If it stays empty while the Docker Hub project fills, check whether containerd sends the kubelet's ECR credentials to Harbor: Harbor would reject them, and containerd would fall back to ECR directly.
 - **Two registry replicas on S3.** Push through one pod and pull through the other (`kubectl -n harbor get pods -l component=registry`), and run a garbage collection while both are up.

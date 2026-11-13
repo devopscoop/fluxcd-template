@@ -51,6 +51,13 @@ grep -vE '^[[:space:]]*(#|$)' /config/registries.txt |
     if [ -z "$id" ]; then
       if [ -n "$user" ]; then
         cred=",\"credential\":{\"type\":\"basic\",\"access_key\":\"$user\",\"access_secret\":\"$token\"}"
+      elif [ "$type" = aws-ecr ]; then
+        # No keys: Harbor's aws-ecr adapter then uses the AWS SDK's default
+        # credential chain, which finds harbor-core's IRSA role (apps/harbor's
+        # ecr-proxy block). The empty credential must still be sent: on
+        # create, Harbor hands the endpoint straight to that adapter, which
+        # reads the credential without a nil check.
+        cred=",\"credential\":{\"type\":\"basic\",\"access_key\":\"\",\"access_secret\":\"\"}"
       else
         cred=""
       fi

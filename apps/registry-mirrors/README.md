@@ -1,6 +1,6 @@
 # registry-mirrors
 
-Makes [Harbor](../harbor/README.md) the cluster's pull-through cache: every node's containerd pulls `docker.io`, `ghcr.io`, `quay.io`, `registry.k8s.io`, and `public.ecr.aws` images through Harbor proxy-cache projects without any workload changing its image references. `nginx:1.27` stays `nginx:1.27`; the node fetches it from `harbor.project1-dev.devops.coop/dockerhub/library/nginx:1.27` instead of Docker Hub, and Harbor fetches it from Docker Hub once.
+Makes [Harbor](../harbor/README.md) the cluster's pull-through cache: every node's containerd pulls `docker.io`, `ghcr.io`, `quay.io`, `registry.k8s.io`, and `public.ecr.aws` images (and, opt-in on EKS, the account's own private ECR) through Harbor proxy-cache projects without any workload changing its image references. `nginx:1.27` stays `nginx:1.27`; the node fetches it from `harbor.project1-dev.devops.coop/dockerhub/library/nginx:1.27` instead of Docker Hub, and Harbor fetches it from Docker Hub once.
 
 What that buys: upstream rate limits are spent once per image rather than once per node; an upstream outage stops mattering for anything already cached (once Harbor's periodic health check marks the upstream unhealthy, it serves its cached copies); and image bytes cross the internet once instead of once per node.
 
@@ -16,6 +16,8 @@ Opt-in, and only meaningful with Harbor (this app's flux Kustomization `dependsO
 Editing `registries.txt` rolls the DaemonSet and reruns the Job (their ConfigMaps carry kustomize hash suffixes), so a new upstream is one line. Removing a line removes the node config on the next rollout but leaves the Harbor endpoint and project, cached images included, for you to delete in the UI.
 
 Only public upstreams belong on the list. The proxy-cache projects are public — nodes pull anonymously, the same model as Harbor's own projects (`apps/harbor/README.md` → "Pushing and pulling") — so anything Harbor could fetch from an upstream, anything reaching `eg-private` could pull. Registries that need per-workload credentials (`registry.crowdstrike.com` for falcon-platform, the EKS add-ons' private ECR) aren't listed and pull directly, as before. A private image under a proxied host, like a private `ghcr.io` repository, still works: Harbor's anonymous fetch fails, and containerd falls through to the upstream with the pod's own `imagePullSecrets`.
+
+The one opt-in exception is the cluster account's own private ECR, behind the `ecr-proxy` marker at the end of `registries.txt`. Harbor fetches it with harbor-core's IRSA role, and its `ecr` project is public like the others, so anything that can reach `eg-private` can pull those images. `apps/harbor/README.md` → "Caching this account's private ECR" has how to turn it on and what it exposes.
 
 ## How a pull flows
 
