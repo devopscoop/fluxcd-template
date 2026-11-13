@@ -1,0 +1,86 @@
+# dyff between <(yq . <(helm show values oci://registry.gitlab.com/devopscoop/charts/app --version 0.11.1)) <(yq eval '. * load("values.yaml")' <(helm show values oci://registry.gitlab.com/devopscoop/charts/app --version 0.11.1))
+# vim -O <(helm show values oci://registry.gitlab.com/devopscoop/charts/app --version 0.11.1) values.yaml
+
+# A Globalping probe on the generic devopscoop app chart. It joins the
+# Globalping network over an outbound websocket to api.globalping.io and runs
+# ping/traceroute/mtr/dns/http measurements for Globalping users. It opens no
+# ports and serves nothing in the cluster. See README.md in this directory for
+# the adoption token, the networking trade-offs, and why self-updates are
+# blocked.
+
+# Globalping accepts one probe per public IPv4 address or IPv6 /64, and every
+# pod in the cluster egresses from the same NAT gateways and subnets, so a
+# second replica would be rejected.
+replicaCount: 1
+
+# For the same reason, a rolling update would briefly run two probes from one
+# address. The old pod has to disconnect before the new one connects.
+strategy:
+  type: Recreate
+
+image:
+  # 0.54.0 (2026-10-25), the multi-arch index (amd64, arm64, arm). With the
+  # root filesystem read-only (below), the probe can't replace its own code,
+  # so this digest is exactly what runs. Upgrades happen here, deliberately.
+  # Once the Globalping API's minimum probe version passes this one, the
+  # probe exits on connect and the pod crash-loops -- that's the signal to
+  # bump. See README.md -> "Updates".
+  repository: docker.io/globalping/globalping-probe
+  tag: 0.54.0@sha256:3f2bf882673296f5ffcc7bf82c5e9a5810e5c8b55ccfa285d759940c757d68af
+
+# The running probe checks for a new release every 5-10 minutes and exits so
+# its entrypoint can install it. That install can't succeed here, so after
+# every upstream release the probe would restart every few minutes until the
+# digest is bumped -- crash-looping long before it's actually too old to
+# connect. This pushes the check past the probe's own weekly restart, so it
+# never fires. Keep the total under 2147483 seconds: Node's setInterval
+# overflows past 2^31-1 ms and fires every millisecond instead.
+env:
+  - name: UPDATE_INTERVAL
+    value: "2000000" # ~23 days; the probe restarts itself after 7-8
+  - name: UPDATE_MAX_DEVIATION
+    value: "0"
+
+# The probe never talks to the Kubernetes API.
+serviceAccount:
+  automount: false
+
+# Docker applies its default seccomp profile; Kubernetes runs pods unconfined
+# unless asked. This matches the environment upstream supports.
+podSecurityContext:
+  seccompProfile:
+    type: RuntimeDefault
+
+# readOnlyRootFilesystem is what blocks self-updates: the entrypoint downloads
+# the latest release into /tmp and swaps it in for /app, the probe installs
+# newer Node.js versions with nvm, and a fallback script installs missing
+# packages with dpkg over plain HTTP. All of those write to the root
+# filesystem, and no writable volume is mounted anywhere -- deliberately not
+# even /tmp, so a downloaded release can't even land on disk. Capabilities
+# stay at the runtime defaults: the probe runs as root and needs NET_RAW for
+# ping, mtr and TCP traceroute.
+securityContext:
+  readOnlyRootFilesystem: true
+
+# Nothing listens -- the probe only dials out -- so no Service, and no
+# containerPort for the probes below to target.
+service:
+  enabled: false
+
+# null deletes the chart's HTTP probes rather than merging into them. If the
+# node process dies, the container exits and the kubelet restarts it.
+startupProbe: null
+livenessProbe: null
+readinessProbe: null
+
+# Upstream recommends more than 500 MB, and the probe logs a low-resources
+# warning every 10 minutes below 250 MB. No CPU limit: the probe sizes its
+# measurement concurrency from the node's CPU count and load, and throttling
+# would skew the latency it reports. Initial guesses -- resize with krr after
+# some real usage.
+resources:
+  requests:
+    cpu: 50m
+    memory: 512Mi
+  limits:
+    memory: 512Mi
