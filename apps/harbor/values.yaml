@@ -339,6 +339,17 @@ registry:
 #     extraEnvVars:
 #       - name: AWS_SHARED_CREDENTIALS_FILE
 #         value: /storage/aws/credentials
+## S3's dual-stack endpoint (<bucket>.s3.dualstack.<region>.amazonaws.com)
+## instead of the IPv4-only regional one, for the registry's own S3 calls
+## and for the presigned URLs it redirects pulls to. On an IPv6-only
+## cluster, nodes then fetch blobs over IPv6, through the VPC's egress-only
+## internet gateway, rather than through the NAT gateway's NAT64, which
+## bills per GB. The registry's AWS SDK (aws-sdk-go v1.55) reads this from
+## the environment and keeps virtual-hosted URLs; setting
+## persistence.imageChartStorage.s3.regionendpoint instead would force
+## path-style ones. Harmless on dual-stack and IPv4 clusters.
+#       - name: AWS_USE_DUALSTACK_ENDPOINT
+#         value: "true"
 # <<< eks
     resources:
       requests:
@@ -351,6 +362,10 @@ registry:
 #     extraEnvVars:
 #       - name: AWS_SHARED_CREDENTIALS_FILE
 #         value: /storage/aws/credentials
+## Same as the registry above: registryctl runs garbage collection
+## against the same bucket.
+#       - name: AWS_USE_DUALSTACK_ENDPOINT
+#         value: "true"
 # <<< eks
     resources:
       requests:
