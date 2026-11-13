@@ -2,9 +2,10 @@
 # no route timeout unless one is configured (internal/xds/translator/route.go
 # at gateway v1.9.3, matching apps/eg's pin), so Envoy's own default applies:
 # 15s from the end of the request to the end of the response. Every blob
-# that takes longer than that to stream — a push's monolithic PUT/PATCH, a
-# pull's GET of a large layer, a Dragonfly seed peer fetching from this
-# origin — is cut off with a 504 partway through. One hour bounds a
+# that takes longer than that to stream — a push's monolithic PUT/PATCH, or
+# a proxy-cache miss that Harbor streams from the upstream while caching it
+# — is cut off with a 504 partway through. (Other pulls redirect to S3 and
+# don't stream through the gateway.) One hour bounds a
 # multi-gigabyte layer over a slow VPN link without leaving hung requests
 # open forever; Envoy's 5-minute stream idle timeout still reaps a transfer
 # that stops moving.
