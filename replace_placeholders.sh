@@ -9,8 +9,12 @@
 #   project1-dev             -> $cluster_name
 #   us-east-2                -> $region
 #   arn:aws:iam::ACCOUNT_ID: -> arn:aws:iam::$aws_account_id:  (IRSA role
-#                               ARNs; only the ARN form, so prose that tells
-#                               you about ACCOUNT_ID stays readable)
+#                               ARNs)
+#   ACCOUNT_ID.dkr.ecr.      -> $aws_account_id.dkr.ecr.  (the account's
+#                               private ECR registry hostname)
+#
+# Only those two ACCOUNT_ID forms, so prose that tells you about ACCOUNT_ID
+# stays readable.
 #
 # The values come from the environment: variables.sh exports them, and
 # deploy.sh sources it before calling this. cluster_domain and org_name are
@@ -70,15 +74,17 @@ placeholders=(
   "project1-dev"
   "us-east-2"
   "arn:aws:iam::ACCOUNT_ID:"
+  "ACCOUNT_ID.dkr.ecr."
 )
-# An empty aws_account_id maps the ARN placeholder to itself, which the loop
-# below skips.
+# An empty aws_account_id maps both ACCOUNT_ID placeholders to themselves,
+# which the loop below skips.
 values=(
   "${cluster_domain}"
   "${org_name}-${cluster_name}"
   "${cluster_name}"
   "${region}"
   "arn:aws:iam::${aws_account_id:-ACCOUNT_ID}:"
+  "${aws_account_id:-ACCOUNT_ID}.dkr.ecr."
 )
 
 changed=()

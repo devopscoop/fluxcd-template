@@ -24,7 +24,11 @@
 # anything they can fetch, anything that reaches eg-private can pull.
 # Registries that need credentials per workload — registry.crowdstrike.com
 # for falcon-platform, the EKS add-ons' private ECR — stay off this list and
-# pull directly, as before.
+# pull directly, as before. The one opt-in exception is this account's own
+# private ECR, in the ecr-proxy block at the end: Harbor fetches from it with
+# harbor-core's IRSA role, and its project is public like the others, so
+# enable it only where everything that can reach eg-private may pull those
+# images (apps/harbor/README.md → "Caching this account's private ECR").
 #
 # host            server                         project      type             url
 docker.io         https://registry-1.docker.io   dockerhub    docker-hub       https://hub.docker.com
@@ -32,3 +36,6 @@ ghcr.io           https://ghcr.io                ghcr         github-ghcr      h
 quay.io           https://quay.io                quay         docker-registry  https://quay.io
 registry.k8s.io   https://registry.k8s.io        k8s          docker-registry  https://registry.k8s.io
 public.ecr.aws    https://public.ecr.aws         ecr-public   docker-registry  https://public.ecr.aws
+# >>> ecr-proxy: ./toggle_blocks.sh --enable ecr-proxy to cache this account's private ECR (EKS only; apps/harbor/README.md)
+# ACCOUNT_ID.dkr.ecr.us-east-2.amazonaws.com  https://ACCOUNT_ID.dkr.ecr.us-east-2.amazonaws.com  ecr  aws-ecr  https://ACCOUNT_ID.dkr.ecr.us-east-2.amazonaws.com
+# <<< ecr-proxy

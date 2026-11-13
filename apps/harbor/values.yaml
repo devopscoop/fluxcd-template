@@ -177,6 +177,14 @@ core:
 #   nodeSelector:
 #     karpenter.sh/capacity-type: on-demand
 # <<< karpenter
+# >>> ecr-proxy: ./toggle_blocks.sh --enable ecr-proxy to cache this account's private ECR (EKS only; README.md)
+## harbor-core makes the pull-through cache's upstream fetches, so it runs
+## as serviceaccount-core.yaml's ServiceAccount, whose IRSA role can pull
+## this account's private ECR images. Harbor's aws-ecr adapter finds the
+## role through the AWS SDK's default credential chain, so unlike the
+## registry below, core needs no credentials sidecar.
+#   serviceAccountName: harbor-core
+# <<< ecr-proxy
 
 portal:
   replicas: 2
