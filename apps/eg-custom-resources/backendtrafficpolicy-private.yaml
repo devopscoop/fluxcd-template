@@ -1,0 +1,72 @@
+# eg-private's gateway-level BackendTrafficPolicy: the same connect-failure
+# retry and the same per-client rate limit design as eg-public. The rationale
+# for both, and how the limiter counts, is in backendtrafficpolicy-public.yaml.
+#
+# Only the limits differ. Everyone behind a VPN that NATs (AWS Client VPN
+# does) shares one client address here, and dashboards burst: over four
+# weekdays of production traffic (2026-11-10..13) the busiest shared VPN
+# address peaked at 57 req/s and 160 req/min, all Grafana. 300/s and
+# 1,000/min leave 5–6× for an incident that sends everyone to Grafana at
+# once, while still stopping a runaway script.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: eg-private
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: eg-private
+  retry:
+    numRetries: 2
+    retryOn:
+      triggers:
+        - connect-failure
+        - refused-stream
+  rateLimit:
+    local:
+      rules:
+        - clientSelectors:
+            - sourceCIDR:
+                type: Distinct
+                value: 0.0.0.0/0
+              path:
+                type: Exact
+                value: /healthz
+                invert: true
+          limit:
+            requests: 300
+            unit: Second
+        - clientSelectors:
+            - sourceCIDR:
+                type: Distinct
+                value: "::/0"
+              path:
+                type: Exact
+                value: /healthz
+                invert: true
+          limit:
+            requests: 300
+            unit: Second
+        - clientSelectors:
+            - sourceCIDR:
+                type: Distinct
+                value: 0.0.0.0/0
+              path:
+                type: Exact
+                value: /healthz
+                invert: true
+          limit:
+            requests: 1000
+            unit: Minute
+        - clientSelectors:
+            - sourceCIDR:
+                type: Distinct
+                value: "::/0"
+              path:
+                type: Exact
+                value: /healthz
+                invert: true
+          limit:
+            requests: 1000
+            unit: Minute

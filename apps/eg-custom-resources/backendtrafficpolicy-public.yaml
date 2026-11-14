@@ -1,0 +1,110 @@
+# eg-public's gateway-level BackendTrafficPolicy: the connect-failure retry
+# and a per-client rate limit for every route on this Gateway. eg-private has
+# its own (backendtrafficpolicy-private.yaml) with the same retry and its own
+# limits. A Gateway can carry only one gateway-level BackendTrafficPolicy
+# (when two target the same Gateway the oldest wins; mergeType only works on
+# route-level policies), so the retry block is repeated in each.
+#
+# A route-level BackendTrafficPolicy replaces this one wholesale for its
+# route, dropping both the retry and the rate limit, unless it sets
+# `mergeType: StrategicMerge` (apps/harbor's does).
+#
+# Retry. Endpoint removal always races pod shutdown: the SIGTERM to the
+# container and the EndpointSlice update propagate in parallel, and Envoy
+# only learns about the removal via watch → xDS, a beat behind the kubelet.
+# An app that closes its listener as soon as SIGTERM lands leaves a short
+# window where Envoy still routes to the dead endpoint, gets
+# connection-refused, and synthesizes a 503 (UF flag) downstream. Rolling
+# updates cross this window on every deploy.
+#
+# Retrying absorbs the race without encoding a drain sleep into every
+# workload's preStop hook, and it also covers endpoint loss no preStop can
+# help with (spot reclaim, node crash, OOMKill, Karpenter consolidation).
+# Both triggers fire before any request bytes reach the upstream, so the
+# retry is safe for non-idempotent requests. Do NOT add `reset` or 5xx-based
+# triggers here: those can replay a request the upstream already processed.
+#
+# Rate limit (ENG-3761). Local: each Envoy replica keeps its own counters, so
+# no Redis. It keys on the client address Envoy resolves in
+# clienttrafficpolicy-*.yaml (proxy protocol on EKS, Cloudflare's
+# X-Forwarded-For when a host is proxied). Where the load balancer in front
+# doesn't pass the client address through, every client shares one counter,
+# so check that before relying on this on a new platform.
+#
+# Counting is per client IP, per route, per Envoy replica. Every route on the
+# Gateway (each hostname/rule/match) has its own counter, and a client whose
+# connections spread across N replicas can reach up to N× the limit. There
+# are two rules and the stricter one wins: per second against bursts, per
+# minute against sustained load. Each is written twice, once for IPv4 clients
+# (0.0.0.0/0) and once for IPv6 (::/0). /healthz is excluded so load-balancer
+# health checks and kubelet probes can never be throttled. A throttled
+# request gets a 429.
+#
+# Sized from four weekdays of production traffic (2026-11-10..13: 434k
+# requests from 1,668 clients, counted the way the limiter counts). The
+# busiest client peaked at 121 req/s (a browser page load) and 491 req/min (a
+# scanner on the http→https redirect); the API host peaked at 52/s and
+# 146/min. 250/s and 1,000/min are about 2× those, so no client in that
+# window would have been throttled. Re-measure before tightening.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: BackendTrafficPolicy
+metadata:
+  name: eg-public
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: eg-public
+  retry:
+    numRetries: 2
+    retryOn:
+      triggers:
+        - connect-failure
+        - refused-stream
+  rateLimit:
+    local:
+      rules:
+        - clientSelectors:
+            - sourceCIDR:
+                type: Distinct
+                value: 0.0.0.0/0
+              path:
+                type: Exact
+                value: /healthz
+                invert: true
+          limit:
+            requests: 250
+            unit: Second
+        - clientSelectors:
+            - sourceCIDR:
+                type: Distinct
+                value: "::/0"
+              path:
+                type: Exact
+                value: /healthz
+                invert: true
+          limit:
+            requests: 250
+            unit: Second
+        - clientSelectors:
+            - sourceCIDR:
+                type: Distinct
+                value: 0.0.0.0/0
+              path:
+                type: Exact
+                value: /healthz
+                invert: true
+          limit:
+            requests: 1000
+            unit: Minute
+        - clientSelectors:
+            - sourceCIDR:
+                type: Distinct
+                value: "::/0"
+              path:
+                type: Exact
+                value: /healthz
+                invert: true
+          limit:
+            requests: 1000
+            unit: Minute
