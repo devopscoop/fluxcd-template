@@ -101,10 +101,11 @@ spec:
 #   on the full label set ignoring metric name, so where all three exist only
 #   rq_open survives and an open cx/cx_pool breaker is masked by a closed
 #   rq_open=0. A __name__ regex over all three avoids that.
-# The downstream (edge) rules and the two latency rules are our own — no
-# public ruleset ships a latency alert (samber/awesome-prometheus-alerts
-# includes downstream 5xx/timeout shapes; ours follow the mixin's
-# ratio+guard form).
+# The downstream (edge) rules, the two latency rules and the rate-limit rule
+# are our own — no public ruleset ships a latency alert
+# (samber/awesome-prometheus-alerts includes downstream 5xx/timeout shapes;
+# ours follow the mixin's ratio+guard form), and the rate-limit rule watches
+# this template's own per-client limit.
 apiVersion: operator.victoriametrics.com/v1beta1
 kind: VMRule
 metadata:
@@ -163,6 +164,40 @@ spec:
               sum by (gateway, le) (rate(envoy_http_downstream_rq_time_bucket[5m]))
             ) > 1000
           for: 15m
+          labels:
+            severity: warning
+        # Requests the per-client rate limit turned away with a 429
+        # (apps/eg-custom-resources/backendtrafficpolicy-*.yaml, ENG-3761).
+        # A trickle is the limit doing its job — a scanner, a runaway script
+        # — so this pages only on a sustained stream: over 1/s for 10m on one
+        # gateway. That is either an attack worth knowing about, or the limit
+        # hitting legitimate traffic it wasn't sized for (many people behind
+        # one VPN or office address, a new integration). The counter can't
+        # tell which: it is per Envoy replica, summed over every route and
+        # client. The description's query names the clients and routes, and
+        # that tells them apart. Metric name and labels verified against the
+        # dev fleet (gateway v1.9.3): a test burst of 2,500 requests from one
+        # client counted 1,501 here, matching the 429s it got. The regex in
+        # the query is backtick-quoted; LogsQL rejects it in double quotes.
+        - alert: EnvoyRateLimiting
+          annotations:
+            summary: Envoy is rate-limiting over 1 request/s.
+            description: >-
+              Gateway {{ $labels.gateway }} has been turning away
+              {{ printf "%.1f" $value }} requests/s with a 429 (per-client
+              rate limit) for 10m. Find who in Grafana Explore →
+              VictoriaLogs with: _time:30m
+              k8s.namespace.name:="envoy-gateway-system" | unpack_json |
+              filter response_code:=429 | extract_regexp
+              `^\[?(?P<client>[^\]]+?)\]?:[0-9]+$` from
+              downstream_remote_address | stats by (client, route_name)
+              count() hits | sort by (hits desc) | limit 10. One client on
+              one route is abuse, and the limit is handling it; many
+              clients, or a shared VPN/office address, means the limit is
+              too low for real traffic.
+          expr: |-
+            sum by (gateway) (rate(envoy_http_local_rate_limit_rate_limited[5m])) > 1
+          for: 10m
           labels:
             severity: warning
         # The backend half of the latency pair, per upstream cluster. The

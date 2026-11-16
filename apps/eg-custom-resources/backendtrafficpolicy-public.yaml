@@ -31,9 +31,12 @@
 # doesn't pass the client address through, every client shares one counter,
 # so check that before relying on this on a new platform.
 #
-# Counting is per client IP, per route, per Envoy replica. Every route on the
+# Counting is per client IP, per route, per Envoy replica. Each route on the
 # Gateway (each hostname/rule/match) has its own counter, and a client whose
-# connections spread across N replicas can reach up to N× the limit. There
+# connections spread across N replicas can reach up to N× the limit. Routes
+# that never reach a backend aren't limited at all: in dev, 1,100 requests to
+# the http→https redirect never reached the limiter (ENG-3761). They cost
+# Envoy almost nothing, but scanners on port 80 go unthrottled. There
 # are two rules and the stricter one wins: per second against bursts, per
 # minute against sustained load. Each is written twice, once for IPv4 clients
 # (0.0.0.0/0) and once for IPv6 (::/0). /healthz is excluded so load-balancer
