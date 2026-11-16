@@ -12,9 +12,10 @@
 #
 # The chart's HTTPRoute (expose.route in values.yaml) has no timeouts field
 # to set, so the timeout comes from this policy on the route instead.
-# StrategicMerge keeps the gateway-level retry-connect-failure policy
-# (apps/eg-custom-resources/backendtrafficpolicy-retry.yaml) in force for
-# this route — a route-level policy otherwise replaces it wholesale.
+# StrategicMerge keeps the gateway-level policy's retry and rate limit
+# (apps/eg-custom-resources/backendtrafficpolicy-private.yaml / -public.yaml)
+# in force for this route — a route-level policy otherwise replaces it
+# wholesale.
 apiVersion: gateway.envoyproxy.io/v1alpha1
 kind: BackendTrafficPolicy
 metadata:

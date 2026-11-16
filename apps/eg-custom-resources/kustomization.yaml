@@ -15,4 +15,5 @@ resources:
   - httproute-healthz-private.yaml
   - clienttrafficpolicy-public.yaml
   - clienttrafficpolicy-private.yaml
-  - backendtrafficpolicy-retry.yaml
+  - backendtrafficpolicy-public.yaml
+  - backendtrafficpolicy-private.yaml
