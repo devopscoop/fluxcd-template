@@ -177,3 +177,24 @@ None of this tells the watching GoAlert *why*. The page only says the heartbeat 
 3. Create it in the UI, not in `monitors/`: AutoKuma's definitions ship as a plaintext ConfigMap from git, and the URL is a secret. AutoKuma never touches monitors made in the UI.
 
 If the watching GoAlert is unreachable, this monitor goes DOWN in Uptime Kuma, and this cluster pages about it. Between them, the two heartbeats cover Uptime Kuma checking (this one) and its alerts getting delivered (the Watchdog).
+
+### What pages you when something breaks
+
+With both heartbeats in place, every link in the paging path has something that pages when it breaks. The Uptime Kuma rows apply once [apps/uptime-kuma](../uptime-kuma/README.md) is deployed.
+
+| Breaks | Detected by | Pages you? |
+| --- | --- | --- |
+| An app or endpoint (the normal case) | Its alert rules, or an Uptime Kuma monitor | ✅ This cluster's GoAlert |
+| Uptime Kuma: pod gone, crash-looping, or unscrapeable | `TargetDown`, `KubePod*` or `KubeDeployment*` alerts in its namespace | ✅ This cluster's GoAlert |
+| Uptime Kuma running but not checking (hung, or monitors paused) | The Uptime Kuma heartbeat stops | ✅ Watching GoAlert |
+| vmagent | GoAlert's metrics vanish, so `GoAlertDown` holds back the Watchdog | ✅ Watching GoAlert (Slack wrongly blames GoAlert) |
+| VictoriaMetrics storage | vmalert can't evaluate even the Watchdog, so the beats stop | ✅ Watching GoAlert |
+| vmalert, Alertmanager, DNS, egress, or the whole cluster | The beats stop | ✅ Watching GoAlert |
+| GoAlert or its database | `GoAlertDown` or `GoAlertEngineNotCycling` holds back the Watchdog | ✅ Watching GoAlert |
+| Alertmanager can't deliver to GoAlert (e.g. a 401) | `AlertmanagerFailedToSendAlerts` for `webhook` holds back the Watchdog | ✅ Watching GoAlert |
+| A notification provider refusing calls (bad credentials, empty balance, outage) | `GoAlertNotificationsNotLeaving` (4xx/5xx answers) holds back the Watchdog | ✅ Watching GoAlert |
+| A notification provider unreachable (DNS or connection failures, not a 4xx/5xx) | Not recorded by the metric; only a full loss of egress stops the beats | ⚠️ Only if all egress is down |
+| Nobody on call | Nothing: an unstaffed window is a schedule choice, not a failure | ❌ By design |
+| This cluster and the watching cluster together (e.g. a region-wide outage) | Nothing | ❌ Needs a watcher outside both |
+
+Pages from the watching GoAlert take longer than in-cluster ones: the holding-back alert's own delay (about 6 minutes for `GoAlertDown`), plus up to the heartbeat's 15-minute timeout.
