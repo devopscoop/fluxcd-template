@@ -56,10 +56,26 @@ spec:
             # made through the UI). This is what makes monitors/ declarative.
             - name: AUTOKUMA__ON_DELETE
               value: "delete"
+            # kuma-heartbeat: render monitors/*.toml as Tera templates before
+            # parsing, so monitors/heartbeat.toml can read its URL from the
+            # autokuma-env Secret (envFrom below) instead of git. The other
+            # definition files hold no Tera syntax -- keep it that way, or
+            # escape it, since this applies to all of them.
+# >>> kuma-heartbeat: see kustomization.yaml
+#             - name: AUTOKUMA__FILES__PREPROCESS
+#               value: "true"
+# <<< kuma-heartbeat
           envFrom:
             # AUTOKUMA__KUMA__USERNAME / AUTOKUMA__KUMA__PASSWORD
             - secretRef:
                 name: autokuma-kuma-credentials
+            # AUTOKUMA__ENV__HEARTBEAT_URL, for monitors/heartbeat.toml. A
+            # change to this Secret doesn't roll the Deployment: restart
+            # AutoKuma after editing it.
+# >>> kuma-heartbeat: see kustomization.yaml
+#             - secretRef:
+#                 name: autokuma-env
+# <<< kuma-heartbeat
           # NO health probes, deliberately, despite AutoKuma serving /health on
           # :8090: it binds 0.0.0.0 (IPv4 only, also on master) while this
           # cluster's pods are IPv6-only, so kubelet's probe against the pod

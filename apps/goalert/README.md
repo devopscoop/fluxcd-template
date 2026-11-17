@@ -172,9 +172,14 @@ None of this tells the watching GoAlert *why*. The page only says the heartbeat 
 
 [apps/uptime-kuma](../uptime-kuma/README.md) has a blind spot the Watchdog can't see. A hung Uptime Kuma, or one whose monitors were paused, keeps exporting the last state of every monitor, so its metrics look healthy while nothing is being checked. A second heartbeat, sent *by* Uptime Kuma, proves its check loop is running and can reach the internet:
 
+AutoKuma manages it like any other monitor (`apps/uptime-kuma/monitors/heartbeat.toml`), behind the opt-in `kuma-heartbeat` marker block. The URL is a secret, so the definition file doesn't hold it. AutoKuma renders the file as a template and reads the URL from a SOPS-encrypted Secret.
+
 1. In the watching GoAlert, add a second heartbeat monitor (e.g. "project1-dev Uptime Kuma") with a **timeout of 15 minutes**, on a service that pages the right people. Copy its URL.
-2. In the Uptime Kuma UI: **Add New Monitor** → type **HTTP(s)**, the heartbeat URL, **Heartbeat Interval** 300 seconds, and under **HTTP Options** set **Method** to `POST`. GoAlert answers with a 2xx, which Uptime Kuma's default accepted status codes take as UP.
-3. Create it in the UI, not in `monitors/`: AutoKuma's definitions ship as a plaintext ConfigMap from git, and the URL is a secret. AutoKuma never touches monitors made in the UI.
+2. Put the URL in `apps/uptime-kuma/autokuma-env.secrets.yaml` as `AUTOKUMA__ENV__HEARTBEAT_URL`. On a fresh clone, fill in `autokuma-env.secrets.yaml.decrypted` and run `../../encrypt_secrets.sh`; once it's encrypted, edit it with `sops autokuma-env.secrets.yaml`.
+3. Enable the block and commit the result: `./toggle_blocks.sh --enable kuma-heartbeat`. That adds the Secret and the monitor file to the app, and turns on AutoKuma's template rendering (`AUTOKUMA__FILES__PREPROCESS`) and its access to the Secret.
+4. Once Flux applies it, AutoKuma creates an "Uptime Kuma heartbeat" monitor: an HTTP `POST` every 5 minutes, with 2 retries a minute apart. GoAlert answers with a 2xx, which Uptime Kuma takes as UP, and the watching GoAlert's monitor turns healthy.
+
+To change the URL later, edit the Secret with `sops` and restart AutoKuma (`kubectl -n uptime-kuma rollout restart deploy/autokuma`): a Secret change doesn't roll the Deployment on its own. Uptime Kuma exports every monitor's URL as the `monitor_url` label, and alert descriptions carry it into Slack. So `apps/uptime-kuma/vmservicescrape.yaml` blanks that label for this monitor, matching it by name.
 
 If the watching GoAlert is unreachable, this monitor goes DOWN in Uptime Kuma, and this cluster pages about it. Between them, the two heartbeats cover Uptime Kuma checking (this one) and its alerts getting delivered (the Watchdog).
 

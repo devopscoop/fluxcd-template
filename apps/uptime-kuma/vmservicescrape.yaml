@@ -37,3 +37,14 @@ spec:
         password:
           name: autokuma-kuma-credentials
           key: AUTOKUMA__KUMA__PASSWORD
+      # Uptime Kuma exports every monitor's URL as the monitor_url label, and
+      # vmrule.yaml's descriptions carry it into Slack. The heartbeat
+      # monitor's URL is a secret (monitors/heartbeat.toml), so blank it on
+      # every series that monitor exports; the name alone identifies it.
+      # Matches nothing until the kuma-heartbeat block is enabled.
+      metricRelabelConfigs:
+        - action: replace
+          sourceLabels: [monitor_name]
+          regex: Uptime Kuma heartbeat
+          targetLabel: monitor_url
+          replacement: (redacted heartbeat URL)

@@ -59,12 +59,22 @@ status page in the UI at <https://status.project1-dev.devops.coop/status/default
 
 ### Heartbeat
 
-One monitor deliberately lives outside `monitors/`: an HTTP `POST` to a
-GoAlert heartbeat monitor in another cluster, which pages when Uptime Kuma
-stops checking. A hung Uptime Kuma keeps exporting its monitors' last states,
-so nothing in this cluster's metrics would notice. Its URL is a secret, and
-AutoKuma's definitions ship as a plaintext ConfigMap, so it's created in the
-UI. Setup is in
+`monitors/heartbeat.toml` is an HTTP `POST` to a GoAlert heartbeat monitor in
+another cluster, which pages when Uptime Kuma stops checking. A hung Uptime
+Kuma keeps exporting its monitors' last states, so nothing in this cluster's
+metrics would notice. It's opt-in, behind the `kuma-heartbeat` marker block.
+
+Its URL is a secret, so the file doesn't hold it. With the block enabled,
+AutoKuma renders every definition file as a [Tera](https://keats.github.io/tera/)
+template before parsing it (`AUTOKUMA__FILES__PREPROCESS`), and
+`{{ get_env(name='AUTOKUMA__ENV__HEARTBEAT_URL') }}` reads the URL from the
+SOPS-encrypted `autokuma-env.secrets.yaml`. AutoKuma only lets templates read
+variables named `AUTOKUMA__ENV__*`. Since rendering applies to every file in
+`monitors/`, a literal `{{`, `{%` or `{#` in any definition needs escaping.
+`vmservicescrape.yaml` blanks the monitor's `monitor_url` label, so the URL
+stays out of the metrics and the Slack alerts too.
+
+Setup is in
 [apps/goalert/README.md → "Uptime Kuma heartbeat"](../goalert/README.md#uptime-kuma-heartbeat).
 
 ### Credentials
