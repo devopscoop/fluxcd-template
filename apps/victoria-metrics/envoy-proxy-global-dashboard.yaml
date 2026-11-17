@@ -22,6 +22,10 @@
 #   {{service}}) and upstream by envoy_cluster_name, legend sorted by max
 #   so the slowest cluster is the top row — the dashboard side of the
 #   EnvoyDownstreamSlowRequests / EnvoyUpstreamSlowRequests pair.
+# - A "Rate-Limited Requests" panel at the bottom (ours, not upstream's):
+#   requests the per-client rate limit turned away, per gateway, from
+#   envoy_http_local_rate_limit_rate_limited — the dashboard side of the
+#   EnvoyRateLimiting alert in apps/eg/vm.yaml.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -2919,6 +2923,128 @@ data:
             }
           ],
           "title": "Unhealthy Endpoints",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "$datasource"
+          },
+          "description": "Requests the per-client rate limit turned away with a 429 (apps/eg-custom-resources/backendtrafficpolicy-*.yaml). A trickle is the limit doing its job (scanners, runaway scripts); a sustained stream fires EnvoyRateLimiting. Counted per gateway across every route and client; the alert's description has the VictoriaLogs query that names them.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "showPoints": "never",
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "links": [],
+              "mappings": [],
+              "min": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green"
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "reqps"
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byValue",
+                  "options": {
+                    "op": "gte",
+                    "reducer": "allIsZero",
+                    "value": 0
+                  }
+                },
+                "properties": [
+                  {
+                    "id": "custom.hideFrom",
+                    "value": {
+                      "legend": true,
+                      "tooltip": true,
+                      "viz": false
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 24,
+            "x": 0,
+            "y": 59
+          },
+          "id": 44,
+          "options": {
+            "legend": {
+              "calcs": [
+                "mean",
+                "lastNotNull",
+                "max"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            }
+          },
+          "pluginVersion": "10.0.2",
+          "targets": [
+            {
+              "datasource": {
+                "uid": "$datasource"
+              },
+              "editorMode": "code",
+              "expr": "sum by(gateway) (rate(envoy_http_local_rate_limit_rate_limited{namespace=~\"$Namespace\"}[$__rate_interval]))",
+              "format": "time_series",
+              "intervalFactor": 2,
+              "legendFormat": "{{gateway}}",
+              "range": true,
+              "refId": "A"
+            }
+          ],
+          "title": "Rate-Limited Requests",
           "type": "timeseries"
         }
       ],
