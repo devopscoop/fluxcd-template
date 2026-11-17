@@ -23,6 +23,9 @@ resources:
   - envoy-clusters-dashboard.yaml
   - envoy-gateway-global-dashboard.yaml
   - flux-vm.yaml
+  # Rules for the stack's own Alertmanager, replacing the chart's bundled
+  # alertmanager.rules group (which can never fire here -- see the file).
+  - alertmanager-vm.yaml
 # >>> coraza: ./toggle_blocks.sh --enable coraza when enabling apps/coraza
 #   - coraza-dashboard.yaml
 # <<< coraza

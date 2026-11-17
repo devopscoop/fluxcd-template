@@ -1,0 +1,83 @@
+# Alerting rules for the stack's own Alertmanager (vmalertmanager in
+# apps/victoria-metrics). They replace the chart's bundled alertmanager.rules
+# group, which is kube-prometheus's verbatim and selects
+# {job="alertmanager-main", namespace="monitoring"} in every expr -- labels
+# this stack's Alertmanager never carries (its series are
+# job="vmalertmanager-victoria-metrics", namespace="victoria-metrics"), so
+# the bundled group could never fire and is disabled in
+# apps/victoria-metrics/values.yaml (defaultRules.groups). Discovered
+# 2026-09-17: GoAlert had been rejecting every Alertmanager webhook with 401
+# since its database was rebuilt at 04:42 UTC, 977 deliveries failed over
+# the next nine hours, and AlertmanagerFailedToSendAlerts sat inactive
+# throughout. Slack kept working, which is the only reason anyone saw the
+# outage at all.
+#
+# Lives with the stack (like flux-vm.yaml): the Alertmanager it watches is
+# apps/victoria-metrics' own. Adapted from kube-prometheus's alertmanager.rules
+# (https://github.com/prometheus-operator/kube-prometheus/blob/main/manifests/alertmanager-prometheusRule.yaml)
+# with deliberate deviations:
+# - Only the two rules that apply to a single-replica Alertmanager. The
+#   cluster rules (MembersInconsistent, ClusterFailedPeers, ClusterDown,
+#   ClusterCrashlooping, ConfigInconsistent) need replicaCount > 1, which
+#   apps/victoria-metrics/values.yaml deliberately doesn't run.
+# - FailedToSendAlerts groups by integration rather than dividing per
+#   reason-labelled series: one page per broken receiver, and the
+#   alertmanager_notifications_failed_total "reason" label (0.25+) is
+#   summed away instead of `ignoring`-ed.
+# - Selectors use the job label the stack actually emits, no namespace.
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMRule
+metadata:
+  name: alertmanager
+spec:
+  groups:
+    - name: alertmanager
+      rules:
+        - alert: AlertmanagerFailedReload
+          annotations:
+            summary: Alertmanager is running a stale configuration.
+            description: >-
+              Alertmanager {{ $labels.namespace }}/{{ $labels.pod }} has
+              failed to reload its configuration for 10m -- routes and
+              receivers edited in apps/victoria-metrics (values.yaml or
+              helm_secrets.yaml) are not in effect. `kubectl logs` the pod
+              for the parse error.
+          expr: |-
+            max_over_time(
+              alertmanager_config_last_reload_successful{job="vmalertmanager-victoria-metrics"}[5m]
+            ) == 0
+          for: 10m
+          labels:
+            severity: critical
+        # 1% over 15m, as upstream: a single retry blip stays quiet, a
+        # receiver that is rejecting or timing out does not. A dead paging
+        # receiver is the silent failure mode -- Alertmanager believes it
+        # delivered, and the on-call never hears -- so this is the one alert
+        # that must reach the receivers that still work. For the webhook
+        # integration (GoAlert, and the Watchdog heartbeat) it also holds
+        # back the Watchdog, so a heartbeat monitor outside the cluster
+        # pages instead (inhibit rule in values.yaml; apps/goalert/README.md
+        # -> "Heartbeat monitors").
+        - alert: AlertmanagerFailedToSendAlerts
+          annotations:
+            summary: Alertmanager notifications to a receiver are failing.
+            description: >-
+              {{ printf "%.0f" $value }}% of Alertmanager's
+              {{ $labels.integration }} notifications failed over the last
+              15m. If this is the paging integration, pages are being lost
+              while Slack still delivers. `kubectl logs` the alertmanager
+              pod for the receiver's response (a 401 from GoAlert means the
+              integration key in helm_secrets.yaml no longer exists on the
+              GoAlert side).
+          expr: |-
+            100 *
+            sum by (namespace, integration) (
+              rate(alertmanager_notifications_failed_total{job="vmalertmanager-victoria-metrics"}[15m])
+            )
+            /
+            sum by (namespace, integration) (
+              rate(alertmanager_notifications_total{job="vmalertmanager-victoria-metrics"}[15m])
+            ) > 1
+          for: 5m
+          labels:
+            severity: warning

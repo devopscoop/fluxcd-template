@@ -57,6 +57,16 @@ with no name resolution, and the page's logo is an uploaded file living on the
 uptime-kuma volume — neither survives declarative management. Keep editing the
 status page in the UI at <https://status.project1-dev.devops.coop/status/default>.
 
+### Heartbeat
+
+One monitor deliberately lives outside `monitors/`: an HTTP `POST` to a
+GoAlert heartbeat monitor in another cluster, which pages when Uptime Kuma
+stops checking. A hung Uptime Kuma keeps exporting its monitors' last states,
+so nothing in this cluster's metrics would notice. Its URL is a secret, and
+AutoKuma's definitions ship as a plaintext ConfigMap, so it's created in the
+UI. Setup is in
+[apps/goalert/README.md → "Uptime Kuma heartbeat"](../goalert/README.md#uptime-kuma-heartbeat).
+
 ### Credentials
 
 AutoKuma logs in with the Uptime Kuma admin account, from the

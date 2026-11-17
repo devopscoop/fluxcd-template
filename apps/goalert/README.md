@@ -119,6 +119,61 @@ Out of the box GoAlert only "notifies" via the web UI. Contact methods that actu
 
 ## Monitoring
 
-GoAlert serves Prometheus metrics on `:2112` (`GOALERT_LISTEN_PROMETHEUS` in values.yaml), scraped by `vmpodscrape.yaml`; `vmrule.yaml` pages when the engine stops cycling, notifications stop leaving, or the webhook endpoint errors. The database is covered by the fleet-wide cnpg-instances scrape (see db-cluster.yaml's monitoring note).
+GoAlert serves Prometheus metrics on `:2112` (`GOALERT_LISTEN_PROMETHEUS` in values.yaml), scraped by `vmpodscrape.yaml`; `vmrule.yaml` pages when GoAlert is down, the engine stops cycling, its notification providers refuse requests, or the webhook endpoint errors. The database is covered by the fleet-wide cnpg-instances scrape (see db-cluster.yaml's monitoring note).
 
-The caveat: those rules route *through* GoAlert, so when they fire, only the Slack half of the combined Alertmanager receiver is guaranteed to deliver. The genuinely external check is still open: point an Uptime Kuma `push` monitor at the Watchdog alert (which is currently blackholed — apps/victoria-metrics/README.md → "Alert routing") so something outside the stack notices the stack going quiet.
+The caveat: those rules route *through* GoAlert, so when they fire, only the Slack half of the combined Alertmanager receiver is guaranteed to deliver. Paging about a broken paging path needs something outside the cluster — the heartbeat monitors below.
+
+## Heartbeat monitors
+
+Nothing inside a cluster can page about that cluster's own paging path. If vmalert, Alertmanager, GoAlert, or the cluster itself dies, the alert that would say so dies with it. So each cluster's paging path is watched from *outside*, by a [heartbeat monitor](https://goalert.me/) in a GoAlert running somewhere else: the cluster calls the monitor's URL on a schedule, and that GoAlert pages when the calls stop. In a dev/prod pair, each cluster's GoAlert holds the heartbeats for the other. Never point a cluster at its own GoAlert: it would go down together with the thing it watches.
+
+Traffic only flows outward. The watched cluster `POST`s to the watcher's public GoAlert (`/api/v2/heartbeat/<id>`), and the watcher never connects into the watched cluster, so a cluster behind a VPN can still be watched. Heartbeat URLs are secrets — anyone holding one can keep the monitor looking healthy — so they live in encrypted files or in the Uptime Kuma UI, never in plaintext in git.
+
+A new heartbeat monitor stays inactive until its first beat, and from then on it pages whenever a beat is overdue. **Don't call the URL by hand to test it:** that starts the clock before the real sender exists, and you get paged when the timeout runs out.
+
+### Alertmanager heartbeat (the Watchdog alert)
+
+This watches the whole alerting pipeline. Every cluster's vmalert fires the bundled `Watchdog` alert nonstop by design, and Alertmanager forwards it as the heartbeat.
+
+1. In the *watching* GoAlert, open (or create) a service whose escalation policy pages the people who own this cluster → **Heartbeat Monitors** → create one, named for the cluster (e.g. "project1-dev alerting pipeline"), with a **timeout of 15 minutes**. Copy its URL.
+2. In this cluster's `apps/victoria-metrics/helm_secrets.yaml` (`sops helm_secrets.yaml`), replace the `Watchdog` → `blackhole` route with one to a new receiver, and add the receiver:
+
+   ```yaml
+   route:
+     routes:
+       - receiver: heartbeat
+         matchers:
+           - alertname = "Watchdog"
+         group_wait: 0s
+         group_interval: 1m
+         repeat_interval: 5m
+       # ... InfoInhibitor and the catch-all stay as they are
+   receivers:
+     - name: heartbeat
+       webhook_configs:
+         - url: https://goalert.<watching-cluster-domain>/api/v2/heartbeat/<id>
+           send_resolved: false
+     # ... blackhole and default stay; blackhole is still used by InfoInhibitor
+   ```
+
+3. Once Flux applies it, the monitor turns healthy within about 6 minutes, and the Alertmanager logs show no `Notify for alerts failed` lines for the receiver.
+
+Why 15 minutes: Alertmanager only re-sends a firing alert when `repeat_interval` (5m) has passed, and it checks on `group_interval` ticks (1m), so a beat arrives about every 6 minutes. A 15-minute timeout takes two missed beats to page. A timeout at or under the beat spacing pages on every cycle: a 5-minute timeout paged every 6 minutes, all night, until it was raised (2026-11-17).
+
+What stops the beats, and so pages from the watching GoAlert:
+
+- **vmalert, Alertmanager, egress, DNS, or the whole cluster down.** The beat never leaves. That includes VictoriaMetrics' own storage: vmalert evaluates even `Watchdog`'s constant expression against it.
+- **This cluster's GoAlert can't page.** `GoAlertDown`, `GoAlertEngineNotCycling` and `GoAlertNotificationsNotLeaving` (vmrule.yaml) hold the `Watchdog` back through an inhibit rule in apps/victoria-metrics/values.yaml.
+- **Alertmanager can't deliver to GoAlert.** `AlertmanagerFailedToSendAlerts` for the `webhook` integration (apps/victoria-metrics/alertmanager-vm.yaml) holds it back the same way.
+
+None of this tells the watching GoAlert *why*. The page only says the heartbeat stopped, and this cluster's Slack channel has the alert that explains it.
+
+### Uptime Kuma heartbeat
+
+[apps/uptime-kuma](../uptime-kuma/README.md) has a blind spot the Watchdog can't see. A hung Uptime Kuma, or one whose monitors were paused, keeps exporting the last state of every monitor, so its metrics look healthy while nothing is being checked. A second heartbeat, sent *by* Uptime Kuma, proves its check loop is running and can reach the internet:
+
+1. In the watching GoAlert, add a second heartbeat monitor (e.g. "project1-dev Uptime Kuma") with a **timeout of 15 minutes**, on a service that pages the right people. Copy its URL.
+2. In the Uptime Kuma UI: **Add New Monitor** → type **HTTP(s)**, the heartbeat URL, **Heartbeat Interval** 300 seconds, and under **HTTP Options** set **Method** to `POST`. GoAlert answers with a 2xx, which Uptime Kuma's default accepted status codes take as UP.
+3. Create it in the UI, not in `monitors/`: AutoKuma's definitions ship as a plaintext ConfigMap from git, and the URL is a secret. AutoKuma never touches monitors made in the UI.
+
+If the watching GoAlert is unreachable, this monitor goes DOWN in Uptime Kuma, and this cluster pages about it. Between them, the two heartbeats cover Uptime Kuma checking (this one) and its alerts getting delivered (the Watchdog).

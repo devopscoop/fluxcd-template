@@ -131,14 +131,15 @@ alertmanager:
 # <<< karpenter
 
 # Alert routing. Only the default route receiver lives here: the route.routes
-# and receivers lists (Slack channel and message templates, Watchdog blackhole,
-# and the GoAlert webhook receiver) are in this app's helm_secrets.yaml -- edit
-# with `sops helm_secrets.yaml`. They are there because the GoAlert webhook URL
-# embeds an integration key (see apps/goalert/README.md), and Flux merges
-# valuesFrom like `helm -f`: maps deep-merge but lists are replaced wholesale,
-# so each list must live entirely in one file. Current routing: Watchdog and
-# InfoInhibitor are blackholed; every other alert goes to BOTH GoAlert
-# (paging) and Slack via
+# and receivers lists (Slack channel and message templates, the Watchdog
+# route, and the GoAlert webhook receiver) are in this app's helm_secrets.yaml
+# -- edit with `sops helm_secrets.yaml`. They are there because the GoAlert
+# webhook URL embeds an integration key (see apps/goalert/README.md), and Flux
+# merges valuesFrom like `helm -f`: maps deep-merge but lists are replaced
+# wholesale, so each list must live entirely in one file. Current routing:
+# Watchdog is blackholed until a heartbeat monitor outside the cluster
+# watches it (apps/goalert/README.md -> "Heartbeat monitors"); InfoInhibitor
+# is blackholed; every other alert goes to BOTH GoAlert (paging) and Slack via
 # a single combined receiver (named "default") carrying both integrations --
 # one receiver, not one route per system, because the Alertmanager UI lists
 # each alert group once per receiver, so split receivers showed every alert
@@ -206,6 +207,25 @@ alertmanager:
 #           - severity = info
 #         equal:
 #           - namespace
+## The last two hold back the Watchdog alert while this cluster can't page,
+## so the beats to a heartbeat monitor watching it from outside stop and
+## that monitor's GoAlert pages instead (apps/goalert/README.md ->
+## "Heartbeat monitors"). No `equal`: any one of these, in any namespace,
+## stops the beats. Harmless while Watchdog is still blackholed.
+## GoAlert can't page (the alerts are in apps/goalert/vmrule.yaml):
+#       - source_matchers:
+#           - alertname =~ "GoAlertDown|GoAlertEngineNotCycling|GoAlertNotificationsNotLeaving"
+#         target_matchers:
+#           - alertname = Watchdog
+## Alertmanager can't deliver to GoAlert -- e.g. the 401s that dropped every
+## page for nine hours on 2026-09-17 (alertmanager-vm.yaml). The webhook
+## integration also carries the heartbeat itself, whose failures stop the
+## beats anyway; Slack failures don't affect paging, so they don't count.
+#       - source_matchers:
+#           - alertname = AlertmanagerFailedToSendAlerts
+#           - integration = webhook
+#         target_matchers:
+#           - alertname = Watchdog
 # <<< slack
 
 # Grafana sits behind a repo-managed HTTPRoute (grafana-httproute.yaml), not
@@ -699,11 +719,17 @@ kubelet:
 #   enabled: false
 # <<< eks
 
-# No defaultRules overrides: besides the control-plane gating above, the chart
-# disables its kube-prometheus-general.rules group by default. Its count:up0
+# Only alertmanager.rules is overridden: besides the control-plane gating
+# above, the chart disables its kube-prometheus-general.rules group by
+# default. Its count:up0
 # records how many scrape targets are down (up == 0), so on a healthy cluster
 # it matches nothing and produces 0 samples, which trips vmalert's
 # RecordingRulesNoData alert after 30min. Nothing bundled reads it or its twin
 # count:up1 (up == 0 answers the same question), so keep the group off rather
 # than silence the alert -- RecordingRulesNoData stays useful for rules that
 # should always have data.
+defaultRules:
+  groups:
+    # Replaced by the VMRule in apps/victoria-metrics/alertmanager-vm.yaml.
+    alertmanager.rules:
+      enabled: false

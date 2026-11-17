@@ -1,13 +1,17 @@
 # Alerting rules for GoAlert itself, evaluated by this stack's vmalert over
 # the series collected by vmpodscrape.yaml. GoAlert is the paging half of
 # the observability stack, so its failures are silent by construction —
-# they take out the channel that would report them. That's survivable
-# because the Alertmanager receiver is a COMBINED one (GoAlert + Slack, see
-# apps/victoria-metrics/README.md → "Alert routing"): when these fire and
-# GoAlert can't page, Slack still gets the message. The truly external
-# backstop — an Uptime Kuma push monitor fed by the Watchdog alert instead
-# of blackholing it — is still TODO (the README's alert-routing section
-# already anticipates it).
+# they take out the channel that would report them. Two things make that
+# survivable. The Alertmanager receiver is a COMBINED one (GoAlert + Slack,
+# see apps/victoria-metrics/README.md → "Alert routing"), so Slack still
+# gets these. And once the cluster's Watchdog alert feeds a heartbeat
+# monitor in a GoAlert OUTSIDE this cluster (README.md → "Heartbeat
+# monitors"), the three alerts that mean this GoAlert can't page —
+# GoAlertDown, GoAlertEngineNotCycling, GoAlertNotificationsNotLeaving —
+# hold the Watchdog back (an inhibit rule in
+# apps/victoria-metrics/values.yaml), so the beats stop and the other
+# GoAlert pages instead. Rename one of them and that inhibit rule has to
+# follow.
 #
 # No public GoAlert ruleset or dashboard exists; these are our own, on
 # metric names verified in goalert v0.35.0 source (engine cycle time
@@ -27,11 +31,28 @@ spec:
               Zero engine cycles in 5m (normal cadence is one per 5s).
               Alerts are landing in GoAlert's database and NO notifications
               are being dispatched. Check the goalert pod's logs and its
-              database (runbooks/connect-cnpg-database.md); this page
-              reached you via the Slack half of the combined receiver.
+              database (runbooks/connect-cnpg-database.md); this reached
+              you via Slack, and pages through the heartbeat monitor's
+              GoAlert if one watches this cluster.
           expr: |-
             rate(goalert_engine_cycle_total[5m]) == 0
           for: 5m
+          labels:
+            severity: critical
+        # The rule above needs GoAlert's series to exist: with the pod gone,
+        # crash-looping, or unscrapeable they vanish, and rate() == 0 can
+        # never match. This covers that case.
+        - alert: GoAlertDown
+          annotations:
+            summary: GoAlert is down — paging is down.
+            description: >-
+              No GoAlert metrics scraped for 5m: the goalert pod is gone,
+              crash-looping, or unreachable, so nothing in this cluster can
+              page. This reached you via Slack, and pages through the
+              heartbeat monitor's GoAlert if one watches this cluster.
+          expr: |-
+            absent_over_time(goalert_engine_cycle_total[5m])
+          for: 1m
           labels:
             severity: critical
         - alert: GoAlertEngineSlow
@@ -50,20 +71,37 @@ spec:
           for: 15m
           labels:
             severity: warning
+        # GoAlert reaches its notification providers (Twilio, Slack, webhook
+        # contact methods) through one instrumented HTTP client that labels
+        # every outgoing request with its status code, so a provider
+        # refusing calls -- revoked credentials, an empty balance, an
+        # outage -- shows up as 4xx/5xx answers. Healthy GoAlert makes no
+        # failing calls at all: on a live cluster in 2026-11, every
+        # outgoing request in two days succeeded, and outgoing calls happen
+        # only to notify someone. So any failure counts; a failing page
+        # produces several anyway, since GoAlert retries a failed send up
+        # to 3 times, 15s apart. Transport failures (DNS, no route) aren't
+        # recorded by the metric, but losing egress also stops the
+        # Watchdog heartbeat.
+        #
+        # This used to be "alerts created but zero notifications sent",
+        # which also matches nobody being on call. An unstaffed night is a
+        # schedule choice, not a broken provider, and with the heartbeat
+        # inhibition (header) it would page through the other cluster's
+        # GoAlert anyway. Its window also equalled its `for:`, so a single
+        # alert could never hold the condition long enough to fire.
         - alert: GoAlertNotificationsNotLeaving
           annotations:
-            summary: GoAlert is receiving alerts but sending nothing.
+            summary: GoAlert's notification providers are refusing requests.
             description: >-
-              Alerts have been created in the last 15m but zero
-              notifications went out — the engine is alive (or
-              GoAlertEngineNotCycling would have fired) yet every contact
-              method is failing. Suspect the notification provider config
-              or egress.
+              {{ printf "%.0f" $value }} outgoing requests from GoAlert got a
+              4xx/5xx answer in the last 15m: its notification providers
+              (Twilio, Slack, webhooks) are refusing calls, so pages aren't
+              leaving. The goalert pod's logs have the provider's response;
+              check the provider settings on GoAlert's Admin page.
           expr: |-
-            sum(rate(goalert_alert_created_total[15m])) > 0
-            and
-            sum(rate(goalert_notification_sent_total[15m])) == 0
-          for: 15m
+            sum(increase(goalert_http_client_requests_duration_seconds_count{code=~"[45].."}[15m])) > 0
+          for: 1m
           labels:
             severity: critical
         - alert: GoAlertHttpServerErrors
