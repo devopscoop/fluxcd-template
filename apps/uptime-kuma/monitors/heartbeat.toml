@@ -1,0 +1,19 @@
+# Uptime Kuma's own heartbeat: a POST every 5 minutes to the heartbeat monitor
+# that watches this Uptime Kuma from a GoAlert outside the cluster, which pages
+# when the POSTs stop. That catches the one failure Uptime Kuma's metrics can't
+# show: a hung instance keeps exporting its monitors' last states
+# (apps/goalert/README.md -> "Uptime Kuma heartbeat"). Deployed only with the
+# kuma-heartbeat block enabled.
+#
+# The URL is a secret, so it isn't here: AutoKuma renders this file as a Tera
+# template first (AUTOKUMA__FILES__PREPROCESS in deployment.yaml) and fills it
+# in from the autokuma-env Secret. The single quotes inside the expression keep
+# the raw file valid TOML. vmservicescrape.yaml blanks this monitor's
+# monitor_url label by name, so keep the name in step with it.
+type = "http"
+name = "Uptime Kuma heartbeat"
+url = "{{ get_env(name='AUTOKUMA__ENV__HEARTBEAT_URL') | toml_escape }}"
+method = "POST"
+interval = 300
+max_retries = 2
+retry_interval = 60

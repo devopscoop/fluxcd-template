@@ -18,6 +18,13 @@ resources:
   - kuma-credentials.secrets.yaml
   - pvc.yaml
   - deployment.yaml
+  # Uptime Kuma's own heartbeat to a GoAlert outside the cluster: the URL
+  # Secret here, monitors/heartbeat.toml below, and the AutoKuma settings in
+  # deployment.yaml. Opt-in, because without a real URL the monitor would go
+  # DOWN and page -- see apps/goalert/README.md ("Uptime Kuma heartbeat").
+# >>> kuma-heartbeat: NOT auto-enabled by deploy.sh — run ./toggle_blocks.sh --enable kuma-heartbeat once autokuma-env.secrets.yaml holds the heartbeat URL
+#   - autokuma-env.secrets.yaml
+# <<< kuma-heartbeat
   # Monitoring (operator.victoriametrics.com CRs; the flux Kustomization's
   # dependsOn victoria-metrics provides the CRDs — see the placement note in
   # vmservicescrape.yaml). The dashboard downloads via grafana.dashboards in
@@ -37,6 +44,9 @@ configMapGenerator:
   - name: autokuma-monitors
     files:
       - monitors/website.toml
+# >>> kuma-heartbeat: see the resources block above
+#       - monitors/heartbeat.toml
+# <<< kuma-heartbeat
 secretGenerator:
   - name: uptime-kuma-secrets
     files:
