@@ -1,6 +1,7 @@
 # Configures Harbor's side of the pull-through cache: runs
-# configure-harbor.sh, which creates a registry endpoint and a public
-# proxy-cache project in Harbor for every upstream in registries.txt.
+# configure-harbor.sh, which creates a registry endpoint and a proxy-cache
+# project in Harbor for every upstream in registries.txt, and the robot
+# account the nodes pull through them as.
 #
 # Lives in the harbor namespace because it reads Harbor's admin password
 # from the chart's harbor-core Secret, which only a pod in that namespace
@@ -48,6 +49,16 @@ spec:
                 secretKeyRef:
                   name: harbor-proxy-cache-dockerhub
                   key: token
+                  optional: true
+            # The password the script sets on the node robot
+            # (node-robot-harbor.secrets.yaml). Optional here so a missing
+            # Secret fails the script with a message saying so, not the pod
+            # with CreateContainerConfigError.
+            - name: ROBOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: registry-mirrors-robot
+                  key: password
                   optional: true
           # The image's USER is the name curl_user, which runAsNonRoot can't
           # verify, so pin a numeric uid; the script writes nothing.

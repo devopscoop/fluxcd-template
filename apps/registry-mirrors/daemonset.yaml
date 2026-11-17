@@ -45,6 +45,17 @@ spec:
           env:
             - name: HARBOR_HOST
               value: harbor.project1-dev.devops.coop
+            # The node robot's password (node-robot.secrets.yaml), for the
+            # Authorization header on the Harbor entries. Optional, so a
+            # missing Secret leaves nodes pulling anonymously rather than
+            # stopping the pod. A changed password doesn't change this
+            # spec, so roll the DaemonSet after rotating it (README.md).
+            - name: ROBOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: registry-mirrors-robot
+                  key: password
+                  optional: true
           # Root, because the host directory is root-owned; nothing else
           # about the container is privileged.
           securityContext:
