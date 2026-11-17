@@ -1,14 +1,18 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-# No kustomization-wide namespace: this app spans two. The DaemonSet runs in
-# registry-mirrors; the Job and its Secret run in harbor, next to the
-# harbor-core Secret the Job reads. Every resource and generator names its
-# own.
+# No kustomization-wide namespace: this app spans two. The DaemonSet and its
+# Secret run in registry-mirrors; the Job and its Secrets run in harbor, next
+# to the harbor-core Secret the Job reads. Every resource and generator names
+# its own.
 resources:
   - namespace.yaml
   - job.yaml
   - dockerhub-credentials.secrets.yaml
+  # The node robot's password, once per namespace: the Job sets it in
+  # Harbor, the DaemonSet hands it to containerd.
+  - node-robot-harbor.secrets.yaml
+  - node-robot.secrets.yaml
   # The node half — see daemonset.yaml's header for why it's EKS-only.
 # >>> eks: deploy.sh uncomments this block when k8s_platform=eks
 #   - daemonset.yaml

@@ -11,13 +11,28 @@ Opt-in, and only meaningful with Harbor (this app's flux Kustomization `dependsO
 `registries.txt` is the single list of proxied upstreams, and both halves read it:
 
 - **`daemonset.yaml`** (EKS only, behind the `eks` marker in `kustomization.yaml`) runs `write-hosts.sh` on every node, writing one containerd `hosts.toml` per upstream into `/etc/containerd/certs.d`. AL2023's containerd reads that directory on every pull, so there's no restart.
-- **`job.yaml`** runs `configure-harbor.sh` in the `harbor` namespace, creating a Harbor registry endpoint and a public proxy-cache project per upstream through Harbor's API, as the built-in admin.
+- **`job.yaml`** runs `configure-harbor.sh` in the `harbor` namespace, creating a Harbor registry endpoint and a proxy-cache project per upstream through Harbor's API, as the built-in admin, plus `robot$registry-mirrors`, the robot account the nodes pull as ("Node credentials" below).
 
 Editing `registries.txt` rolls the DaemonSet and reruns the Job (their ConfigMaps carry kustomize hash suffixes), so a new upstream is one line. Removing a line removes the node config on the next rollout but leaves the Harbor endpoint and project, cached images included, for you to delete in the UI.
 
-Only public upstreams belong on the list. The proxy-cache projects are public — nodes pull anonymously, the same model as Harbor's own projects (`apps/harbor/README.md` → "Pushing and pulling") — so anything Harbor could fetch from an upstream, anything reaching `eg-private` could pull. Registries that need per-workload credentials (`registry.crowdstrike.com` for falcon-platform, the EKS add-ons' private ECR) aren't listed and pull directly, as before. A private image under a proxied host, like a private `ghcr.io` repository, still works: Harbor's anonymous fetch fails, and containerd falls through to the upstream with the pod's own `imagePullSecrets`.
+Only public upstreams belong on the list. Their proxy-cache projects are public, the same model as Harbor's own projects (`apps/harbor/README.md` → "Pushing and pulling"), so anything Harbor could fetch from an upstream, anything reaching `eg-private` could pull. Registries that need per-workload credentials (`registry.crowdstrike.com` for falcon-platform, the EKS add-ons' private ECR) aren't listed and pull directly, as before. A private image under a proxied host, like a private `ghcr.io` repository, still works: Harbor's anonymous fetch fails, and containerd falls through to the upstream with the pod's own `imagePullSecrets`.
 
-The one opt-in exception is the cluster account's own private ECR, behind the `ecr-proxy` marker at the end of `registries.txt`. Harbor fetches it with harbor-core's IRSA role, and its `ecr` project is public like the others, so anything that can reach `eg-private` can pull those images. `apps/harbor/README.md` → "Caching this account's private ECR" has how to turn it on and what it exposes.
+The one opt-in exception is the cluster account's own private ECR, behind the `ecr-proxy` marker at the end of `registries.txt`. Harbor fetches it with harbor-core's IRSA role, and its `ecr` project is private: only the node robot can pull from it. `apps/harbor/README.md` → "Caching this account's private ECR" has how to turn it on and who can pull.
+
+## Node credentials
+
+Nodes pull from Harbor as `robot$registry-mirrors`, a system robot account with pull on every proxy-cache project. `configure-harbor.sh` creates it and sets its password from `node-robot-harbor.secrets.yaml`, and `write-hosts.sh` puts the same password, from `node-robot.secrets.yaml`, in every Harbor entry as a static header:
+
+```toml
+[host."https://harbor.project1-dev.devops.coop/v2/ecr".header]
+  Authorization = "Basic <robot$registry-mirrors:password, base64>"
+```
+
+Harbor accepts a robot's Basic auth on the registry API, so it answers the node straight away. Without the header it answers every manifest and blob request, public projects included, with a 401 challenge. containerd's token flow then sends Harbor whatever credentials the kubelet handed over for the pull, because the kubelet doesn't tell containerd which host they're for. For an ECR image those are the kubelet's ECR token, user `AWS`. Harbor rejects them as a failed login and, in its database and LDAP auth modes, waits 1.5 seconds before answering. It then serves the pull anonymously, which works only on a public project. The robot fixes both: no failed logins, and a private `ecr` project.
+
+The password sits in `/etc/containerd/certs.d/*/hosts.toml` on every node, readable by root only. It grants pull on the proxy-cache projects, which root on a node could already get from the upstreams: the node's IAM role pulls the account's ECR directly. Like the rest of the files, it stays behind when the app is deleted.
+
+Without a working header (no password in `node-robot.secrets.yaml`, or one that doesn't match Harbor's), pulls get slower but don't fail. Every request is a failed login again, the public projects still serve anonymously, and the private `ecr` project refuses, so containerd moves on to ECR itself.
 
 ## How a pull flows
 
@@ -36,17 +51,29 @@ Flux's source-controller fetching OCI Helm charts (`oci://ghcr.io/...`) and imag
 
 ## First run
 
-1. Optionally, fill in `dockerhub-credentials.secrets.yaml.decrypted` with a Docker Hub username and a personal access token (public-repo read scope), then run `../../encrypt_secrets.sh`. Docker Hub rate-limits anonymous pulls per source IP, and all of Harbor's upstream pulls leave from the cluster's egress addresses, so a fresh cluster pulling its platform images can hit the limit. Leave both empty for anonymous pulls.
-2. Let Flux reconcile. The flux Kustomization waits for harbor, then for the Job to complete:
+1. Generate the node robot's password into both of its files (Harbor wants an upper- and a lower-case letter and a digit, hence the prefix), then run `../../encrypt_secrets.sh`:
 
    ```shell
-   kubectl -n harbor logs job/harbor-proxy-cache        # "created proxy-cache project dockerhub -> ..."
+   export node_robot="Rb0$(openssl rand -hex 24)"
+   for f in node-robot.secrets.yaml.decrypted node-robot-harbor.secrets.yaml.decrypted; do
+     yq -i '.stringData.password = strenv(node_robot)' "$f"
+   done
+   ```
+
+   On a cluster that already runs this app, `sops` both encrypted files instead and put the same value in each. Until the Job's copy is set, the Job fails with "no node robot password".
+2. Optionally, fill in `dockerhub-credentials.secrets.yaml.decrypted` with a Docker Hub username and a personal access token (public-repo read scope), then run `../../encrypt_secrets.sh`. Docker Hub rate-limits anonymous pulls per source IP, and all of Harbor's upstream pulls leave from the cluster's egress addresses, so a fresh cluster pulling its platform images can hit the limit. Leave both empty for anonymous pulls.
+3. Let Flux reconcile. The flux Kustomization waits for harbor, then for the Job to complete:
+
+   ```shell
+   kubectl -n harbor logs job/harbor-proxy-cache        # "created proxy-cache project dockerhub -> ...", "set robot registry-mirrors's password"
    kubectl -n registry-mirrors rollout status daemonset/registry-mirrors
    ```
 
-3. Check a node: `kubectl debug node/<node> -it --image=busybox -- cat /host/etc/containerd/certs.d/docker.io/hosts.toml`. Then delete any pod running a Docker Hub image and watch its project fill in Harbor's UI (**Projects → dockerhub**).
+4. Check a node, with the password masked: `kubectl debug node/<node> -it --image=busybox -- sed 's/Basic .*/Basic …"/' /host/etc/containerd/certs.d/docker.io/hosts.toml`. Then delete any pod running a Docker Hub image and watch its project fill in Harbor's UI (**Projects → dockerhub**). Harbor-core's log shouldn't show `Login failed` for the pulls.
 
 The Job logs in as Harbor's `admin` with the password from the chart's `harbor-core` Secret, which is the initial one from apps/harbor's `helm_secrets.yaml`. After changing admin's password in the UI, update it there too, or the next run fails with 401. A Docker Hub token rotated in the Secret alone doesn't change the Job's spec: delete the Job (`kubectl -n harbor delete job harbor-proxy-cache`) and Flux recreates it.
+
+Rotating the node robot's password works the same way, plus a DaemonSet roll, since its Secret isn't part of the pod spec either: put the new value in both files, then `kubectl -n harbor delete job harbor-proxy-cache` and `kubectl -n registry-mirrors rollout restart daemonset/registry-mirrors`. Nodes still on the old header pull without a working one (above) until the roll reaches them.
 
 ## Storage
 
