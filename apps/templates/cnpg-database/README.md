@@ -12,6 +12,9 @@ step-by-step is in `db-cluster.yaml`'s header. What each file provides:
   its own `clientCASecret`, and the app's client certificate.
 - `db-developer-rbac.yaml` — RBAC for read-only developer SSO sessions
   (the `pg-oauth` marker block; see `apps/dex/README.md`).
+- `db-developer-client-cert.yaml` — a client certificate per developer for
+  desktop database GUIs, which can't do the SSO login (the `pg-dev-certs`
+  marker block), and RBAC so each developer can read only their own.
 
 ## How authentication works
 
@@ -34,7 +37,9 @@ carries the server CA, which the app can mount to verify the server
 
 Humans don't use the app's certificate: interactive access is peer auth in
 the pods or, with the `pg-oauth` block enabled, per-developer SSO
-(`runbooks/connect-cnpg-database.md`).
+(`runbooks/connect-cnpg-database.md`). With the `pg-dev-certs` block
+enabled as well, each developer also has their own certificate-only role
+for desktop GUIs, from the same client CA.
 
 ## Using the certificate in your app
 

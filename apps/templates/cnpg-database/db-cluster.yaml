@@ -232,6 +232,15 @@ spec:
       # work. With both rules the app role has exactly one way in. Other
       # roles (break-glass, per-developer) keep the scram catch-all.
       - host all app-template all reject
+# >>> pg-dev-certs: NOT auto-enabled — enable by hand, together with pg-oauth (see db-developer-client-cert.yaml)
+#       # The developers' certificate login, for desktop GUIs whose driver
+#       # can't do the oauth login below. The CN must equal the role, so a
+#       # certificate logs in as its owner's <name>_cert role and nothing
+#       # else. A separate group from developers because pg_hba picks its
+#       # rule by role name before trying any auth method: one role can't
+#       # have both logins.
+#       - hostssl all +developers_cert all cert
+# <<< pg-dev-certs
 # >>> pg-oauth: NOT auto-enabled — enable per adoption after building a validator image (see apps/dex/README.md)
 #       # scope="" disables pg_oidc_validator's scope check — dex doesn't
 #       # write a scope claim into its tokens (validator README, Dex
@@ -309,6 +318,10 @@ spec:
   #     db-developer-rbac.yaml (alongside this file) in the app's
   #     kustomization: the `view` role can neither read this Cluster CR nor
   #     port-forward, both of which psql-oauth.sh does.
+  #   - Desktop GUIs (DataGrip, DBeaver) can't do this login: their JDBC
+  #     driver has no OAuth support yet. The pg-dev-certs blocks give each
+  #     developer a certificate-only role for them
+  #     (db-developer-client-cert.yaml).
   # The issuer must equal config.issuer in apps/dex/values.yaml byte-for-byte
   # and be reachable from the instance pods (discovery + JWKS fetch). Then:
   #   psql "host=<endpoint> dbname=app-template user=alice \
@@ -335,6 +348,23 @@ spec:
 #         inRoles:
 #           - developers
 # <<< pg-oauth
+# >>> pg-dev-certs: NOT auto-enabled — enable by hand, together with pg-oauth (see db-developer-client-cert.yaml)
+#       # Certificate logins for desktop GUIs. This block continues the
+#       # managed.roles list the pg-oauth block above opens, so enable that
+#       # one too. The group carries the same grants as developers.
+#       - name: developers_cert
+#         ensure: present
+#         login: false
+#         inRoles:
+#           - pg_read_all_data
+#       # One certificate-only login role per human, <name>_cert, matching
+#       # the CN of their Certificate in db-developer-client-cert.yaml.
+#       - name: alice_cert
+#         ensure: present
+#         login: true
+#         inRoles:
+#           - developers_cert
+# <<< pg-dev-certs
 ---
 # Where app-template-db's backups live. The Barman Cloud Plugin (apps/
 # cnpg-barman-plugin — this app's flux Kustomization dependsOn it) reads this
