@@ -57,7 +57,9 @@ spec:
               or `sum by (rule_id)
               (increase(waf_filter_tx_interruptions[1h]))`) — a single
               rule_id dominating means a new false-positive to exclude in
-              apps/coraza/envoyextensionpolicy.yaml.
+              apps/coraza/envoyextensionpolicy.yaml. To see the blocked
+              requests and tell a scanner from a false positive:
+              runbooks/coraza-high-block-rate.md.
           expr: |-
             (
               sum by (gateway) (rate(waf_filter_tx_interruptions[5m]))
