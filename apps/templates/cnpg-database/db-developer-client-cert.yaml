@@ -1,0 +1,69 @@
+# A client certificate per developer, for desktop database GUIs (DataGrip,
+# DBeaver). Their JDBC driver can't do the OAuth login the pg-oauth block
+# gives psql, so each developer also gets a certificate-only role,
+# <name>_cert, with the same read-only access. Copy this file alongside
+# db-cluster.yaml when enabling its pg-dev-certs block, rename it with the
+# same sed (db-cluster.yaml's header, step 1), and add it to the app's
+# kustomization.yaml resources.
+#
+# One Certificate, Role and RoleBinding per person; `alice` is the example.
+# The certificate comes from the client CA in db-client-cert.yaml, and its
+# CN is the developer's role in db-cluster.yaml: under the pg_hba `cert`
+# method the certificate CN IS the database login.
+#
+# Adding a developer: copy the three documents below and add the matching
+# role in db-cluster.yaml. Removing one: delete all three and the Secret,
+# and set `ensure: absent` on the role, which ends the login whatever the
+# cert's remaining lifetime. Fetching and using a cert:
+# runbooks/connect-cnpg-database.md, option 4.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: app-template-db-developer-alice
+spec:
+  commonName: alice_cert
+  secretName: app-template-db-developer-alice-cert # pragma: allowlist secret — the Secret's name, not a value
+  usages:
+    - client auth
+  # 90 days, renewed a month early. The key sits on a laptop, so a copy
+  # ages out within three months; the developer fetches the renewed files
+  # from the Secret.
+  duration: 2160h
+  renewBefore: 720h
+  privateKey:
+    rotationPolicy: Always
+  issuerRef:
+    name: app-template-db-client-ca
+    kind: Issuer
+    group: cert-manager.io
+---
+# Each developer can read their own Secret and nobody else's. Read-only SSO
+# access (the cluster-viewers group) can't read Secrets otherwise.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: app-template-db-developer-alice-cert
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["app-template-db-developer-alice-cert"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: app-template-db-developer-alice-cert
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: app-template-db-developer-alice-cert
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: User
+    # The developer's Kubernetes user name, exactly as `kubectl auth whoami`
+    # prints it for them. This example is the shape EKS gives an IAM
+    # Identity Center login: the permission set's role, with its generated
+    # suffix, then the session name with the email's @ replaced by a
+    # hyphen. Fill it in by hand: replace_placeholders.sh doesn't rewrite
+    # it, and it differs in every cluster.
+    name: arn:aws:sts::ACCOUNT_ID:assumed-role/AWSReservedSSO_ReadOnlyAccess_SUFFIX/alice-example.com
